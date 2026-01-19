@@ -1,36 +1,89 @@
 # 🔍 PyDuplicate Finder Pro
 
-**PyDuplicate Finder Pro** is a high-performance duplicate file management tool based on Python (PySide6). It uses advanced multi-threading and smart caching technology to quickly and accurately scan for duplicate files even in large file systems, and provides safe Undo capabilities.
+[![한국어](https://img.shields.io/badge/lang-한국어-red.svg)](README.md)
+
+**PyDuplicate Finder Pro** is a high-performance duplicate file management tool built with Python (PySide6). It leverages advanced multi-threading and smart caching to quickly and accurately scan for duplicate files even in large file systems, providing safe Undo capabilities.
 
 ---
 
 ## ✨ Key Features
 
 ### 🚀 High Performance
-- **Parallel Scanning (Multithreading)**: `ScanWorker` utilizes all CPU cores to calculate file hashes in parallel, delivering speeds over 5x faster than conventional methods.
-- **Smart Caching**: Uses `SQLite WAL` mode to cache file hashes. Re-scanning previously analyzed files is nearly instantaneous.
-- **Optimized I/O**: Uses large buffers (1MB) to maximize disk read speeds.
+- **Ultra-Fast Scanning**: Recursive `os.scandir` engine for significantly faster file traversal compared to `os.walk`.
+- **Optimized Hashing (BLAKE2b)**: Uses `BLAKE2b` algorithm optimized for 64-bit systems, faster and more secure than MD5.
+- **Smart Caching & Batch Processing**: `SQLite WAL` mode with batch processing handles hundreds of thousands of files seamlessly.
+- **Smooth UI**: Incremental rendering of results keeps the app responsive even with massive datasets.
 
 ### 🛡️ Safety & Precision
-- **System Protection**: Automatically excludes critical Windows/Linux system folders (e.g., Windows, Program Files) to prevent accidental damage.
+- **System Protection**: Automatically skips critical system folders (Windows, Program Files, etc.) to prevent accidental damage.
 - **Physical Duplicate Prevention (Inode Check)**: Prevents counting symbolic links or shortcuts as duplicates of the same physical file.
-- **Safe Delete & Robust Undo**: Supports asynchronous delete/restore operations, keeping the UI responsive even when processing thousands of files.
-- **Byte-by-Byte Comparison**: Optional 100% accurate comparison mode to eliminate any risk of hash collisions.
+- **Safe Delete & Robust Undo**: Asynchronous delete/restore operations keep UI responsive when processing thousands of files.
+- **Recycle Bin Option**: Move files to system Recycle Bin instead of permanent deletion.
+- **File Lock Detection**: Automatically detects files in use by other processes before deletion.
+- **Auto Cleanup**: Temporary folders are automatically cleaned on program exit (atexit handler).
 
 ### 🎨 Modern UI & User Experience
-- **Intuitive Design**: Modern flat design with Light and Dark mode support.
-- **Usability**: Right-click context menu (Open, Open Folder, Copy Path), Drag & Drop support.
-- **Empty Folder Finder**: Recursively finds and cleans up empty directories.
-- **Export Results**: Save found duplicate groups to a CSV file for external management.
-- **Preview**: Built-in preview for images and text/code files (with monospace font).
-- **Multi-language Support**: Fully supports English and Korean interfaces.
+- **Multiple Scan Modes**: 
+    - **Similar Image Detection (pHash)**: Finds visually similar images (resized, recompressed, etc.)
+    - **Filename Comparison**: Quickly finds files with the same name regardless of content.
+- **Exclude Patterns**: Skip unwanted folders/files like `node_modules`, `.git`, `*.tmp` using glob patterns.
+- **Scan Presets**: Save and load frequently used scan configurations.
+- **Result Save/Load**: Export scan results to JSON and reload later.
+- **Intuitive Tree View**: Expand/collapse all groups, right-click context menu for quick actions.
+- **Custom Shortcuts**: Configure keyboard shortcuts for all functions.
+- **Multi-language Support**: Full Korean and English interface support.
+
+---
+
+## 📁 Project Structure
+
+```
+duplicate_finder/
+├── main.py                  # Application entry point
+├── requirements.txt         # Dependencies
+├── PyDuplicateFinder.spec   # PyInstaller build config
+├── src/
+│   ├── core/                # Business logic (UI-independent)
+│   │   ├── scanner.py           # Multi-threaded scan engine
+│   │   ├── cache_manager.py     # SQLite cache management
+│   │   ├── history.py           # Undo/Redo transactions
+│   │   ├── file_ops.py          # Async file operations
+│   │   ├── image_hash.py        # Similar image detection (pHash)
+│   │   ├── file_lock_checker.py # File lock detection
+│   │   ├── preset_manager.py    # Scan preset management
+│   │   └── empty_folder_finder.py # Empty folder detection
+│   ├── ui/                  # GUI layer
+│   │   ├── main_window.py       # Main window
+│   │   ├── theme.py             # Theme stylesheets
+│   │   ├── empty_folder_dialog.py
+│   │   ├── components/
+│   │   │   └── results_tree.py  # Results tree widget
+│   │   └── dialogs/
+│   │       ├── preset_dialog.py
+│   │       ├── exclude_patterns_dialog.py
+│   │       └── shortcut_settings_dialog.py
+│   └── utils/
+│       └── i18n.py              # Internationalization strings
+└── docs/
+    ├── claude.md            # AI context (Claude)
+    └── gemini.md            # AI context (Gemini)
+```
 
 ---
 
 ## 📥 Installation
 
 ### Prerequisites
-- Python 3.8 or higher
+- Python 3.9 or higher
+
+### Dependencies
+| Package | Purpose |
+|---------|---------|
+| PySide6 | Qt GUI framework |
+| imagehash | Similar image detection (pHash) |
+| Pillow | Image processing |
+| send2trash | Recycle Bin functionality |
+| psutil | File lock process detection |
 
 ### Installation Steps
 
@@ -41,16 +94,15 @@
    ```
 
 2. **Create Virtual Environment (Recommended)**
-   - Windows:
-     ```bash
-     python -m venv venv
-     venv\Scripts\activate
-     ```
-   - macOS/Linux:
-     ```bash
-     python3 -m venv venv
-     source venv/bin/activate
-     ```
+   ```bash
+   # Windows
+   python -m venv venv
+   venv\Scripts\activate
+   
+   # macOS/Linux
+   python3 -m venv venv
+   source venv/bin/activate
+   ```
 
 3. **Install Dependencies**
    ```bash
@@ -69,37 +121,61 @@ python main.py
 ### 2. Search Settings
 - **Add Location**: Use "Add Folder" or Drag & Drop to add search targets.
 - **Filter Options**:
-    - `Extensions`: Limit search to specific extensions (e.g., `jpg, png, mp4`). Leave empty for all.
-    - `Min Size`: Ignore files smaller than a specific size.
-    - `System Folder Protection`: Enabled by default (recommended).
+    | Option | Description |
+    |--------|-------------|
+    | Filename Only | Compare names only, skip content hashing (ultra-fast) |
+    | Similar Image Detection | Analyze visual similarity (0.1~1.0 threshold) |
+    | Use Recycle Bin | Move to Recycle Bin instead of permanent delete |
+    | Exclude Patterns | Set glob patterns to skip during scan |
 
-### 3. Scan & Check Duplicates
+### 3. Scan & Review
 - **Start Scan**: Click to begin high-speed scanning.
-- **Check Results**:
-    - View duplicate groups in the left tree view.
-    - Click a file to see a **Preview** in the right panel.
+- **Cancel Scan**: Stop anytime during scanning.
+- **Review Results**:
+    - View duplicate groups in the left tree view
+    - Use `+`/`-` buttons to expand/collapse all
+    - Click a file to see **Preview** in the right panel
 
 ### 4. Organize & Delete
-- **Auto Select (Smart)**: Automatically selects files to keep (e.g., "Oldest Modified") in each group.
-- **Delete Selected**: Moves selected duplicates to the Trash (or deletes depending on OS).
-- **Undo**: Made a mistake? Click `Undo` in the toolbar (Ctrl+Z) to restore immediately.
+- **Auto Select (Smart)**: Keep oldest file as original, select rest for deletion
+- **Delete Selected**: Safely delete after lock detection
+- **Undo**: Press `Ctrl+Z` to restore (except when using Recycle Bin)
 
-### 5. Find Empty Folders
-- Click the `Find Empty Folders` icon in the toolbar to scan for and clean up empty directories within your search targets.
+### 5. Advanced Features
+| Feature | Description |
+|---------|-------------|
+| Save/Load Results | Manage scan results as JSON files |
+| Preset Management | Save/load frequently used configurations |
+| Shortcut Settings | Customize keyboard shortcuts |
+| Find Empty Folders | Scan and batch delete empty folders |
 
 ---
 
 ## 🏗️ Building Executable
-To create a standalone `.exe` file:
+
+Create a standalone `.exe` file:
 ```bash
 pyinstaller PyDuplicateFinder.spec
 ```
-The output file will be located at `dist/PyDuplicateFinderPro.exe`.
+Output: `dist/PyDuplicateFinderPro.exe`
+
+---
+
+## 🔧 Tech Stack
+
+| Category | Technology |
+|----------|------------|
+| Language | Python 3.9+ |
+| GUI | PySide6 (Qt for Python) |
+| Caching | SQLite (WAL mode) |
+| Hashing | BLAKE2b |
+| Image Analysis | pHash (imagehash) |
+| Parallel Processing | concurrent.futures.ThreadPoolExecutor |
 
 ---
 
 ## 🤝 Contributing
-Contributions are welcome! If you have performance improvement ideas or bug reports, please open an issue.
+Contributions are welcome! Performance improvements and bug reports are always appreciated.
 
 ## 📝 License
 MIT License

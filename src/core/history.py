@@ -1,7 +1,15 @@
 import shutil
 import tempfile
 import os
+import atexit
 from datetime import datetime
+
+# send2trash 라이브러리 (선택적)
+try:
+    from send2trash import send2trash as send_to_trash
+    TRASH_AVAILABLE = True
+except ImportError:
+    TRASH_AVAILABLE = False
 
 class HistoryManager:
     def __init__(self):
@@ -9,9 +17,43 @@ class HistoryManager:
         self.redo_stack = []
         # 임시 보관소 생성 (OS 임시 폴더 내)
         self.temp_dir = tempfile.mkdtemp(prefix="pydup_trash_")
+        # 프로그램 종료 시 자동 정리 등록
+        atexit.register(self.cleanup)
 
-    def execute_delete(self, file_paths, progress_callback=None):
-        """파일 삭제(임시 이동) 실행"""
+    def execute_delete(self, file_paths, progress_callback=None, use_trash=False):
+        """
+        파일 삭제 실행
+        
+        Args:
+            file_paths: 삭제할 파일 경로 리스트
+            progress_callback: 진행률 콜백 함수(current, total)
+            use_trash: True면 시스템 휴지통으로 이동 (Undo 불가)
+        """
+        if use_trash and TRASH_AVAILABLE:
+            return self._delete_to_system_trash(file_paths, progress_callback)
+        else:
+            return self._delete_to_temp(file_paths, progress_callback)
+    
+    def _delete_to_system_trash(self, file_paths, progress_callback=None):
+        """시스템 휴지통으로 파일 이동 (Undo 불가)"""
+        success_count = 0
+        total_files = len(file_paths)
+        
+        for idx, path in enumerate(file_paths):
+            if os.path.exists(path):
+                try:
+                    send_to_trash(path)
+                    success_count += 1
+                except Exception as e:
+                    print(f"Trash error: {e}")
+            
+            if progress_callback:
+                progress_callback(idx + 1, total_files)
+        
+        return success_count > 0
+    
+    def _delete_to_temp(self, file_paths, progress_callback=None):
+        """임시 폴더로 파일 이동 (Undo 가능)"""
         transaction = []
         total_files = len(file_paths)
         
@@ -36,6 +78,12 @@ class HistoryManager:
             self.redo_stack.clear() # 새로운 동작이 발생하면 Redo 스택 초기화
             return True
         return False
+    
+    @staticmethod
+    def is_trash_available():
+        """시스템 휴지통 사용 가능 여부"""
+        return TRASH_AVAILABLE
+
 
     def undo(self):
         """삭제 취소 (복구)"""
@@ -75,6 +123,10 @@ class HistoryManager:
 
         for record in transaction:
             try:
+                # 원본 파일이 존재하지 않으면 스킵
+                if not os.path.exists(record['orig']):
+                    print(f"Redo Skip: File not found - {record['orig']}")
+                    continue
                 shutil.move(record['orig'], record['backup'])
                 deleted_paths.append(record['orig'])
             except Exception as e:

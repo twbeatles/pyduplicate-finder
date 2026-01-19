@@ -4,10 +4,14 @@ class EmptyFolderFinder:
     def __init__(self, roots):
         self.roots = roots
 
-    def find_empty_folders(self):
+    def find_empty_folders(self, check_cancel=None):
         """
         Walks bottom-up and finds directories that contain no files.
         If a directory contains only directories that are also empty, it is considered empty.
+        
+        Args:
+            check_cancel: Optional callback that returns True to cancel the operation
+            
         Returns a list of empty folder paths.
         """
         empty_folders = []
@@ -18,6 +22,10 @@ class EmptyFolderFinder:
         
         for root_dir in self.roots:
             for dirpath, dirnames, filenames in os.walk(root_dir, topdown=False):
+                # 취소 요청 확인
+                if check_cancel and check_cancel():
+                    return empty_folders  # 중간 결과 반환
+                
                 # We need to check if all subdirectories are in known_empty
                 # But careful: os.walk 'dirnames' list is just names.
                 

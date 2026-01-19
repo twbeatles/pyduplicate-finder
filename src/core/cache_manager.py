@@ -172,9 +172,14 @@ class CacheManager:
             print(f"Batch Update Error: {e}")
 
     def close(self):
+        """Close the thread-local database connection."""
         if hasattr(self._local, "conn"):
             try:
                 self._local.conn.close()
                 del self._local.conn
             except:
                 pass
+    
+    def __del__(self):
+        """Destructor to clean up thread-local connection on garbage collection."""
+        self.close()

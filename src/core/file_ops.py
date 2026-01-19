@@ -5,11 +5,12 @@ class FileOperationWorker(QThread):
     progress_updated = Signal(int, str)
     operation_finished = Signal(bool, str) # Success, Message
 
-    def __init__(self, manager, op_type, data=None):
+    def __init__(self, manager, op_type, data=None, use_trash=False):
         super().__init__()
         self.manager = manager
         self.op_type = op_type
         self.data = data # logic specific data (e.g. paths to delete)
+        self.use_trash = use_trash
         self.is_running = True
 
     def run(self):
@@ -29,12 +30,12 @@ class FileOperationWorker(QThread):
             percent = int((current / total) * 100)
             self.progress_updated.emit(percent, f"{strings.tr('status_analyzing')} ({current}/{total})")
 
-        success = self.manager.execute_delete(self.data, progress_callback=progress_callback)
+        success = self.manager.execute_delete(self.data, progress_callback=progress_callback, use_trash=self.use_trash)
         
         if success:
              self.operation_finished.emit(True, strings.tr("msg_delete_success").format(len(self.data)))
         else:
-             self.operation_finished.emit(False, "Operation failed or nothing done.")
+             self.operation_finished.emit(False, strings.tr("err_operation_failed"))
 
     def _run_undo(self):
         self.progress_updated.emit(0, strings.tr("status_undoing"))
@@ -42,7 +43,7 @@ class FileOperationWorker(QThread):
         if res is not None:
             self.operation_finished.emit(True, strings.tr("msg_undo_complete"))
         else:
-            self.operation_finished.emit(False, "Undo failed (Stack empty?)")
+            self.operation_finished.emit(False, strings.tr("err_undo_failed"))
 
     def _run_redo(self):
         self.progress_updated.emit(0, strings.tr("status_redoing"))
@@ -50,4 +51,4 @@ class FileOperationWorker(QThread):
         if res is not None:
              self.operation_finished.emit(True, strings.tr("msg_redo_complete").format(len(res)))
         else:
-             self.operation_finished.emit(False, "Redo failed")
+             self.operation_finished.emit(False, strings.tr("err_redo_failed"))

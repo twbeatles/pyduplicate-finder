@@ -3,10 +3,18 @@ import hashlib
 import os
 import platform
 import time
+import fnmatch
 from collections import defaultdict
 import concurrent.futures
 from src.core.cache_manager import CacheManager
 from src.utils.i18n import strings
+
+# 유사 이미지 탐지 (선택적)
+try:
+    from src.core.image_hash import ImageHasher, is_available as image_hash_available
+    IMAGE_HASH_AVAILABLE = image_hash_available()
+except ImportError:
+    IMAGE_HASH_AVAILABLE = False
 
 BUFFER_SIZE = 1024 * 1024  # 1MB buffer for faster I/O
 
@@ -14,14 +22,21 @@ class ScanWorker(QThread):
     progress_updated = Signal(int, str)
     scan_finished = Signal(object)
 
-    def __init__(self, folders, check_name=False, min_size_kb=0, extensions=None, protect_system=True, byte_compare=False, max_workers=None):
+    def __init__(self, folders, check_name=False, min_size_kb=0, extensions=None, 
+                 protect_system=True, byte_compare=False, max_workers=None,
+                 exclude_patterns=None, name_only=False,
+                 use_similar_image=False, similarity_threshold=0.9):
         super().__init__()
         self.folders = folders
         self.check_name = check_name
+        self.name_only = name_only  # 파일명만 비교 (내용 무시)
         self.min_size = min_size_kb * 1024  # KB to Bytes
         self.extensions = set(ext.lower().strip() for ext in extensions) if extensions else None
         self.protect_system = protect_system
         self.byte_compare = byte_compare
+        self.exclude_patterns = exclude_patterns or []  # 제외 패턴 목록
+        self.use_similar_image = use_similar_image and IMAGE_HASH_AVAILABLE  # 유사 이미지 탐지
+        self.similarity_threshold = similarity_threshold
         self._is_running = True
         self._init_protected_paths()
         self.cache_manager = CacheManager()
@@ -34,6 +49,10 @@ class ScanWorker(QThread):
         self._last_progress_update_time = 0
         self._progress_update_interval = 0.1  # 100ms
         self._progress_mutex = QMutex()
+        
+        # 유사 이미지 탐지기
+        if self.use_similar_image:
+            self.image_hasher = ImageHasher()
 
     def _init_protected_paths(self):
         self.protected_paths = []
@@ -65,6 +84,18 @@ class ScanWorker(QThread):
                     return True
         except:
             return False
+        return False
+
+    def _should_exclude(self, path):
+        """제외 패턴과 일치하는지 확인"""
+        if not self.exclude_patterns:
+            return False
+        
+        name = os.path.basename(path)
+        for pattern in self.exclude_patterns:
+            # 파일명과 전체 경로 모두 매칭 시도
+            if fnmatch.fnmatch(name, pattern) or fnmatch.fnmatch(path, pattern):
+                return True
         return False
 
     def stop(self):
@@ -158,6 +189,9 @@ class ScanWorker(QThread):
                             continue
                         yield from self._scandir_recursive(entry.path)
                     elif entry.is_file(follow_symlinks=False):
+                        # 제외 패턴 확인
+                        if self._should_exclude(entry.path):
+                            continue
                         # print(f"DEBUG: Yielding file {entry.name}")
                         if self.extensions:
                             # entry.name is filename
@@ -243,7 +277,8 @@ class ScanWorker(QThread):
 
             for future in concurrent.futures.as_completed(future_to_info):
                 if not self._is_running: 
-                    executor.shutdown(wait=False)
+                    # Python 3.9+ cancel_futures 옵션으로 안전 종료
+                    executor.shutdown(wait=False, cancel_futures=True)
                     break
                 
                 filepath, size, mtime, partial = future_to_info[future]
@@ -285,9 +320,16 @@ class ScanWorker(QThread):
             start_time = time.time()
             self.seen_inodes.clear()
             
+            # 유사 이미지 모드
+            if self.use_similar_image:
+                self._run_similar_image_scan()
+                return
+            
             # 1. File Collection
             size_map = self._scan_files()
-            if not self._is_running: return
+            if not self._is_running:
+                self.scan_finished.emit({})
+                return
 
             # 2. Size Filter (Candidates)
             candidates = []
@@ -305,7 +347,9 @@ class ScanWorker(QThread):
             # 3. Quick Scan (Parallel)
             # (Size, Hash, Type) -> [paths]
             temp_hash_map = self._calculate_hashes_parallel(candidates, is_quick_scan=True)
-            if not self._is_running: return
+            if not self._is_running:
+                self.scan_finished.emit({})
+                return
 
             # 4. Full Scan & Byte Compare Resolution
             final_duplicates = {}
@@ -338,6 +382,98 @@ class ScanWorker(QThread):
             traceback.print_exc()
             self._emit_progress(0, f"Error: {e}")
             self.scan_finished.emit({})
+        finally:
+            # 스레드 종료 시 CacheManager 커넥션 정리
+            self.cache_manager.close()
+    
+    def _run_similar_image_scan(self):
+        """유사 이미지 탐지 스캔"""
+        try:
+            start_time = time.time()
+            
+            # 이미지 확장자
+            image_extensions = {'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'tiff', 'tif'}
+            
+            # 1. 이미지 파일 수집
+            self._emit_progress(0, strings.tr("status_collecting_files"), force=True)
+            image_files = []
+            
+            for folder in self.folders:
+                for entry in self._scandir_recursive(folder):
+                    if not self._is_running:
+                        self.scan_finished.emit({})
+                        return
+                    
+                    _, ext = os.path.splitext(entry.name)
+                    if ext.lower().replace('.', '') in image_extensions:
+                        image_files.append(entry.path)
+            
+            if len(image_files) < 2:
+                self.scan_finished.emit({})
+                return
+            
+            self._emit_progress(10, strings.tr("status_found_images").format(len(image_files)), force=True)
+            
+            # 2. pHash 계산
+            hash_results = {}
+            total = len(image_files)
+            
+            for idx, path in enumerate(image_files):
+                if not self._is_running:
+                    self.scan_finished.emit({})
+                    return
+                
+                hash_val = self.image_hasher.calculate_phash(path)
+                if hash_val:
+                    hash_results[path] = hash_val
+                
+                if (idx + 1) % 10 == 0:
+                    percent = int((idx / total) * 50) + 10
+                    self._emit_progress(percent, strings.tr("status_hashing_image").format(idx + 1, total))
+            
+            # 3. 유사 이미지 그룹핑
+            self._emit_progress(60, strings.tr("status_grouping"), force=True)
+            
+            def grouping_progress(current, total):
+                percent = 60 + int((current / total) * 40)
+                self._emit_progress(percent, strings.tr("status_grouping_images").format(current, total))
+
+            similar_groups = self.image_hasher.group_similar_images(
+                hash_results, 
+                threshold=self.similarity_threshold,
+                progress_callback=grouping_progress,
+                check_cancel=lambda: not self._is_running
+            )
+            
+            # 취소 확인
+            if not self._is_running:
+                self.scan_finished.emit({})
+                return
+            
+            # 4. 결과 변환
+            final_duplicates = {}
+            for idx, group in enumerate(similar_groups):
+                if len(group) >= 2:
+                    # 첫 번째 파일의 크기를 키로 사용
+                    try:
+                        size = os.path.getsize(group[0])
+                    except:
+                        size = 0
+                    key = (f"similar_{idx}", size)
+                    final_duplicates[key] = list(group)
+            
+            self._emit_progress(100, f"{strings.tr('status_done')}! ({time.time() - start_time:.2f}s)", force=True)
+            self.scan_finished.emit(final_duplicates)
+        
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self._emit_progress(0, f"Error: {e}")
+            self.scan_finished.emit({})
+        finally:
+            # 스레드 종료 시 CacheManager 커넥션 정리
+            self.cache_manager.close()
+
 
     def _process_final_group(self, file_hash, size, paths, final_duplicates):
         """Process a group of files with same hash (and size) for final verification."""

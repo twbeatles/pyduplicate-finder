@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QLabel, QProgressBar, QCheckBox, QMessageBox, QGroupBox, QTreeWidget, QTreeWidgetItem, QToolBar, QSpinBox, QLineEdit, QMenu, QSplitter, QTextEdit, QScrollArea, QStyle, QProgressDialog, QToolButton, QSizePolicy)
+from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QLabel, QProgressBar, QCheckBox, QMessageBox, QGroupBox, QTreeWidget, QTreeWidgetItem, QToolBar, QSpinBox, QLineEdit, QMenu, QSplitter, QTextEdit, QScrollArea, QStyle, QProgressDialog, QToolButton, QSizePolicy, QListWidget, QDoubleSpinBox)
 from PySide6.QtCore import Qt, Slot, QSize, QSettings, QTimer
 from PySide6.QtGui import QAction, QKeySequence, QIcon, QPixmap, QFont, QCursor
 
@@ -15,9 +15,15 @@ from src.core.scanner import ScanWorker
 from src.core.history import HistoryManager
 from src.core.cache_manager import CacheManager
 from src.core.file_ops import FileOperationWorker
+from src.core.preset_manager import PresetManager, get_default_config
+from src.core.file_lock_checker import FileLockChecker
 from src.ui.empty_folder_dialog import EmptyFolderDialog
 from src.ui.components.results_tree import ResultsTreeWidget
+from src.ui.dialogs.preset_dialog import PresetDialog
+from src.ui.dialogs.exclude_patterns_dialog import ExcludePatternsDialog
+from src.ui.dialogs.shortcut_settings_dialog import ShortcutSettingsDialog
 from src.utils.i18n import strings
+from src.ui.theme import ModernTheme
 
 class DuplicateFinderApp(QMainWindow):
     def __init__(self):
@@ -27,6 +33,12 @@ class DuplicateFinderApp(QMainWindow):
         self.selected_folders = []
         self.scan_results = {}
         self.history_manager = HistoryManager()
+        
+        # 새 기능 관련 인스턴스 변수
+        self.preset_manager = PresetManager()
+        self.file_lock_checker = FileLockChecker()
+        self.exclude_patterns = []
+        self.custom_shortcuts = {}
         
         self.init_ui()
         self.create_toolbar()
@@ -71,95 +83,223 @@ class DuplicateFinderApp(QMainWindow):
         
         event.accept()
 
+    def _create_separator(self):
+        """Create a vertical separator line"""
+        from PySide6.QtWidgets import QFrame
+        sep = QFrame()
+        sep.setFrameShape(QFrame.VLine)
+        sep.setFrameShadow(QFrame.Sunken)
+        return sep
+
     def init_ui(self):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
+        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(10, 10, 10, 10)
 
-        # === 1. 검색 설정 영역 (폴더 + 필터) ===
-        settings_layout = QHBoxLayout()
+        # === GLOBAL VERTICAL SPLITTER ===
+        self.main_v_splitter = QSplitter(Qt.Vertical)
+        self.main_v_splitter.setHandleWidth(8) 
 
-        # [좌측] 폴더 선택 그룹
-        self.folder_group = QGroupBox(strings.tr("grp_search_loc"))
-        folder_vbox = QVBoxLayout(self.folder_group)
+        # === TOP CONTAINER: Settings & Scan Actions ===
+        self.top_container = QWidget()
+        top_main_layout = QVBoxLayout(self.top_container)
+        top_main_layout.setSpacing(8)
+        top_main_layout.setContentsMargins(0, 0, 0, 0)
+
+        # --- ROW 1: Folder Selection Header ---
+        folder_header = QHBoxLayout()
+        folder_header.setSpacing(8)
         
-        btn_folder_box = QHBoxLayout()
-        self.btn_add_folder = QPushButton(strings.tr("btn_add_folder"))
+        folder_label = QLabel("📁 " + strings.tr("grp_search_loc"))
+        folder_label.setStyleSheet("font-weight: 600; font-size: 14px;")
+        folder_header.addWidget(folder_label)
+        
+        self.btn_add_folder = QPushButton("📂 " + strings.tr("btn_add_folder"))
+        self.btn_add_folder.setMinimumHeight(32)
+        self.btn_add_folder.setCursor(Qt.PointingHandCursor)
         self.btn_add_folder.clicked.connect(self.add_folder)
         
-        self.btn_add_drive = QPushButton(strings.tr("btn_add_drive"))
+        self.btn_add_drive = QPushButton("💾 " + strings.tr("btn_add_drive"))
+        self.btn_add_drive.setMinimumHeight(32)
+        self.btn_add_drive.setCursor(Qt.PointingHandCursor)
         self.btn_add_drive.clicked.connect(self.add_drive_dialog)
 
-        self.btn_clear_folder = QPushButton(strings.tr("btn_clear"))
+        self.btn_remove_folder = QPushButton("➖")
+        self.btn_remove_folder.setMinimumHeight(32)
+        self.btn_remove_folder.setFixedWidth(36)
+        self.btn_remove_folder.setCursor(Qt.PointingHandCursor)
+        self.btn_remove_folder.setToolTip(strings.tr("btn_clear"))
+        self.btn_remove_folder.clicked.connect(self.remove_selected_folder)
+
+        self.btn_clear_folder = QPushButton("🗑️ " + strings.tr("btn_clear"))
+        self.btn_clear_folder.setMinimumHeight(32)
+        self.btn_clear_folder.setCursor(Qt.PointingHandCursor)
         self.btn_clear_folder.clicked.connect(self.clear_folders)
 
-        btn_folder_box.addWidget(self.btn_add_folder)
-        btn_folder_box.addWidget(self.btn_add_drive)
-        btn_folder_box.addWidget(self.btn_clear_folder)
+        folder_header.addStretch()
+        folder_header.addWidget(self.btn_add_folder)
+        folder_header.addWidget(self.btn_add_drive)
+        folder_header.addWidget(self.btn_remove_folder)
+        folder_header.addWidget(self.btn_clear_folder)
         
-        self.lbl_folders = QLabel(strings.tr("lbl_no_selection"))
-        self.lbl_folders.setStyleSheet("color: #666; font-size: 11px;")
+        top_main_layout.addLayout(folder_header)
         
-        folder_vbox.addLayout(btn_folder_box)
-        folder_vbox.addWidget(self.lbl_folders)
+        # --- ROW 2: Folder List ---
+        self.list_folders = QListWidget()
+        self.list_folders.setMinimumHeight(50)
+        self.list_folders.setMaximumHeight(100)
+        top_main_layout.addWidget(self.list_folders)
+
+        # --- ROW 3: Collapsible Filter Options ---
+        # Filter Header (Toggle Button)
+        self.btn_filter_toggle = QPushButton("⚙️ " + strings.tr("lbl_filter_options") + " ▼")
+        self.btn_filter_toggle.setObjectName("filter_header")
+        self.btn_filter_toggle.setCheckable(True)
+        self.btn_filter_toggle.setChecked(True)
+        self.btn_filter_toggle.setCursor(Qt.PointingHandCursor)
+        self.btn_filter_toggle.clicked.connect(self._toggle_filter_panel)
+        top_main_layout.addWidget(self.btn_filter_toggle)
         
-        # [우측] 필터 옵션 그룹
-        self.filter_group = QGroupBox(strings.tr("grp_search_opt"))
-        filter_grid = QVBoxLayout(self.filter_group)
+        # Filter Content Container
+        self.filter_container = QWidget()
+        self.filter_container.setObjectName("filter_content")
+        filter_main_layout = QVBoxLayout(self.filter_container)
+        filter_main_layout.setSpacing(12)
+        filter_main_layout.setContentsMargins(12, 12, 12, 12)
         
-        # 확장자 필터
+        # --- Filter Row 1: Basic Filters ---
+        row1_layout = QHBoxLayout()
+        row1_layout.setSpacing(20)
+        
+        # Extension Filter
         ext_layout = QHBoxLayout()
-        ext_layout.addWidget(QLabel(strings.tr("lbl_ext")))
+        ext_layout.setSpacing(8)
+        self.lbl_ext = QLabel("📄 " + strings.tr("lbl_ext"))
+        self.lbl_ext.setObjectName("filter_label")
+        ext_layout.addWidget(self.lbl_ext)
         self.txt_extensions = QLineEdit()
         self.txt_extensions.setPlaceholderText(strings.tr("ph_ext"))
+        self.txt_extensions.setMinimumWidth(120)
+        self.txt_extensions.setMaximumWidth(180)
+        self.txt_extensions.setMinimumHeight(32)
         ext_layout.addWidget(self.txt_extensions)
+        row1_layout.addLayout(ext_layout)
         
-        # 최소 크기 필터
+        # Min Size Filter
         size_layout = QHBoxLayout()
-        size_layout.addWidget(QLabel(strings.tr("lbl_min_size")))
+        size_layout.setSpacing(8)
+        self.lbl_min_size = QLabel("📏 " + strings.tr("lbl_min_size"))
+        self.lbl_min_size.setObjectName("filter_label")
+        size_layout.addWidget(self.lbl_min_size)
         self.spin_min_size = QSpinBox()
         self.spin_min_size.setRange(0, 10000000)
         self.spin_min_size.setValue(0)
         self.spin_min_size.setSuffix(" KB")
+        self.spin_min_size.setMinimumWidth(100)
+        self.spin_min_size.setMaximumWidth(140)
+        self.spin_min_size.setMinimumHeight(32)
         size_layout.addWidget(self.spin_min_size)
-
-        self.chk_same_name = QCheckBox(strings.tr("chk_same_name"))
-        self.chk_byte_compare = QCheckBox(strings.tr("chk_byte_compare"))
-        self.chk_protect_system = QCheckBox(strings.tr("chk_protect_system"))
-        self.chk_protect_system.setChecked(True) # Default On
+        row1_layout.addLayout(size_layout)
         
-        filter_grid.addLayout(ext_layout)
-        filter_grid.addLayout(size_layout)
-        filter_grid.addWidget(self.chk_same_name)
-        filter_grid.addWidget(self.chk_byte_compare)
-        filter_grid.addWidget(self.chk_protect_system)
+        row1_layout.addWidget(self._create_separator())
+        
+        # Basic Checkboxes
+        self.chk_same_name = QCheckBox("🏷️ " + strings.tr("chk_same_name"))
+        self.chk_name_only = QCheckBox("📝 " + strings.tr("chk_name_only"))
+        self.chk_name_only.setToolTip(strings.tr("tip_name_only"))
+        
+        row1_layout.addWidget(self.chk_same_name)
+        row1_layout.addWidget(self.chk_name_only)
+        row1_layout.addStretch()
+        
+        filter_main_layout.addLayout(row1_layout)
+        
+        # --- Filter Row 2: Advanced Options ---
+        row2_layout = QHBoxLayout()
+        row2_layout.setSpacing(20)
+        
+        self.chk_byte_compare = QCheckBox("🔍 " + strings.tr("chk_byte_compare"))
+        self.chk_protect_system = QCheckBox("🛡️ " + strings.tr("chk_protect_system"))
+        self.chk_protect_system.setChecked(True)
+        self.chk_use_trash = QCheckBox("♻️ " + strings.tr("chk_use_trash"))
+        self.chk_use_trash.setToolTip(strings.tr("tip_use_trash"))
+        
+        row2_layout.addWidget(self.chk_byte_compare)
+        row2_layout.addWidget(self.chk_protect_system)
+        row2_layout.addWidget(self.chk_use_trash)
+        
+        row2_layout.addWidget(self._create_separator())
+        
+        # Similar Image Section
+        self.chk_similar_image = QCheckBox("🖼️ " + strings.tr("chk_similar_image"))
+        self.chk_similar_image.setToolTip(strings.tr("tip_similar_image"))
+        row2_layout.addWidget(self.chk_similar_image)
+        
+        self.lbl_similarity = QLabel(strings.tr("lbl_similarity_threshold"))
+        self.spin_similarity = QDoubleSpinBox()
+        self.spin_similarity.setRange(0.1, 1.0)
+        self.spin_similarity.setSingleStep(0.05)
+        self.spin_similarity.setValue(0.9)
+        self.spin_similarity.setDecimals(2)
+        self.spin_similarity.setMinimumWidth(80)
+        self.spin_similarity.setEnabled(False)
+        self.chk_similar_image.toggled.connect(self.spin_similarity.setEnabled)
+        
+        row2_layout.addWidget(self.lbl_similarity)
+        row2_layout.addWidget(self.spin_similarity)
+        
+        row2_layout.addWidget(self._create_separator())
+        
+        # Exclude Patterns Button
+        self.btn_exclude_patterns = QPushButton("🚫 " + strings.tr("btn_exclude_patterns"))
+        self.btn_exclude_patterns.setMinimumHeight(32)
+        self.btn_exclude_patterns.setObjectName("btn_icon")
+        self.btn_exclude_patterns.setCursor(Qt.PointingHandCursor)
+        self.btn_exclude_patterns.clicked.connect(self.open_exclude_patterns_dialog)
+        row2_layout.addWidget(self.btn_exclude_patterns)
+        
+        row2_layout.addStretch()
+        
+        filter_main_layout.addLayout(row2_layout)
+        
+        top_main_layout.addWidget(self.filter_container)
 
-        settings_layout.addWidget(self.folder_group, 6)
-        settings_layout.addWidget(self.filter_group, 4)
-        main_layout.addLayout(settings_layout)
-
-        # === 2. 실행 버튼 영역 ===
+        # --- ROW 4: Action Buttons ---
         action_layout = QHBoxLayout()
-        self.btn_start_scan = QPushButton(strings.tr("btn_start_scan"))
-        self.btn_start_scan.setMinimumHeight(45)
-        self.btn_start_scan.setStyleSheet("background-color: #2ecc71; color: white; font-size: 14px; font-weight: bold; border-radius: 5px;")
+        action_layout.setSpacing(12)
+        
+        self.btn_start_scan = QPushButton("▶️ " + strings.tr("btn_start_scan"))
+        self.btn_start_scan.setMinimumHeight(40)
+        self.btn_start_scan.setMinimumWidth(150)
+        self.btn_start_scan.setCursor(Qt.PointingHandCursor)
+        self.btn_start_scan.setObjectName("btn_primary")
         self.btn_start_scan.clicked.connect(self.start_scan)
 
-        self.btn_stop_scan = QPushButton(strings.tr("scan_stop"))
-        self.btn_stop_scan.setMinimumHeight(45)
+        self.btn_stop_scan = QPushButton("⏹️ " + strings.tr("scan_stop"))
+        self.btn_stop_scan.setMinimumHeight(40)
+        self.btn_stop_scan.setCursor(Qt.PointingHandCursor)
         self.btn_stop_scan.clicked.connect(self.stop_scan)
         self.btn_stop_scan.setEnabled(False)
 
         action_layout.addWidget(self.btn_start_scan)
         action_layout.addWidget(self.btn_stop_scan)
-        main_layout.addLayout(action_layout)
+        action_layout.addStretch()
+        
+        top_main_layout.addLayout(action_layout)
 
-        # === 3. 결과 트리 뷰 + 미리보기 (Splitter) ===
+        # Add Top Container to V-Splitter
+        self.main_v_splitter.addWidget(self.top_container)
+
+        # === BOTTOM CONTAINER: Results Tree + Preview ===
+        # Use existing Horizontal splitter, but put it into the V-Splitter
         self.splitter = QSplitter(Qt.Horizontal)
+        self.splitter.setHandleWidth(12)
         
         # [Left] Tree Widget
         self.tree_widget = ResultsTreeWidget()
-        self.tree_widget.itemDoubleClicked.connect(self.open_file) # 더블 클릭 시 열기
+        self.tree_widget.itemDoubleClicked.connect(self.open_file) 
         self.tree_widget.currentItemChanged.connect(self.update_preview)
         self.tree_widget.customContextMenuRequested.connect(self.show_context_menu)
         self.splitter.addWidget(self.tree_widget)
@@ -168,16 +308,28 @@ class DuplicateFinderApp(QMainWindow):
         self.preview_container = QWidget()
         preview_layout = QVBoxLayout(self.preview_container)
         preview_layout.setContentsMargins(0, 0, 0, 0)
+        preview_layout.setSpacing(0)
         
-        self.lbl_preview_header = QLabel(strings.tr("lbl_preview"))
-        self.lbl_preview_header.setStyleSheet("font-weight: bold; background-color: #ecf0f1; padding: 5px;")
+        self.lbl_preview_header = QLabel("🔍 " + strings.tr("lbl_preview"))
+        self.lbl_preview_header.setAlignment(Qt.AlignCenter)
+        self.lbl_preview_header.setStyleSheet("""
+            font-weight: 600; 
+            font-size: 14px;
+            padding: 12px; 
+            border-bottom: 1px solid palette(mid);
+        """) 
         preview_layout.addWidget(self.lbl_preview_header)
 
-        # Scroll Area for flexibility
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
+        # Scroll Area for preview content
+        self.preview_scroll = QScrollArea()
+        self.preview_scroll.setWidgetResizable(True)
+        self.preview_scroll.setFrameShape(QScrollArea.NoFrame)
+        
         scroll_content = QWidget()
+        scroll_content.setObjectName("preview_content")
         scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setContentsMargins(16, 16, 16, 16)
+        scroll_layout.setSpacing(12)
         
         self.lbl_image_preview = QLabel()
         self.lbl_image_preview.setAlignment(Qt.AlignCenter)
@@ -192,30 +344,49 @@ class DuplicateFinderApp(QMainWindow):
         self.lbl_info_preview = QLabel(strings.tr("msg_select_file"))
         self.lbl_info_preview.setAlignment(Qt.AlignCenter)
         self.lbl_info_preview.setWordWrap(True)
+        self.lbl_info_preview.setStyleSheet("color: palette(mid); font-size: 14px; padding: 40px;")
         scroll_layout.addWidget(self.lbl_info_preview)
         
         scroll_layout.addStretch()
-        scroll.setWidget(scroll_content)
-        preview_layout.addWidget(scroll)
+        self.preview_scroll.setWidget(scroll_content)
+        preview_layout.addWidget(self.preview_scroll)
 
         self.splitter.addWidget(self.preview_container)
         self.splitter.setSizes([700, 400])
-        self.splitter.setCollapsible(0, False)
-        self.splitter.setCollapsible(1, True)
+        self.splitter.setCollapsible(0, False) # Tree view always visible
+        self.splitter.setCollapsible(1, True) # Preview collapsible
 
-        main_layout.addWidget(self.splitter)
+        # Add Horizontal Splitter to Vertical Splitter
+        self.main_v_splitter.addWidget(self.splitter)
+        
+        # Set V-Splitter Proportions (Top small, Bottom big)
+        self.main_v_splitter.setStretchFactor(0, 1) # Top
+        self.main_v_splitter.setStretchFactor(1, 10) # Bottom (much bigger)
+        self.main_v_splitter.setCollapsible(0, True) # Allow collapsing top
 
-        # === 4. 하단 선택 및 삭제 ===
+        main_layout.addWidget(self.main_v_splitter)
+
+        # === 4. 하단 선택 및 삭제 (Fixed at bottom) ===
         bottom_layout = QHBoxLayout()
-        self.btn_select_smart = QPushButton(strings.tr("btn_smart_select"))
+        bottom_layout.setSpacing(12)
+        bottom_layout.setContentsMargins(0, 8, 0, 0)
+        
+        self.btn_select_smart = QPushButton("⚡ " + strings.tr("btn_smart_select"))
         self.btn_select_smart.setToolTip(strings.tr("tip_smart_select"))
+        self.btn_select_smart.setMinimumHeight(44)
+        self.btn_select_smart.setObjectName("btn_secondary")
+        self.btn_select_smart.setCursor(Qt.PointingHandCursor)
         self.btn_select_smart.clicked.connect(self.select_duplicates_smart)
         
-        self.btn_export = QPushButton(strings.tr("btn_export"))
+        self.btn_export = QPushButton("📄 " + strings.tr("btn_export"))
+        self.btn_export.setMinimumHeight(44)
+        self.btn_export.setCursor(Qt.PointingHandCursor)
         self.btn_export.clicked.connect(self.export_results)
 
-        self.btn_delete = QPushButton(strings.tr("btn_delete_selected"))
-        self.btn_delete.setStyleSheet("background-color: #e74c3c; color: white; font-weight: bold; padding: 5px 15px;")
+        self.btn_delete = QPushButton("🗑️ " + strings.tr("btn_delete_selected"))
+        self.btn_delete.setObjectName("btn_danger")
+        self.btn_delete.setMinimumHeight(44)
+        self.btn_delete.setCursor(Qt.PointingHandCursor)
         self.btn_delete.clicked.connect(self.delete_selected_files)
 
         bottom_layout.addWidget(self.btn_select_smart)
@@ -225,71 +396,77 @@ class DuplicateFinderApp(QMainWindow):
         main_layout.addLayout(bottom_layout)
 
         # === 5. 상태 표시줄 ===
+        status_container = QHBoxLayout()
+        status_container.setContentsMargins(0, 8, 0, 0)
+        status_container.setSpacing(16)
+        
         self.progress_bar = QProgressBar()
+        self.progress_bar.setFixedHeight(8)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setMinimumWidth(200)
+        self.progress_bar.setMaximumWidth(400)
+        
         self.status_label = QLabel(strings.tr("status_ready"))
-        main_layout.addWidget(self.progress_bar)
-        main_layout.addWidget(self.status_label)
+        self.status_label.setObjectName("status_label")
+        
+        status_container.addWidget(self.progress_bar)
+        status_container.addWidget(self.status_label, 1)
+        main_layout.addLayout(status_container)
 
     def retranslate_ui(self):
         """Dynamic text update for language switching"""
         self.setWindowTitle(strings.tr("app_title"))
         
-        # Groups
-        # Note: We need store references to groups to update titles if we didn't already
-        # But looking at init_ui, we didn't store group references as class members.
-        # So we have to rely on finding them or reconstructing? 
-        # Actually easier to just keep references or findChild.
-        # But let's look at what I have access to. 
-        # I have references to buttons, labels.
+        self.btn_add_folder.setText("📂 " + strings.tr("btn_add_folder"))
+        self.btn_add_drive.setText("💾 " + strings.tr("btn_add_drive"))
+        self.btn_clear_folder.setText("🗑️ " + strings.tr("btn_clear"))
+        self.btn_remove_folder.setToolTip(strings.tr("btn_clear"))
         
-        self.btn_add_folder.setText(strings.tr("btn_add_folder"))
-        self.btn_add_drive.setText(strings.tr("btn_add_drive"))
-        self.btn_clear_folder.setText(strings.tr("btn_clear"))
-        self.update_folder_label() # This will refresh label text
+        # Labels
+        if hasattr(self, 'lbl_ext'):
+            self.lbl_ext.setText("📄 " + strings.tr("lbl_ext"))
+        if hasattr(self, 'lbl_min_size'):
+            self.lbl_min_size.setText("📏 " + strings.tr("lbl_min_size"))
         
         self.txt_extensions.setPlaceholderText(strings.tr("ph_ext"))
         self.spin_min_size.setSuffix(" KB")
-        self.chk_same_name.setText(strings.tr("chk_same_name"))
-        self.chk_byte_compare.setText(strings.tr("chk_byte_compare"))
-        self.chk_protect_system.setText(strings.tr("chk_protect_system"))
+        self.chk_same_name.setText("🏷️ " + strings.tr("chk_same_name"))
+        self.chk_byte_compare.setText("🔍 " + strings.tr("chk_byte_compare"))
+        self.chk_protect_system.setText("🛡️ " + strings.tr("chk_protect_system"))
         
-        self.btn_start_scan.setText(strings.tr("btn_start_scan"))
-        self.btn_stop_scan.setText(strings.tr("scan_stop"))
+        self.btn_start_scan.setText("▶️ " + strings.tr("btn_start_scan"))
+        self.btn_stop_scan.setText("⏹️ " + strings.tr("scan_stop"))
         
         self.tree_widget.setHeaderLabels([strings.tr("col_path"), strings.tr("col_size"), strings.tr("col_mtime"), strings.tr("col_ext")])
-        self.lbl_preview_header.setText(strings.tr("lbl_preview"))
+        self.lbl_preview_header.setText("🔍 " + strings.tr("lbl_preview"))
         
         if not self.lbl_image_preview.isVisible() and not self.txt_text_preview.isVisible():
             self.lbl_info_preview.setText(strings.tr("msg_select_file"))
 
-        self.btn_select_smart.setText(strings.tr("btn_smart_select"))
+        self.btn_select_smart.setText("⚡ " + strings.tr("btn_smart_select"))
         self.btn_select_smart.setToolTip(strings.tr("tip_smart_select"))
-        self.btn_export.setText(strings.tr("btn_export"))
-        self.btn_delete.setText(strings.tr("btn_delete_selected"))
+        self.btn_export.setText("📄 " + strings.tr("btn_export"))
+        self.btn_delete.setText("🗑️ " + strings.tr("btn_delete_selected"))
         
         if self.status_label.text() in ["Ready", "준비됨"]:
              self.status_label.setText(strings.tr("status_ready"))
              
         # Toolbar Actions
         if hasattr(self, 'action_undo'):
-            self.action_undo.setText(strings.tr("action_undo"))
+            self.action_undo.setText("↩️ " + strings.tr("action_undo"))
         if hasattr(self, 'action_redo'):
-            self.action_redo.setText(strings.tr("action_redo"))
+            self.action_redo.setText("↪️ " + strings.tr("action_redo"))
         if hasattr(self, 'action_empty_finder'):
-            self.action_empty_finder.setText(strings.tr("action_empty_finder"))
+            self.action_empty_finder.setText("📁 " + strings.tr("action_empty_finder"))
         if hasattr(self, 'action_theme'):
-            self.action_theme.setText(strings.tr("action_theme"))
+            self.action_theme.setText("🌙 " + strings.tr("action_theme"))
         if hasattr(self, 'menu_lang'):
-            self.menu_lang.setTitle(strings.tr("menu_lang"))
-            
-        if hasattr(self, 'folder_group'):
-            self.folder_group.setTitle(strings.tr("grp_search_loc"))
-        if hasattr(self, 'filter_group'):
-            self.filter_group.setTitle(strings.tr("grp_search_opt"))
+            self.menu_lang.setTitle("🌐 " + strings.tr("menu_lang"))
 
     def create_toolbar(self):
         toolbar = QToolBar("Main Toolbar")
         toolbar.setIconSize(QSize(20, 20))
+        toolbar.setMovable(False)
         self.addToolBar(toolbar)
 
         # Language Menu
@@ -297,28 +474,78 @@ class DuplicateFinderApp(QMainWindow):
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         
         # Actions
-        self.action_undo = QAction(strings.tr("action_undo"), self)
+        self.action_undo = QAction("↩️ " + strings.tr("action_undo"), self)
         self.action_undo.setShortcut(QKeySequence.Undo)
         self.action_undo.triggered.connect(self.perform_undo)
         self.action_undo.setEnabled(False)
         toolbar.addAction(self.action_undo)
 
-        self.action_redo = QAction(strings.tr("action_redo"), self)
+        self.action_redo = QAction("↪️ " + strings.tr("action_redo"), self)
         self.action_redo.setShortcut(QKeySequence.Redo)
         self.action_redo.triggered.connect(self.perform_redo)
         self.action_redo.setEnabled(False)
         toolbar.addAction(self.action_redo)
 
         toolbar.addSeparator()
+        
+        # Expand/Collapse Actions
+        self.action_expand_all = QAction("➕ " + strings.tr("action_expand_all"), self)
+        self.action_expand_all.setToolTip(strings.tr("action_expand_all"))
+        self.action_expand_all.triggered.connect(self.tree_widget.expand_all_groups)
+        toolbar.addAction(self.action_expand_all)
+        
+        self.action_collapse_all = QAction("➖ " + strings.tr("action_collapse_all"), self)
+        self.action_collapse_all.setToolTip(strings.tr("action_collapse_all"))
+        self.action_collapse_all.triggered.connect(self.tree_widget.collapse_all_groups)
+        toolbar.addAction(self.action_collapse_all)
+        
+        toolbar.addSeparator()
+        
+        # 결과 저장/불러오기
+        self.action_save_results = QAction("💾 " + strings.tr("action_save_results"), self)
+        self.action_save_results.setShortcut(QKeySequence.Save)
+        self.action_save_results.triggered.connect(self.save_scan_results)
+        toolbar.addAction(self.action_save_results)
+        
+        self.action_load_results = QAction("📂 " + strings.tr("action_load_results"), self)
+        self.action_load_results.setShortcut(QKeySequence.Open)
+        self.action_load_results.triggered.connect(self.load_scan_results)
+        toolbar.addAction(self.action_load_results)
+        
+        toolbar.addSeparator()
 
-        self.action_empty_finder = QAction(strings.tr("action_empty_finder"), self)
+        self.action_empty_finder = QAction("📁 " + strings.tr("action_empty_finder"), self)
         self.action_empty_finder.triggered.connect(self.open_empty_finder)
         toolbar.addAction(self.action_empty_finder)
 
-        self.action_theme = QAction(strings.tr("action_theme"), self)
+        self.action_theme = QAction("🌙 " + strings.tr("action_theme"), self)
         self.action_theme.setCheckable(True)
         self.action_theme.triggered.connect(self.toggle_theme)
         toolbar.addAction(self.action_theme)
+        
+        toolbar.addSeparator()
+        
+        # 프리셋 메뉴
+        btn_preset = QToolButton(self)
+        btn_preset.setText("📋 " + strings.tr("action_preset"))
+        btn_preset.setPopupMode(QToolButton.InstantPopup)
+        
+        self.menu_preset = QMenu(self)
+        action_save_preset = QAction(strings.tr("btn_save_preset"), self)
+        action_save_preset.triggered.connect(self.open_preset_dialog)
+        self.menu_preset.addAction(action_save_preset)
+        
+        action_manage_presets = QAction(strings.tr("btn_manage_presets"), self)
+        action_manage_presets.triggered.connect(self.open_preset_dialog)
+        self.menu_preset.addAction(action_manage_presets)
+        
+        btn_preset.setMenu(self.menu_preset)
+        toolbar.addWidget(btn_preset)
+        
+        # 단축키 설정
+        self.action_shortcut_settings = QAction("⌨️ " + strings.tr("action_shortcut_settings"), self)
+        self.action_shortcut_settings.triggered.connect(self.open_shortcut_settings)
+        toolbar.addAction(self.action_shortcut_settings)
         
         toolbar.addSeparator()
         
@@ -345,70 +572,66 @@ class DuplicateFinderApp(QMainWindow):
         self.retranslate_ui()
         self.settings.setValue("app/language", lang_code)
         
-        # Re-apply theme to ensure styles are correct (sometimes font changes)
-        # self.apply_theme(self.settings.value("app/theme", "light"))
+        # theme might depend on language? Unlikely but good to refresh if needed.
 
     def open_empty_finder(self):
         if not self.selected_folders:
-            QMessageBox.warning(self, "알림", "먼저 검색할 위치를 추가해주세요.")
+            QMessageBox.warning(self, strings.tr("msg_title_notice"), strings.tr("msg_add_folder_first"))
             return
         
         dlg = EmptyFolderDialog(self.selected_folders, self)
         dlg.exec()
 
     def apply_theme(self, theme_name):
-        light_theme = {
-            "bg": "#f8f9fa", "fg": "#2c3e50", 
-            "panel": "#ffffff", "border": "#dcdde1",
-            "btn_bg": "#ecf0f1", "btn_fg": "#2c3e50", "btn_hover": "#bdc3c7",
-            "header": "#ecf0f1", "highlight": "#d6eaf8"
-        }
+        style = ModernTheme.get_stylesheet(theme_name)
+        colors = ModernTheme.get_palette(theme_name)
         
-        dark_theme = {
-            "bg": "#2b2b2b", "fg": "#ecf0f1", 
-            "panel": "#3c3f41", "border": "#555555",
-            "btn_bg": "#3c3f41", "btn_fg": "#ecf0f1", "btn_hover": "#4b4e50",
-            "header": "#333333", "highlight": "#0d293e"
-        }
+        # Apply preview panel and filter panel specific styling
+        extra_style = f"""
+        QWidget#preview_content {{
+            background-color: {colors['preview_bg']};
+        }}
         
-        theme = dark_theme if theme_name == "dark" else light_theme
+        QPushButton#filter_header {{
+            text-align: left;
+            padding: 10px 14px;
+            font-weight: 600;
+            font-size: 13px;
+            border: 1px solid {colors['border']};
+            border-radius: 8px;
+            background-color: {colors['card_bg']};
+            color: {colors['text_primary']};
+        }}
+        QPushButton#filter_header:checked {{
+            border-bottom-left-radius: 0;
+            border-bottom-right-radius: 0;
+        }}
+        QPushButton#filter_header:hover {{
+            background-color: {colors['hover']};
+        }}
         
-        style = f"""
-            QMainWindow, QWidget {{ background-color: {theme['bg']}; color: {theme['fg']}; }}
-            QGroupBox {{ 
-                font-weight: bold; border: 1px solid {theme['border']}; 
-                border-radius: 6px; margin-top: 10px; background-color: {theme['panel']}; 
-                color: {theme['fg']};
-            }}
-            QGroupBox::title {{ subcontrol-origin: margin; left: 10px; padding: 0 5px; }}
-            QTreeWidget {{ border: 1px solid {theme['border']}; background-color: {theme['panel']}; color: {theme['fg']}; alternate-background-color: {theme['bg']}; }}
-            QTreeWidget::item:selected {{ background-color: {theme['highlight']}; color: {theme['fg']}; }}
-            QHeaderView::section {{ background-color: {theme['header']}; color: {theme['fg']}; border: 1px solid {theme['border']}; padding: 4px; }}
-            
-            QPushButton {{ 
-                border-radius: 6px; border: 1px solid {theme['border']}; 
-                padding: 6px 12px; background-color: {theme['btn_bg']}; color: {theme['btn_fg']}; 
-            }}
-            QPushButton:hover {{ background-color: {theme['btn_hover']}; }}
-            QPushButton:disabled {{ background-color: {theme['bg']}; color: #7f8c8d; border: 1px dashed {theme['border']}; }}
-            
-            QLineEdit, QSpinBox, QTextEdit {{ 
-                padding: 5px; border-radius: 4px; 
-                background-color: {theme['panel']}; color: {theme['fg']}; border: 1px solid {theme['border']}; 
-            }}
-            
-            QProgressBar {{ border: 1px solid {theme['border']}; border-radius: 4px; text-align: center; background-color: {theme['panel']}; }}
-            QProgressBar::chunk {{ background-color: #3498db; width: 10px; margin: 0.5px; }}
-            
-            QSplitter::handle {{ background-color: {theme['border']}; }}
-            QScrollBar:vertical {{ background: {theme['bg']}; width: 12px; }}
-            QScrollBar::handle:vertical {{ background: {theme['border']}; min-height: 20px; border-radius: 2px; }}
-            
-            QLabel {{ color: {theme['fg']}; }}
-            QCheckBox {{ color: {theme['fg']}; spacing: 5px; }}
+        QWidget#filter_content {{
+            border: 1px solid {colors['border']};
+            border-top: none;
+            border-bottom-left-radius: 8px;
+            border-bottom-right-radius: 8px;
+            background-color: {colors['card_bg']};
+        }}
+        
+        QLabel#filter_label {{
+            font-weight: 600;
+            font-size: 12px;
+            color: {colors['text_primary']};
+            background: transparent;
+            border: none;
+        }}
         """
-        self.setStyleSheet(style)
+        
+        self.setStyleSheet(style + extra_style)
         self.settings.setValue("app/theme", theme_name)
+        
+        # Propagate to custom widgets
+        self.tree_widget.set_theme_mode(theme_name)
         
         # Action state update
         if hasattr(self, 'action_theme'):
@@ -416,59 +639,59 @@ class DuplicateFinderApp(QMainWindow):
 
     def toggle_theme(self, checked):
         self.apply_theme("dark" if checked else "light")
+    
+    def _toggle_filter_panel(self, checked):
+        """Toggle visibility of the filter panel with animation"""
+        self.filter_container.setVisible(checked)
+        arrow = "▼" if checked else "▶"
+        self.btn_filter_toggle.setText("⚙️ " + strings.tr("lbl_filter_options") + " " + arrow)
 
     # --- 기능 구현: 드라이브 및 폴더 ---
-    def get_available_drives(self):
-        drives = []
-        if platform.system() == "Windows":
-            try:
-                bitmask = ctypes.windll.kernel32.GetLogicalDrives()
-                for letter in string.ascii_uppercase:
-                    if bitmask & 1:
-                        path = f"{letter}:\\"
-                        if os.path.exists(path):
-                            drives.append(path)
-                    bitmask >>= 1
-            except:
-                pass
-        else:
-            # Unix/Mac
-            if os.path.exists("/Volumes"):
-                for d in os.listdir("/Volumes"):
-                    drives.append(os.path.join("/Volumes", d))
-            drives.append("/")
-        return drives
-
-    def add_drive_dialog(self):
-        drives = self.get_available_drives()
-        menu = QMenu(self)
-        for drive in drives:
-            action = menu.addAction(f"{drive}")
-            action.triggered.connect(lambda checked, d=drive: self.add_path_to_list(d))
-        menu.exec_(self.btn_add_drive.mapToGlobal(self.btn_add_drive.rect().bottomLeft()))
-
-    def add_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, strings.tr("file_open_dialog"))
-        if folder:
-             self.add_path_to_list(folder)
 
     def add_path_to_list(self, path):
+        path = os.path.normpath(path)
         if path not in self.selected_folders:
             self.selected_folders.append(path)
-            self.update_folder_label()
+            self.list_folders.addItem(path)
+
+    def add_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, strings.tr("btn_add_folder"))
+        if folder:
+            self.add_path_to_list(folder)
+
+    def add_drive_dialog(self):
+        # Windows: List drives
+        if platform.system() == "Windows":
+            drives = []
+            bitmask = ctypes.windll.kernel32.GetLogicalDrives()
+            for letter in string.ascii_uppercase:
+                if bitmask & 1:
+                    drives.append(f"{letter}:\\")
+                bitmask >>= 1
+            
+            menu = QMenu(self)
+            for d in drives:
+                action = QAction(d, self)
+                action.triggered.connect(lambda checked, drv=d: self.add_path_to_list(drv))
+                menu.addAction(action)
+            menu.exec(QCursor.pos())
+        else:
+            # Linux/Mac: Just open root selector or common mounts
+            self.add_folder()
 
     def clear_folders(self):
         self.selected_folders = []
-        self.update_folder_label()
+        self.list_folders.clear()
 
-    def update_folder_label(self):
-        if not self.selected_folders:
-            self.lbl_folders.setText(strings.tr("lbl_no_selection"))
-        else:
-            txt = ", ".join(self.selected_folders)
-            if len(txt) > 80: txt = txt[:80] + "..."
-            self.lbl_folders.setText(f"{strings.tr('lbl_search_target').format(len(self.selected_folders))}: {txt}")
+    def remove_selected_folder(self):
+        """Remove the currently selected folder from the list"""
+        current_row = self.list_folders.currentRow()
+        if current_row >= 0:
+            self.list_folders.takeItem(current_row)
+            if current_row < len(self.selected_folders):
+                del self.selected_folders[current_row]
 
+    # --- 기능 구현: 스캔 ---
     # --- 기능 구현: 스캔 ---
     def start_scan(self):
         if not self.selected_folders:
@@ -488,7 +711,11 @@ class DuplicateFinderApp(QMainWindow):
             min_size_kb=min_size,
             extensions=extensions,
             protect_system=self.chk_protect_system.isChecked(),
-            byte_compare=self.chk_byte_compare.isChecked()
+            byte_compare=self.chk_byte_compare.isChecked(),
+            exclude_patterns=self.exclude_patterns,
+            name_only=self.chk_name_only.isChecked(),
+            use_similar_image=self.chk_similar_image.isChecked(),
+            similarity_threshold=self.spin_similarity.value()
         )
         self.worker.progress_updated.connect(self.update_progress)
         self.worker.scan_finished.connect(self.on_scan_finished)
@@ -612,12 +839,38 @@ class DuplicateFinderApp(QMainWindow):
             QMessageBox.information(self, strings.tr("app_title"), strings.tr("msg_no_files_selected"))
             return
 
-        res = QMessageBox.question(self, strings.tr("confirm_delete_title"), 
-                                   strings.tr("confirm_delete_msg").format(len(targets)),
-                                   QMessageBox.Yes | QMessageBox.No)
+        # 파일 잠금 체크
+        locked_files = self.file_lock_checker.get_locked_files(targets)
+        if locked_files:
+            locked_list = "\n".join(locked_files[:5])
+            if len(locked_files) > 5:
+                locked_list += f"\n... and {len(locked_files) - 5} more"
+            QMessageBox.warning(
+                self, strings.tr("app_title"),
+                f"{strings.tr('msg_file_locked')}\n\n{locked_list}"
+            )
+            # 잠긴 파일 제외
+            targets = [t for t in targets if t not in locked_files]
+            self.pending_delete_items = [item for item in self.pending_delete_items 
+                                         if item.data(0, Qt.UserRole) not in locked_files]
+            if not targets:
+                return
+
+        # 휴지통 옵션 확인
+        use_trash = self.chk_use_trash.isChecked()
+        
+        if use_trash:
+            res = QMessageBox.question(self, strings.tr("confirm_delete_title"), 
+                                       strings.tr("confirm_trash_delete").format(len(targets)),
+                                       QMessageBox.Yes | QMessageBox.No)
+        else:
+            res = QMessageBox.question(self, strings.tr("confirm_delete_title"), 
+                                       strings.tr("confirm_delete_msg").format(len(targets)),
+                                       QMessageBox.Yes | QMessageBox.No)
+        
         if res != QMessageBox.Yes: return
 
-        self.start_file_operation('delete', targets)
+        self.start_file_operation('delete', targets, use_trash=use_trash)
 
     def perform_undo(self):
         self.start_file_operation('undo')
@@ -625,7 +878,7 @@ class DuplicateFinderApp(QMainWindow):
     def perform_redo(self):
         self.start_file_operation('redo')
 
-    def start_file_operation(self, op_type, data=None):
+    def start_file_operation(self, op_type, data=None, use_trash=False):
         # Disable UI
         self.toggle_ui_state(scanning=True) # Re-use scanning state (disables interactions)
         
@@ -637,7 +890,7 @@ class DuplicateFinderApp(QMainWindow):
         self.file_op_dialog.setCancelButton(None) # Not cancellable for safety
         self.file_op_dialog.show()
 
-        self.file_worker = FileOperationWorker(self.history_manager, op_type, data)
+        self.file_worker = FileOperationWorker(self.history_manager, op_type, data, use_trash=use_trash)
         self.file_worker.progress_updated.connect(lambda val, msg: self.file_op_dialog.setLabelText(msg))
         self.file_worker.operation_finished.connect(lambda s, m: self.on_file_op_finished(op_type, s, m))
         self.file_worker.start()
@@ -749,6 +1002,14 @@ class DuplicateFinderApp(QMainWindow):
         self.settings.setValue("filter/protect_system", self.chk_protect_system.isChecked())
         self.settings.setValue("filter/byte_compare", self.chk_byte_compare.isChecked())
         self.settings.setValue("folders", self.selected_folders)
+        
+        # 단축키 저장
+        if self.custom_shortcuts:
+            self.settings.setValue("app/shortcuts", json.dumps(self.custom_shortcuts))
+        
+        # 제외 패턴 저장
+        if self.exclude_patterns:
+            self.settings.setValue("filter/exclude_patterns", json.dumps(self.exclude_patterns))
 
     def load_settings(self):
         geo = self.settings.value("app/geometry")
@@ -762,8 +1023,8 @@ class DuplicateFinderApp(QMainWindow):
         val = self.settings.value("filter/min_size", 0)
         self.spin_min_size.setValue(int(val) if val else 0)
         
-        self.chk_protect_system.setChecked(self.settings.value("filter/protect_system", True, type=bool))
-        self.chk_byte_compare.setChecked(self.settings.value("filter/byte_compare", False, type=bool))
+        self.chk_protect_system.setChecked(str(self.settings.value("filter/protect_system", True)).lower() == 'true')
+        self.chk_byte_compare.setChecked(str(self.settings.value("filter/byte_compare", False)).lower() == 'true')
         
         folders = self.settings.value("folders", [])
         # 리스트가 아니라 단일 문자열로 저장되는 경우가 있어 타입 체크
@@ -771,11 +1032,34 @@ class DuplicateFinderApp(QMainWindow):
         elif not isinstance(folders, list): folders = []
         
         self.selected_folders = [f for f in folders if os.path.exists(f)]
-        self.update_folder_label()
+        
+        # Populate ListWidget
+        self.list_folders.clear()
+        for f in self.selected_folders:
+            self.list_folders.addItem(f)
 
         # Restore Theme
         theme = self.settings.value("app/theme", "light")
         self.action_theme.setChecked(theme == "dark")
+        
+        # 단축키 로드
+        shortcuts_json = self.settings.value("app/shortcuts", "")
+        if shortcuts_json:
+            try:
+                self.custom_shortcuts = json.loads(shortcuts_json)
+                self._apply_shortcuts(self.custom_shortcuts)
+            except:
+                pass
+        
+        # 제외 패턴 로드
+        patterns_json = self.settings.value("filter/exclude_patterns", "")
+        if patterns_json:
+            try:
+                self.exclude_patterns = json.loads(patterns_json)
+                if self.exclude_patterns:
+                    self.btn_exclude_patterns.setText(f"🚫 {strings.tr('btn_exclude_patterns')} ({len(self.exclude_patterns)})")
+            except:
+                self.exclude_patterns = []
 
     def show_context_menu(self, position):
         item = self.tree_widget.itemAt(position)
@@ -817,3 +1101,151 @@ class DuplicateFinderApp(QMainWindow):
     def copy_to_clipboard(self, text):
         from PySide6.QtWidgets import QApplication
         QApplication.clipboard().setText(text)
+
+    # === 새 기능 메서드들 ===
+    
+    def save_scan_results(self):
+        """스캔 결과를 JSON으로 저장"""
+        if not self.scan_results:
+            QMessageBox.information(self, strings.tr("app_title"), strings.tr("msg_no_files_selected"))
+            return
+        
+        path, _ = QFileDialog.getSaveFileName(
+            self, strings.tr("action_save_results"),
+            "scan_results.json", "JSON Files (*.json)"
+        )
+        if not path:
+            return
+        
+        try:
+            # 결과 직렬화 (키 튜플을 문자열로 변환)
+            serializable = {}
+            for key, paths in self.scan_results.items():
+                str_key = json.dumps(key)
+                serializable[str_key] = paths
+            
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(serializable, f, ensure_ascii=False, indent=2)
+            
+            self.status_label.setText(strings.tr("msg_results_saved").format(path))
+        except Exception as e:
+            QMessageBox.critical(self, strings.tr("app_title"), strings.tr("err_save").format(e))
+    
+    def load_scan_results(self):
+        """저장된 스캔 결과를 불러오기"""
+        path, _ = QFileDialog.getOpenFileName(
+            self, strings.tr("action_load_results"),
+            "", "JSON Files (*.json)"
+        )
+        if not path:
+            return
+        
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # 키 역변환
+            self.scan_results = {}
+            for str_key, paths in data.items():
+                key = tuple(json.loads(str_key))
+                self.scan_results[key] = paths
+            
+            self.tree_widget.populate(self.scan_results)
+            self.status_label.setText(strings.tr("msg_results_loaded").format(len(self.scan_results)))
+        except Exception as e:
+            QMessageBox.critical(self, strings.tr("app_title"), strings.tr("err_save").format(e))
+    
+    def open_preset_dialog(self):
+        """프리셋 관리 다이얼로그 열기"""
+        current_config = self._get_current_config()
+        dlg = PresetDialog(self.preset_manager, current_config, self)
+        if dlg.exec() and dlg.selected_config:
+            self._apply_config(dlg.selected_config)
+    
+    def open_exclude_patterns_dialog(self):
+        """제외 패턴 설정 다이얼로그 열기"""
+        dlg = ExcludePatternsDialog(self.exclude_patterns, self)
+        if dlg.exec():
+            self.exclude_patterns = dlg.get_patterns()
+            # 제외 패턴 수 표시
+            if self.exclude_patterns:
+                self.btn_exclude_patterns.setText(f"🚫 {strings.tr('btn_exclude_patterns')} ({len(self.exclude_patterns)})")
+            else:
+                self.btn_exclude_patterns.setText(f"🚫 {strings.tr('btn_exclude_patterns')}")
+    
+    def open_shortcut_settings(self):
+        """단축키 설정 다이얼로그 열기"""
+        dlg = ShortcutSettingsDialog(self.custom_shortcuts, self)
+        if dlg.exec():
+            self.custom_shortcuts = dlg.get_shortcuts()
+            self._apply_shortcuts(self.custom_shortcuts)
+    
+    def _get_current_config(self) -> dict:
+        """현재 스캔 설정을 딕셔너리로 반환"""
+        return {
+            'folders': self.selected_folders.copy(),
+            'extensions': self.txt_extensions.text(),
+            'min_size_kb': self.spin_min_size.value(),
+            'protect_system': self.chk_protect_system.isChecked(),
+            'byte_compare': self.chk_byte_compare.isChecked(),
+            'same_name': self.chk_same_name.isChecked(),
+            'name_only': self.chk_name_only.isChecked(),
+            'exclude_patterns': self.exclude_patterns.copy(),
+            'use_trash': self.chk_use_trash.isChecked(),
+            'use_similar_image': self.chk_similar_image.isChecked(),
+            'similarity_threshold': self.spin_similarity.value()
+        }
+    
+    def _apply_config(self, config: dict):
+        """딕셔너리 설정을 UI에 적용"""
+        # 폴더
+        if 'folders' in config:
+            self.selected_folders = config['folders']
+            self.list_folders.clear()
+            for f in self.selected_folders:
+                self.list_folders.addItem(f)
+        
+        # 필터
+        if 'extensions' in config:
+            self.txt_extensions.setText(config['extensions'])
+        if 'min_size_kb' in config:
+            self.spin_min_size.setValue(config['min_size_kb'])
+        
+        # 체크박스
+        if 'protect_system' in config:
+            self.chk_protect_system.setChecked(config['protect_system'])
+        if 'byte_compare' in config:
+            self.chk_byte_compare.setChecked(config['byte_compare'])
+        if 'same_name' in config:
+            self.chk_same_name.setChecked(config['same_name'])
+        if 'name_only' in config:
+            self.chk_name_only.setChecked(config['name_only'])
+        if 'use_trash' in config:
+            self.chk_use_trash.setChecked(config['use_trash'])
+        if 'use_similar_image' in config:
+            self.chk_similar_image.setChecked(config['use_similar_image'])
+        if 'similarity_threshold' in config:
+            self.spin_similarity.setValue(config['similarity_threshold'])
+        
+        # 제외 패턴
+        if 'exclude_patterns' in config:
+            self.exclude_patterns = config['exclude_patterns']
+            if self.exclude_patterns:
+                self.btn_exclude_patterns.setText(f"🚫 {strings.tr('btn_exclude_patterns')} ({len(self.exclude_patterns)})")
+    
+    def _apply_shortcuts(self, shortcuts: dict):
+        """커스텀 단축키를 액션에 적용"""
+        shortcut_map = {
+            'undo': self.action_undo,
+            'redo': self.action_redo,
+            'expand_all': self.action_expand_all,
+            'collapse_all': self.action_collapse_all,
+            'save_results': self.action_save_results,
+            'load_results': self.action_load_results,
+            'empty_finder': self.action_empty_finder,
+            'toggle_theme': self.action_theme,
+        }
+        
+        for action_id, shortcut in shortcuts.items():
+            if action_id in shortcut_map and shortcut:
+                shortcut_map[action_id].setShortcut(QKeySequence(shortcut))
