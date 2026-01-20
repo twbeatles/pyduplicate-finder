@@ -3,6 +3,7 @@ import tempfile
 import os
 import atexit
 from datetime import datetime
+import uuid
 
 # send2trash 라이브러리 (선택적)
 try:
@@ -10,6 +11,21 @@ try:
     TRASH_AVAILABLE = True
 except ImportError:
     TRASH_AVAILABLE = False
+
+
+def get_disk_free_space(path):
+    """지정된 경로의 디스크 여유 공간 반환 (bytes)"""
+    try:
+        if hasattr(shutil, 'disk_usage'):
+            # Python 3.3+
+            usage = shutil.disk_usage(path)
+            return usage.free
+        else:
+            # Fallback for older Python
+            return float('inf')  # Skip check if not available
+    except:
+        return float('inf')  # Skip check on error
+
 
 class HistoryManager:
     def __init__(self):
@@ -28,11 +44,40 @@ class HistoryManager:
             file_paths: 삭제할 파일 경로 리스트
             progress_callback: 진행률 콜백 함수(current, total)
             use_trash: True면 시스템 휴지통으로 이동 (Undo 불가)
+            
+        Returns:
+            tuple: (success: bool, error_message: str or None)
         """
         if use_trash and TRASH_AVAILABLE:
             return self._delete_to_system_trash(file_paths, progress_callback)
         else:
             return self._delete_to_temp(file_paths, progress_callback)
+    
+    def check_disk_space(self, file_paths):
+        """
+        삭제 전 디스크 공간 확인
+        
+        Args:
+            file_paths: 삭제할 파일 경로 리스트
+            
+        Returns:
+            tuple: (has_space: bool, required_bytes: int, available_bytes: int)
+        """
+        total_size = 0
+        for path in file_paths:
+            try:
+                if os.path.exists(path):
+                    total_size += os.path.getsize(path)
+            except:
+                pass
+        
+        # 임시 디렉토리의 여유 공간 확인
+        available = get_disk_free_space(self.temp_dir)
+        
+        # 10% 여유 마진 추가
+        required_with_margin = int(total_size * 1.1)
+        
+        return (available >= required_with_margin, total_size, available)
     
     def _delete_to_system_trash(self, file_paths, progress_callback=None):
         """시스템 휴지통으로 파일 이동 (Undo 불가)"""
@@ -54,15 +99,22 @@ class HistoryManager:
     
     def _delete_to_temp(self, file_paths, progress_callback=None):
         """임시 폴더로 파일 이동 (Undo 가능)"""
+        # 디스크 공간 사전 확인
+        has_space, required, available = self.check_disk_space(file_paths)
+        if not has_space:
+            print(f"Warning: Insufficient disk space. Required: {required}, Available: {available}")
+            # 경고만 출력하고 진행 (사용자가 판단)
+        
         transaction = []
         total_files = len(file_paths)
         
         for idx, original_path in enumerate(file_paths):
             if os.path.exists(original_path):
                 try:
-                    # 파일명 충돌 방지를 위한 타임스탬프 추가
+                    # 파일명 충돌 방지를 위한 타임스탬프 + UUID 추가
                     filename = os.path.basename(original_path)
-                    unique_name = f"{int(datetime.now().timestamp())}_{filename}"
+                    unique_id = uuid.uuid4().hex[:8]
+                    unique_name = f"{int(datetime.now().timestamp())}_{unique_id}_{filename}"
                     backup_path = os.path.join(self.temp_dir, unique_name)
                     
                     shutil.move(original_path, backup_path)

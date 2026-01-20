@@ -28,17 +28,21 @@ a = Analysis(
         'PIL', 
         'send2trash', 
         'psutil',
-        'sqlite3'
+        'sqlite3',
+        'uuid'
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
         # Python Standard Library exclusions (unused)
-        'tkinter', 'unittest', 'email', 'http', 'xml', 'pydoc', 'distutils',
-        'setuptools', 'pkg_resources', 'bz2', 'lzma', 
+        'tkinter', 'unittest', 'pydoc', 'pdb',
+        'bz2', 'lzma', '_bz2', '_lzma',
+        'curses', 'html', 'lib2to3', 'test', 'turtledemo',
+        'xml', 'xmlrpc', 'email', 'ftplib', 'smtplib',
+        'tarfile', 'zipfile',  # We use shutil, not these directly if possible, or basic
         
-        # PySide6 Unused Modules (Heavy ones)
+        # PySide6 Unused Modules (Heavy ones - aggressively exclude)
         'PySide6.QtNetwork',
         'PySide6.QtQml',
         'PySide6.QtQuick',
@@ -71,6 +75,42 @@ a = Analysis(
         'PySide6.QtScxml',
         'PySide6.QtTextToSpeech',
         'PySide6.QtUiextras',
+        'PySide6.QtPdf',
+        'PySide6.QtSvg',
+        'PySide6.QtXml',
+        'PySide6.QtOpenGL',
+        'PySide6.QtOpenGLWidgets',
+        
+        # Scipy & Numpy exclusions (Keep only fftpack for imagehash if needed, but usually imagehash uses numpy arrays directly)
+        # Note: Imagehash needs numpy. If we exclude numpy entirely it will break.
+        # We assume basic numpy is needed. Excluding submodules of scipy/numpy is good.
+        'scipy.cluster', 
+        'scipy.constants', 
+        'scipy.integrate', 
+        'scipy.interpolate', 
+        'scipy.io', 
+        'scipy.linalg', 
+        'scipy.misc', 
+        'scipy.ndimage', 
+        'scipy.odr', 
+        'scipy.optimize', 
+        'scipy.signal', 
+        'scipy.sparse', 
+        'scipy.spatial', 
+        'scipy.special', 
+        'scipy.stats',
+        'numpy.random',
+        'numpy.f2py',
+        'numpy.distutils',
+        
+        # Heavy ML/Data libs (prevent accidental inclusion)
+        'torch', 'torchvision', 'torchaudio',
+        'matplotlib', 'mpl_toolkits',
+        'pandas',
+        'cv2', 'opencv-python', 'opencv-python-headless',
+        'sklearn', 'scikit-learn',
+        'notebook', 'jupyter',
+        'ipython',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,

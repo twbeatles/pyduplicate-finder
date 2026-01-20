@@ -331,11 +331,6 @@ class ModernTheme:
             QCheckBox::indicator:checked {{
                 background-color: {c['primary']};
                 border-color: {c['primary']};
-                image: url(none);
-            }}
-            
-            QCheckBox::indicator:checked:after {{
-                content: "✓";
             }}
 
             /* ==================== LIST WIDGET ==================== */
@@ -611,6 +606,116 @@ class ModernTheme:
                 color: {c['text_secondary']};
                 font-size: 13px;
                 padding: 4px 8px;
+            }}
+
+            /* ==================== SIDEBAR ==================== */
+            QWidget#sidebar {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {c['primary']}, stop:1 {c['primary_hover']});
+                border: none;
+                border-right: 1px solid rgba(255, 255, 255, 0.1);
+            }}
+            
+            QWidget#sidebar QLabel#sidebar_logo {{
+                color: rgba(255, 255, 255, 0.95);
+                background: transparent;
+            }}
+            
+            QWidget#sidebar QPushButton {{
+                background: transparent;
+                border: none;
+                border-radius: 12px;
+                padding: 12px;
+                margin: 2px 6px;
+                color: rgba(255, 255, 255, 0.75);
+            }}
+            
+            QWidget#sidebar QPushButton:hover {{
+                background: rgba(255, 255, 255, 0.15);
+                color: #ffffff;
+            }}
+            
+            QWidget#sidebar QPushButton:checked {{
+                background: rgba(255, 255, 255, 0.25);
+                color: #ffffff;
+            }}
+
+            /* ==================== CARD COMPONENTS ==================== */
+            QWidget#folder_card {{
+                background-color: {c['card_bg']};
+                border: 1px solid {c['card_border']};
+                border-radius: 16px;
+            }}
+            
+            QWidget#filter_card {{
+                background-color: {c['card_bg']};
+                border: 1px solid {c['card_border']};
+                border-radius: 16px;
+            }}
+            
+            QWidget#result_card {{
+                background-color: {c['card_bg']};
+                border: 1px solid {c['card_border']};
+                border-radius: 16px;
+            }}
+            
+            QWidget#preview_card {{
+                background-color: {c['preview_bg']};
+                border: 1px solid {c['preview_border']};
+                border-radius: 16px;
+            }}
+
+            /* ==================== FLOATING ACTION BAR ==================== */
+            QWidget#action_bar {{
+                background-color: {c['panel']};
+                border-top: 1px solid {c['border']};
+                padding: 0px;
+            }}
+            
+            QWidget#action_bar QPushButton {{
+                min-height: 40px;
+                padding: 10px 24px;
+                font-weight: 600;
+                border-radius: 10px;
+            }}
+
+            /* ==================== COMPACT HEADER ==================== */
+            QLabel#section_header {{
+                font-weight: 600;
+                font-size: 13px;
+                color: {c['text_secondary']};
+                padding: 8px 0px;
+                background: transparent;
+            }}
+            
+            QLabel#card_title {{
+                font-weight: 700;
+                font-size: 15px;
+                color: {c['text_primary']};
+                background: transparent;
+            }}
+
+            /* ==================== ENHANCED TREE CHECKBOX ==================== */
+            QTreeWidget::indicator {{
+                width: 20px;
+                height: 20px;
+                border: 2px solid {c['input_border']};
+                border-radius: 5px;
+                background: {c['input_bg']};
+            }}
+            
+            QTreeWidget::indicator:hover {{
+                border-color: {c['primary']};
+            }}
+            
+            QTreeWidget::indicator:checked {{
+                background-color: {c['danger']};
+                border-color: {c['danger']};
+            }}
+
+            /* ==================== STACKED WIDGET PAGES ==================== */
+            QStackedWidget {{
+                background: transparent;
             }}
         """
 

@@ -1,7 +1,12 @@
 from PySide6.QtCore import QLocale
+import os
+
+# Debug mode: set via environment variable
+DEBUG_I18N = os.environ.get('DEBUG_I18N', '').lower() in ('1', 'true', 'yes')
 
 class I18n:
     _instance = None
+    _missing_keys = set()  # Track reported missing keys
     
     def __new__(cls):
         if cls._instance is None:
@@ -177,7 +182,23 @@ class I18n:
                     "col_action": "Action",
                     "col_shortcut": "Shortcut",
                     "col_default": "Default",
-                    "lbl_press_key": "Press keys:"
+                    "lbl_press_key": "Press keys:",
+                    
+                    # New Features (Live Filter & Adv Select)
+                    "ph_filter_results": "Filter results (name/path)...",
+                    "action_select_newest": "Select Newest (Keep Oldest)",
+                    "action_select_oldest": "Select Oldest (Keep Newest)",
+                    "action_select_pattern": "Select by Pattern...",
+                    "tip_select_newest": "Checks newer files for deletion, keeping the oldest file.",
+                    "tip_select_oldest": "Checks older files for deletion, keeping the newest file.",
+                    "ctx_select_pattern_title": "Select by Pattern",
+                    "ctx_select_pattern_msg": "Enter text pattern to select (e.g. 'copy', '.tmp'):",
+                    
+                    # Navigation (Sidebar)
+                    "nav_scan": "Scan",
+                    "nav_results": "Results",
+                    "nav_tools": "Tools",
+                    "nav_settings": "Settings",
                 },
                 "ko": {
                     "app_title": "PyDuplicate Finder Pro",
@@ -336,7 +357,24 @@ class I18n:
                     "btn_remove": "🗑️ 선택 삭제",
                     "btn_clear_all": "모두 삭제",
                     "btn_cancel": "취소",
-                    "btn_ok": "확인"
+                    "col_default": "기본값",
+                    "lbl_press_key": "키 입력:",
+                    
+                    # New Features (Live Filter & Adv Select)
+                    "ph_filter_results": "결과 필터링 (이름/경로)...",
+                    "action_select_newest": "최신 항목 선택 (오래된 것 보존)",
+                    "action_select_oldest": "오래된 항목 선택 (최신 것 보존)",
+                    "action_select_pattern": "패턴으로 선택...",
+                    "tip_select_newest": "최신 파일을 삭제 대상으로 선택하고, 가장 오래된 파일을 보존합니다.",
+                    "tip_select_oldest": "오래된 파일을 삭제 대상으로 선택하고, 가장 최신 파일을 보존합니다.",
+                    "ctx_select_pattern_title": "패턴으로 선택",
+                    "ctx_select_pattern_msg": "선택할 텍스트 패턴 입력 (예: 'copy', '.tmp'):",
+                    
+                    # Navigation (Sidebar)
+                    "nav_scan": "스캔",
+                    "nav_results": "결과",
+                    "nav_tools": "도구",
+                    "nav_settings": "설정",
                 }
             }
         return cls._instance
@@ -348,7 +386,25 @@ class I18n:
             self.current_lang = "en" # Fallback
 
     def tr(self, key):
-        return self.translations.get(self.current_lang, {}).get(key, key)
+        result = self.translations.get(self.current_lang, {}).get(key)
+        if result is None:
+            # Fallback to English
+            result = self.translations.get("en", {}).get(key)
+            
+        if result is None:
+            # Log missing key in debug mode
+            if DEBUG_I18N and key not in I18n._missing_keys:
+                I18n._missing_keys.add(key)
+                print(f"[i18n] Missing translation key: '{key}' (lang={self.current_lang})")
+            return f"[{key}]" if DEBUG_I18N else key
+        
+        return result
+    
+    @classmethod
+    def get_missing_keys(cls):
+        """Returns set of all missing translation keys encountered."""
+        return cls._missing_keys.copy()
 
 # Blender-style singleton access
 strings = I18n()
+

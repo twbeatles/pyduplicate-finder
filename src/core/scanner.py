@@ -4,6 +4,7 @@ import os
 import platform
 import time
 import fnmatch
+import threading
 from collections import defaultdict
 import concurrent.futures
 from src.core.cache_manager import CacheManager
@@ -37,7 +38,7 @@ class ScanWorker(QThread):
         self.exclude_patterns = exclude_patterns or []  # 제외 패턴 목록
         self.use_similar_image = use_similar_image and IMAGE_HASH_AVAILABLE  # 유사 이미지 탐지
         self.similarity_threshold = similarity_threshold
-        self._is_running = True
+        self._stop_event = threading.Event() # Thread-safe cancellation signal
         self._init_protected_paths()
         self.cache_manager = CacheManager()
         self.max_workers = max_workers or (os.cpu_count() or 4)
@@ -99,11 +100,11 @@ class ScanWorker(QThread):
         return False
 
     def stop(self):
-        self._is_running = False
+        self._stop_event.set()
 
     def _emit_progress(self, value, message, force=False):
         """Thread-safe and throttled progress emission."""
-        if not self._is_running: return
+        if self._stop_event.is_set(): return
 
         current_time = time.time()
         with QMutexLocker(self._progress_mutex):
@@ -150,7 +151,7 @@ class ScanWorker(QThread):
                 else:
                     # Full Hash
                     while True:
-                        if not self._is_running: return None, False
+                        if self._stop_event.is_set(): return None, False
                         buf = f.read(block_size)
                         if not buf: break
                         hasher.update(buf)
@@ -168,7 +169,7 @@ class ScanWorker(QThread):
         try:
             with open(file1, 'rb') as f1, open(file2, 'rb') as f2:
                 while True:
-                    if not self._is_running: return False
+                    if self._stop_event.is_set(): return False
                     b1 = f1.read(buf_size)
                     b2 = f2.read(buf_size)
                     if b1 != b2: return False
@@ -182,7 +183,7 @@ class ScanWorker(QThread):
         try:
             with os.scandir(path) as it:
                 for entry in it:
-                    if not self._is_running: break
+                    if self._stop_event.is_set(): break
                     
                     if entry.is_dir(follow_symlinks=False):
                         if self.protect_system and self.is_protected(entry.path):
@@ -212,7 +213,7 @@ class ScanWorker(QThread):
         for folder in self.folders:
             # print(f"DEBUG: Scandir on {folder}")
             for entry in self._scandir_recursive(folder):
-                if not self._is_running: break
+                if self._stop_event.is_set(): break
                 
                 try:
                     # stat() result is cached in entry object on Windows usually
@@ -243,7 +244,7 @@ class ScanWorker(QThread):
         return size_map
 
     def _calculate_hashes_parallel(self, candidates, is_quick_scan=True):
-        """Helper to calculate hashes in parallel with batch DB updates."""
+        """Helper to calculate hashes in parallel with batch DB updates and Bounded Processing."""
         QUICK_SCAN_THRESHOLD = 10 * 1024 * 1024 
         hash_map = defaultdict(list)
         
@@ -253,61 +254,91 @@ class ScanWorker(QThread):
         # Batching for DB updates
         db_batch = []
         BATCH_SIZE = 100
+        
+        # Bound the number of active futures to prevent OOM
+        MAX_PENDING_TASKS = self.max_workers * 4
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             future_to_info = {}
-            for filepath in candidates:
-                if not self._is_running: break
-                
-                try:
-                    # We need size/mtime for cache lookup anyway
-                    # Since we only passed paths, we might need to stat again if we didn't store it.
-                    # Optimization: In _scan_files we could store (path, size, mtime) but that consumes more RAM.
-                    # Getting stat here again is relatively cheap (OS filesystem cache).
-                    stat = os.stat(filepath)
-                    size = stat.st_size
-                    mtime = stat.st_mtime
+            candidate_iter = iter(candidates)
+            active_futures = set()
+            
+            # Helper to process done futures
+            def process_done_futures(done_subset):
+                nonlocal processed, db_batch, future_to_info
+                for future in done_subset:
+                    active_futures.remove(future)
+                    # future_to_info might not have the future if we didn't store it or already removed it
+                    if future in future_to_info:
+                        del future_to_info[future]
                     
-                    partial = is_quick_scan and (size >= QUICK_SCAN_THRESHOLD)
+                    try:
+                        filepath, size, mtime, partial, result_tuple = future.result()
+                        digest, is_newly_calculated = result_tuple
+                        
+                        if digest:
+                            type_str = "PARTIAL" if partial else "FULL"
+                            key = (size, digest, type_str)
+                            hash_map[key].append(filepath)
+                            
+                            if is_newly_calculated:
+                                entry_partial = digest if partial else None
+                                entry_full = digest if not partial else None
+                                db_batch.append((filepath, size, mtime, entry_partial, entry_full))
+                    except Exception as e:
+                        # Log error if needed
+                        pass
                     
-                    future = executor.submit(self.get_file_hash, filepath, size, mtime, block_size=BUFFER_SIZE, partial=partial)
-                    future_to_info[future] = (filepath, size, mtime, partial)
-                except OSError:
-                    continue
+                    # Process Batch
+                    if len(db_batch) >= BATCH_SIZE:
+                        self.cache_manager.update_cache_batch(db_batch)
+                        db_batch.clear()
 
-            for future in concurrent.futures.as_completed(future_to_info):
-                if not self._is_running: 
-                    # Python 3.9+ cancel_futures 옵션으로 안전 종료
+                    processed += 1
+                    if processed % 10 == 0:
+                        percent = int((processed / total) * 40) + (0 if is_quick_scan else 50)
+                        msg = f"{strings.tr('status_hashing_progress').format(processed, total)}"
+                        self._emit_progress(percent, msg)
+
+            while True:
+                # 1. Fill queue up to limit
+                while len(active_futures) < MAX_PENDING_TASKS:
+                    if self._stop_event.is_set(): break
+                    try:
+                        filepath = next(candidate_iter)
+                        
+                        try:
+                            # We might need stat again
+                            stat = os.stat(filepath)
+                            size = stat.st_size
+                            mtime = stat.st_mtime
+                            partial = is_quick_scan and (size >= QUICK_SCAN_THRESHOLD)
+                            
+                            # Wrapper to return context with result
+                            def task_wrapper(fp, s, m, p):
+                                return fp, s, m, p, self.get_file_hash(fp, s, m, block_size=BUFFER_SIZE, partial=p)
+
+                            future = executor.submit(task_wrapper, filepath, size, mtime, partial)
+                            future_to_info[future] = filepath 
+                            active_futures.add(future)
+                        except OSError:
+                            processed += 1 # Count skipped files as processed
+                            continue
+                            
+                    except StopIteration:
+                        break
+                
+                # Check stop or done
+                if self._stop_event.is_set():
                     executor.shutdown(wait=False, cancel_futures=True)
                     break
                 
-                filepath, size, mtime, partial = future_to_info[future]
-                try:
-                    digest, is_newly_calculated = future.result()
-                    if digest:
-                        type_str = "PARTIAL" if partial else "FULL"
-                        key = (size, digest, type_str)
-                        hash_map[key].append(filepath)
-                        
-                        if is_newly_calculated:
-                            # Queue for batch update
-                            entry_partial = digest if partial else None
-                            entry_full = digest if not partial else None
-                            db_batch.append((filepath, size, mtime, entry_partial, entry_full))
-                            
-                except Exception as e:
-                    pass
+                if not active_futures:
+                    break
                 
-                # Process Batch
-                if len(db_batch) >= BATCH_SIZE:
-                    self.cache_manager.update_cache_batch(db_batch)
-                    db_batch = []
-
-                processed += 1
-                percent = int((processed / total) * 40) + (0 if is_quick_scan else 50)
-                if processed % 10 == 0: # Throttling update messages slightly
-                     msg = f"{strings.tr('status_hashing_progress').format(processed, total)}"
-                     self._emit_progress(percent, msg)
+                # 2. Wait for at least one task to complete
+                done, _ = concurrent.futures.wait(active_futures, return_when=concurrent.futures.FIRST_COMPLETED)
+                process_done_futures(done)
 
         # Flush remaining batch
         if db_batch:
@@ -327,7 +358,7 @@ class ScanWorker(QThread):
             
             # 1. File Collection
             size_map = self._scan_files()
-            if not self._is_running:
+            if self._stop_event.is_set():
                 self.scan_finished.emit({})
                 return
 
@@ -347,7 +378,7 @@ class ScanWorker(QThread):
             # 3. Quick Scan (Parallel)
             # (Size, Hash, Type) -> [paths]
             temp_hash_map = self._calculate_hashes_parallel(candidates, is_quick_scan=True)
-            if not self._is_running:
+            if self._stop_event.is_set():
                 self.scan_finished.emit({})
                 return
 
@@ -384,7 +415,7 @@ class ScanWorker(QThread):
             self.scan_finished.emit({})
         finally:
             # 스레드 종료 시 CacheManager 커넥션 정리
-            self.cache_manager.close()
+            self.cache_manager.close_all()
     
     def _run_similar_image_scan(self):
         """유사 이미지 탐지 스캔"""
@@ -400,7 +431,7 @@ class ScanWorker(QThread):
             
             for folder in self.folders:
                 for entry in self._scandir_recursive(folder):
-                    if not self._is_running:
+                    if self._stop_event.is_set():
                         self.scan_finished.emit({})
                         return
                     
@@ -414,22 +445,60 @@ class ScanWorker(QThread):
             
             self._emit_progress(10, strings.tr("status_found_images").format(len(image_files)), force=True)
             
-            # 2. pHash 계산
+            # 2. pHash 계산 (병렬 처리)
             hash_results = {}
             total = len(image_files)
+            processed = 0
             
-            for idx, path in enumerate(image_files):
-                if not self._is_running:
-                    self.scan_finished.emit({})
-                    return
+            # Bounded parallel execution
+            MAX_PENDING = self.max_workers * 4
+            
+            with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                futures = {}
+                file_iter = iter(image_files)
+                active_futures = set()
                 
-                hash_val = self.image_hasher.calculate_phash(path)
-                if hash_val:
-                    hash_results[path] = hash_val
+                def submit_task():
+                    try:
+                        path = next(file_iter)
+                        future = executor.submit(self.image_hasher.calculate_phash, path)
+                        futures[future] = path
+                        active_futures.add(future)
+                        return True
+                    except StopIteration:
+                        return False
                 
-                if (idx + 1) % 10 == 0:
-                    percent = int((idx / total) * 50) + 10
-                    self._emit_progress(percent, strings.tr("status_hashing_image").format(idx + 1, total))
+                # Initial batch
+                for _ in range(min(MAX_PENDING, total)):
+                    if not submit_task():
+                        break
+                
+                while active_futures:
+                    if self._stop_event.is_set():
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        self.scan_finished.emit({})
+                        return
+                    
+                    done, _ = concurrent.futures.wait(active_futures, return_when=concurrent.futures.FIRST_COMPLETED)
+                    
+                    for future in done:
+                        active_futures.remove(future)
+                        path = futures.pop(future, None)
+                        
+                        try:
+                            hash_val = future.result()
+                            if hash_val:
+                                hash_results[path] = hash_val
+                        except:
+                            pass
+                        
+                        processed += 1
+                        if processed % 10 == 0:
+                            percent = int((processed / total) * 50) + 10
+                            self._emit_progress(percent, strings.tr("status_hashing_image").format(processed, total))
+                        
+                        # Submit next task
+                        submit_task()
             
             # 3. 유사 이미지 그룹핑
             self._emit_progress(60, strings.tr("status_grouping"), force=True)
@@ -442,11 +511,11 @@ class ScanWorker(QThread):
                 hash_results, 
                 threshold=self.similarity_threshold,
                 progress_callback=grouping_progress,
-                check_cancel=lambda: not self._is_running
+                check_cancel=lambda: self._stop_event.is_set()
             )
             
             # 취소 확인
-            if not self._is_running:
+            if self._stop_event.is_set():
                 self.scan_finished.emit({})
                 return
             
@@ -471,8 +540,8 @@ class ScanWorker(QThread):
             self._emit_progress(0, f"Error: {e}")
             self.scan_finished.emit({})
         finally:
-            # 스레드 종료 시 CacheManager 커넥션 정리
-            self.cache_manager.close()
+            # 스레드 종료 시 CacheManager 커넥션 정리 (모든 스레드)
+            self.cache_manager.close_all()
 
 
     def _process_final_group(self, file_hash, size, paths, final_duplicates):
@@ -498,7 +567,7 @@ class ScanWorker(QThread):
         byte_groups = []
         
         while pending:
-            if not self._is_running: break
+            if self._stop_event.is_set(): break
             basis = pending.pop(0)
             current_byte_group = [basis]
             non_matches = []

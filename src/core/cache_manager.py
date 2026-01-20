@@ -2,22 +2,31 @@ import sqlite3
 import os
 import platform
 import threading
+import weakref
 
 class CacheManager:
     def __init__(self, db_path="scan_cache.db"):
         self.db_path = db_path
         self._local = threading.local()
+        # Track all connections for proper cleanup
+        self._connections_lock = threading.Lock()
+        self._connections = weakref.WeakSet()
         # Initialize immediately (creation/migration)
         self._init_db()
 
     def _get_conn(self):
         """Thread-local connection factory"""
         if not hasattr(self._local, "conn"):
-            self._local.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
             # Optimize for high concurrency
-            self._local.conn.execute("PRAGMA synchronous=NORMAL;")
-            self._local.conn.execute("PRAGMA cache_size=-64000;") # 64MB cache
+            conn.execute("PRAGMA synchronous=NORMAL;")
+            conn.execute("PRAGMA cache_size=-64000;") # 64MB cache
+            self._local.conn = conn
+            # Track this connection
+            with self._connections_lock:
+                self._connections.add(conn)
         return self._local.conn
+
 
     def _init_db(self):
         """Initialize SQLite table with generic hash columns"""
@@ -172,7 +181,7 @@ class CacheManager:
             print(f"Batch Update Error: {e}")
 
     def close(self):
-        """Close the thread-local database connection."""
+        """Close the current thread's database connection."""
         if hasattr(self._local, "conn"):
             try:
                 self._local.conn.close()
@@ -180,6 +189,25 @@ class CacheManager:
             except:
                 pass
     
-    def __del__(self):
-        """Destructor to clean up thread-local connection on garbage collection."""
+    def close_all(self):
+        """Close ALL tracked database connections (from all threads)."""
+        # First close current thread's connection
         self.close()
+        
+        # Close all tracked connections
+        with self._connections_lock:
+            for conn in list(self._connections):
+                try:
+                    conn.close()
+                except:
+                    pass
+            # WeakSet will auto-clean, but clear explicitly
+            self._connections = weakref.WeakSet()
+    
+    def __del__(self):
+        """Destructor to clean up all connections on garbage collection."""
+        try:
+            self.close_all()
+        except:
+            pass
+

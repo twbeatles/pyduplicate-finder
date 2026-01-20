@@ -4,7 +4,7 @@
 
 ## 1. 프로젝트 정체성 (Project Identity)
 - **이름**: PyDuplicate Finder Pro
-- **버전**: 1.1.0
+- **버전**: 1.2.0
 - **목적**: 고성능 멀티스레드 중복 파일 탐색기 및 안전한 정리 도구
 - **기술 스택**: Python 3.9+, PySide6 (Qt for Python), SQLite (Caching, WAL), Standard Libs
 
@@ -21,13 +21,13 @@ duplicate_finder/
     │   ├── scanner.py             # ScanWorker: 멀티스레드 파일 스캔, 해싱, Inode 중복 체크
     │   ├── cache_manager.py       # CacheManager: SQLite 기반 해시 캐시 (WAL 모드, Thread-safe)
     │   ├── history.py             # HistoryManager: Undo/Redo 트랜잭션 및 안전한 임시 삭제 관리
-    │   ├── empty_folder_finder.py # EmptyFolderFinder: 재귀적 빈 폴더 탐색 알고리즘
-    │   ├── file_ops.py            # FileOperationWorker: 비동기 파일 삭제/복구 처리
-    │   ├── image_hash.py          # ImageHasher: pHash 기반 유사 이미지 탐지
+    │   ├── empty_folder_finder.py # EmptyFolderFinder + EmptyFolderWorker: 비동기 빈 폴더 탐색
+    │   ├── file_ops.py            # FileOperationWorker: 비동기 파일 삭제/복구 처리 (stop 지원)
+    │   ├── image_hash.py          # ImageHasher: pHash 기반 유사 이미지 탐지 (BK-Tree)
     │   ├── file_lock_checker.py   # FileLockChecker: 파일 잠금 상태 확인
-    │   └── preset_manager.py      # PresetManager: 스캔 설정 프리셋 관리
+    │   └── preset_manager.py      # PresetManager: 스캔 설정 프리셋 관리 (기본값 병합)
     ├── ui/                  [Presentation Layer]
-    │   ├── main_window.py         # DuplicateFinderApp: 메인 GUI, 글로벌 에러 핸들링
+    │   ├── main_window.py         # DuplicateFinderApp: 메인 GUI, scan_results 동기화
     │   ├── theme.py               # ModernTheme: 라이트/다크 테마 스타일시트
     │   ├── empty_folder_dialog.py # EmptyFolderDialog: 빈 폴더 정리용 모달 다이얼로그
     │   ├── components/
@@ -35,9 +35,9 @@ duplicate_finder/
     │   └── dialogs/
     │       ├── preset_dialog.py           # 프리셋 관리 다이얼로그
     │       ├── exclude_patterns_dialog.py # 제외 패턴 설정 다이얼로그
-    │       └── shortcut_settings_dialog.py # 단축키 설정 다이얼로그
+    │       └── shortcut_settings_dialog.py # 단축키 설정 다이얼로그 (테마 상속)
     └── utils/               [Utilities]
-        └── i18n.py                # 다국어 문자열 상수 관리 (한국어/영어)
+        └── i18n.py                # 다국어 문자열 관리 (DEBUG_I18N 지원)
 ```
 
 ## 3. 핵심 클래스 및 상세 명세 (Key Classes & Specifications)
@@ -53,10 +53,12 @@ duplicate_finder/
 - **구현 특징**:
     - **Inode Check**: 심볼릭/하드 링크 중복 방지를 위해 `(dev, ino)` 쌍을 추적.
     - **ThreadPoolExecutor**: `get_file_hash` 메서드를 병렬로 실행.
+    - **Parallel pHash**: 유사 이미지 스캔 시 pHash도 병렬 계산.
     - **Progress Throttling**: 100ms 간격으로 진행률 업데이트.
     - **1MB Buffer**: 대용량 파일 읽기 성능 최적화.
-    - **Resource Cleanup**: `finally` 블록에서 `cache_manager.close()` 호출로 커넥션 정리.
-    - **Cancel Safety**: 취소 시 `scan_finished.emit({})` 호출 보장.
+    - **Resource Cleanup**: `finally` 블록에서 `cache_manager.close_all()` 호출로 모든 스레드 커넥션 정리.
+    - **Cancel Safety**: `threading.Event`를 사용한 스레드 안전 취소 신호 및 즉각적인 중단 보장.
+    - **Bounded Execution**: `ThreadPoolExecutor`의 작업 큐 크기를 제한하여 대용량 스캔 시 메모리 폭증(OOM) 방지.
 
 ### B. `src.core.cache_manager.CacheManager`
 스캔 속도를 가속화하기 위한 영구 캐시 저장소입니다.
@@ -65,11 +67,13 @@ duplicate_finder/
     - **WAL Mode**: `PRAGMA journal_mode=WAL` 적용.
     - **Synchronous NORMAL**: 디스크 동기화 오버헤드 감소.
     - **Thread-Local**: `threading.local()`을 사용하여 스레드별 독립적인 커넥션 유지.
+    - **Connection Tracking**: `weakref.WeakSet`으로 모든 커넥션 추적, `close_all()`로 일괄 정리.
 
 ### C. `src.core.history.HistoryManager`
 파괴적인 작업(삭제)에 대한 안전장치입니다.
 - **트랜잭션 단위**: 한 번의 '삭제' 작업에 포함된 파일들을 하나의 트랜잭션으로 관리.
 - **복구 로직 (`undo`)**: 백업 확인 -> 부모 폴더 재생성 -> 파일 이동.
+- **안전한 백업**: `UUID`와 타임스탬프를 결합한 고유 파일명 생성으로, 동시 삭제 시 파일명 충돌(데이터 유실) 방지.
 - **자동 정리**: `atexit.register(self.cleanup)`으로 프로그램 종료 시 임시 폴더 자동 정리.
 - **비동기 처리**: `FileOperationWorker`를 통해 UI 프리징 없이 실행.
 
@@ -81,6 +85,7 @@ duplicate_finder/
 ### E. `src.core.image_hash.ImageHasher`
 유사 이미지 탐지를 위한 pHash(Perceptual Hash) 엔진입니다.
 - **알고리즘**: `imagehash` 라이브러리의 pHash 사용.
+- **고속 그룹핑 (BK-Tree)**: **BK-Tree**와 **Union-Find** 알고리즘을 도입하여, 기존 $O(N^2)$ 비교 방식을 $O(N \log N)$ 수준으로 혁신적으로 개선.
 - **유사도**: 해밍 거리(Hamming Distance)를 기반으로 0.0 ~ 1.0 사이의 유사도 계산.
 - **그룹핑**: progress_callback, check_cancel 콜백으로 진행률 보고 및 취소 지원.
 
@@ -117,3 +122,4 @@ duplicate_finder/
 | Pillow | >=9.0.0 | 이미지 처리 |
 | send2trash | >=1.8.0 | 휴지통 기능 |
 | psutil | >=5.9.0 | 파일 잠금 프로세스 확인 |
+| uuid | (Std Lib) | 백업 파일명 충돌 방지 |

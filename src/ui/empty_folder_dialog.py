@@ -5,32 +5,10 @@ Empty folder finder dialog with async scanning support.
 
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QPushButton, QListWidget, 
                                QLabel, QMessageBox, QHBoxLayout, QFrame, QApplication)
-from PySide6.QtCore import Qt, QThread, Signal
-from src.core.empty_folder_finder import EmptyFolderFinder
+from PySide6.QtCore import Qt
+from src.core.empty_folder_finder import EmptyFolderFinder, EmptyFolderWorker
 from src.utils.i18n import strings
 from src.ui.theme import ModernTheme
-
-
-class EmptyFolderWorker(QThread):
-    """빈 폴더 검색을 비동기로 수행하는 워커 스레드"""
-    progress = Signal(str)
-    finished = Signal(list)
-    
-    def __init__(self, folders, parent=None):
-        super().__init__(parent)
-        self.folders = folders
-        self._is_running = True
-    
-    def run(self):
-        finder = EmptyFolderFinder(self.folders)
-        empties = finder.find_empty_folders(check_cancel=lambda: not self._is_running)
-        if self._is_running:
-            self.finished.emit(empties)
-        else:
-            self.finished.emit([])
-    
-    def stop(self):
-        self._is_running = False
 
 
 class EmptyFolderDialog(QDialog):

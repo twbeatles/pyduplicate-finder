@@ -13,6 +13,10 @@ class FileOperationWorker(QThread):
         self.use_trash = use_trash
         self.is_running = True
 
+    def stop(self):
+        """Issue #25: Allow external cancellation of operation."""
+        self.is_running = False
+
     def run(self):
         try:
             if self.op_type == 'delete':

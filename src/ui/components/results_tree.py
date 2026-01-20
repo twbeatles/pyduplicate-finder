@@ -177,10 +177,11 @@ class ResultsTreeWidget(QTreeWidget):
         for p in paths:
             child = QTreeWidgetItem(group_item)
             
-            # Display filename with type-specific icon
+            # Display full path with type-specific icon
             filename = os.path.basename(p)
             icon = self._get_file_icon(p)
-            child.setText(0, f"  {icon} {filename}")
+            # User requested full path display
+            child.setText(0, f"  {icon} {p}")
             child.setToolTip(0, p)  # Full path in tooltip
             
             child.setText(1, size_str)
@@ -220,15 +221,3 @@ class ResultsTreeWidget(QTreeWidget):
                 checked.append(path)
             iterator += 1
         return checked
-
-    def expand_all_groups(self):
-        """모든 그룹을 확장"""
-        root = self.invisibleRootItem()
-        for i in range(root.childCount()):
-            root.child(i).setExpanded(True)
-    
-    def collapse_all_groups(self):
-        """모든 그룹을 축소"""
-        root = self.invisibleRootItem()
-        for i in range(root.childCount()):
-            root.child(i).setExpanded(False)

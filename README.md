@@ -24,7 +24,7 @@
 
 ### 🎨 모던 UI & 사용자 경험
 - **다양한 스캔 모드**: 
-    - **유사 이미지 탐지 (pHash)**: 시각적으로 비슷한 이미지(리사이즈, 변형 등)를 찾아냅니다.
+    - **유사 이미지 탐지 (pHash + BK-Tree)**: **BK-Tree** 알고리즘을 도입하여 수천 장의 이미지도 $O(N \log N)$ 속도로 순식간에 분석합니다. 시각적으로 비슷한 이미지(리사이즈, 변형 등)를 찾아냅니다.
     - **파일명 비교**: 파일 내용은 다르더라도 이름이 같은 파일들을 빠르게 찾아냅니다.
 - **제외 패턴 (Exclude Patterns)**: `node_modules`, `.git`, `*.tmp` 등 원하지 않는 폴더나 파일을 스캔에서 제외할 수 있습니다.
 - **스캔 프리셋**: 자주 사용하는 스캔 설정(유사 이미지 모드, 특정 확장자 등)을 프리셋으로 저장하고 불러올 수 있습니다.
@@ -170,7 +170,8 @@ pyinstaller PyDuplicateFinder.spec
 | 캐싱 | SQLite (WAL 모드) |
 | 해싱 | BLAKE2b |
 | 이미지 분석 | pHash (imagehash) |
-| 병렬 처리 | concurrent.futures.ThreadPoolExecutor |
+| 병렬 처리 | concurrent.futures (Bounded Executor) |
+| 이미지 그룹핑 | BK-Tree + Union-Find |
 
 ---
 

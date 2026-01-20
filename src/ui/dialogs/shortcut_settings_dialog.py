@@ -45,16 +45,11 @@ class ShortcutSettingsDialog(QDialog):
         self.setWindowTitle(strings.tr("dlg_shortcuts_title"))
         self.setMinimumSize(550, 500)
         
-        # Force light theme for this dialog as requested
-        self.setStyleSheet("""
-            QDialog { background-color: #ffffff; color: #000000; }
-            QLabel { color: #333333; }
-            QTableWidget { background-color: #ffffff; color: #000000; gridline-color: #e0e0e0; }
-            QHeaderView::section { background-color: #f0f0f0; color: #000000; border: 1px solid #d0d0d0; }
-            QPushButton { background-color: #f0f0f0; color: #000000; border: 1px solid #c0c0c0; border-radius: 4px; padding: 6px; }
-            QPushButton:hover { background-color: #e0e0e0; }
-            QLineEdit { background-color: #ffffff; color: #000000; border: 1px solid #c0c0c0; }
-        """)
+        # Issue #26: Inherit parent theme instead of hardcoded light theme
+        if parent and hasattr(parent, 'settings'):
+            from src.ui.theme import ModernTheme
+            theme = parent.settings.value("app/theme", "light")
+            self.setStyleSheet(ModernTheme.get_stylesheet(theme))
         
         self.init_ui()
         self.populate_table()

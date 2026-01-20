@@ -73,7 +73,12 @@ class PresetManager:
             with open(path, 'r', encoding='utf-8') as f:
                 preset_data = json.load(f)
             
-            return preset_data.get('config', {})
+            loaded_config = preset_data.get('config', {})
+            
+            # Issue #16: Merge with defaults to ensure all keys exist
+            default = get_default_config()
+            default.update(loaded_config)
+            return default
         except Exception as e:
             print(f"Error loading preset: {e}")
             return None

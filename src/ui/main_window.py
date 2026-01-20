@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QLabel, QProgressBar, QCheckBox, QMessageBox, QGroupBox, QTreeWidget, QTreeWidgetItem, QToolBar, QSpinBox, QLineEdit, QMenu, QSplitter, QTextEdit, QScrollArea, QStyle, QProgressDialog, QToolButton, QSizePolicy, QListWidget, QDoubleSpinBox)
+from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QLabel, QProgressBar, QCheckBox, QMessageBox, QGroupBox, QTreeWidget, QTreeWidgetItem, QToolBar, QSpinBox, QLineEdit, QMenu, QSplitter, QTextEdit, QScrollArea, QStyle, QProgressDialog, QToolButton, QSizePolicy, QListWidget, QDoubleSpinBox, QInputDialog, QStackedWidget, QFrame)
 from PySide6.QtCore import Qt, Slot, QSize, QSettings, QTimer
 from PySide6.QtGui import QAction, QKeySequence, QIcon, QPixmap, QFont, QCursor
 
@@ -19,17 +19,20 @@ from src.core.preset_manager import PresetManager, get_default_config
 from src.core.file_lock_checker import FileLockChecker
 from src.ui.empty_folder_dialog import EmptyFolderDialog
 from src.ui.components.results_tree import ResultsTreeWidget
+from src.ui.components.sidebar import Sidebar
+from src.ui.components.toast import ToastManager
 from src.ui.dialogs.preset_dialog import PresetDialog
 from src.ui.dialogs.exclude_patterns_dialog import ExcludePatternsDialog
 from src.ui.dialogs.shortcut_settings_dialog import ShortcutSettingsDialog
 from src.utils.i18n import strings
 from src.ui.theme import ModernTheme
 
+
 class DuplicateFinderApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(strings.tr("app_title"))
-        self.resize(1100, 800)
+        self.resize(1200, 850)
         self.selected_folders = []
         self.scan_results = {}
         self.history_manager = HistoryManager()
@@ -42,6 +45,9 @@ class DuplicateFinderApp(QMainWindow):
         
         self.init_ui()
         self.create_toolbar()
+        
+        # Toast Manager for notifications
+        self.toast_manager = ToastManager(self)
         
         # Settings
         self.settings = QSettings("MySoft", "PyDuplicateFinderPro")
@@ -94,26 +100,53 @@ class DuplicateFinderApp(QMainWindow):
     def init_ui(self):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(central_widget)
-        main_layout.setSpacing(10)
-        main_layout.setContentsMargins(10, 10, 10, 10)
+        
+        # === MAIN HORIZONTAL LAYOUT: Sidebar | Content ===
+        main_h_layout = QHBoxLayout(central_widget)
+        main_h_layout.setSpacing(0)
+        main_h_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # === SIDEBAR NAVIGATION ===
+        self.sidebar = Sidebar(self)
+        self.sidebar.page_changed.connect(self._on_page_changed)
+        main_h_layout.addWidget(self.sidebar)
+        
+        # === CONTENT AREA ===
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setSpacing(0)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        
+        main_h_layout.addWidget(content_widget, 1)
+        
+        # === STACKED WIDGET FOR PAGES ===
+        self.page_stack = QStackedWidget()
+        content_layout.addWidget(self.page_stack, 1)
+        
+        # === PAGE 0: SCAN PAGE (Contains splitter with settings + results) ===
+        self.scan_page = QWidget()
+        main_layout = QVBoxLayout(self.scan_page)  # main_layout refers to scan page now
+        main_layout.setSpacing(12)
+        main_layout.setContentsMargins(16, 12, 16, 12)
+        self.page_stack.addWidget(self.scan_page)
 
         # === GLOBAL VERTICAL SPLITTER ===
         self.main_v_splitter = QSplitter(Qt.Vertical)
-        self.main_v_splitter.setHandleWidth(8) 
+        self.main_v_splitter.setHandleWidth(6) 
 
-        # === TOP CONTAINER: Settings & Scan Actions ===
+        # === TOP CONTAINER: Settings & Scan Actions (Card style) ===
         self.top_container = QWidget()
+        self.top_container.setObjectName("folder_card")
         top_main_layout = QVBoxLayout(self.top_container)
-        top_main_layout.setSpacing(8)
-        top_main_layout.setContentsMargins(0, 0, 0, 0)
+        top_main_layout.setSpacing(12)
+        top_main_layout.setContentsMargins(20, 16, 20, 16)
 
         # --- ROW 1: Folder Selection Header ---
         folder_header = QHBoxLayout()
         folder_header.setSpacing(8)
         
         folder_label = QLabel("📁 " + strings.tr("grp_search_loc"))
-        folder_label.setStyleSheet("font-weight: 600; font-size: 14px;")
+        folder_label.setObjectName("card_title")
         folder_header.addWidget(folder_label)
         
         self.btn_add_folder = QPushButton("📂 " + strings.tr("btn_add_folder"))
@@ -297,12 +330,26 @@ class DuplicateFinderApp(QMainWindow):
         self.splitter = QSplitter(Qt.Horizontal)
         self.splitter.setHandleWidth(12)
         
-        # [Left] Tree Widget
+        # [Left] Tree Widget Container
+        self.tree_container = QWidget()
+        tree_layout = QVBoxLayout(self.tree_container)
+        tree_layout.setContentsMargins(0, 0, 0, 0)
+        tree_layout.setSpacing(4)
+        
+        # Filter Input
+        self.txt_result_filter = QLineEdit()
+        self.txt_result_filter.setPlaceholderText("🔍 " + strings.tr("ph_filter_results"))
+        self.txt_result_filter.textChanged.connect(self.filter_results_tree)
+        tree_layout.addWidget(self.txt_result_filter)
+        
         self.tree_widget = ResultsTreeWidget()
         self.tree_widget.itemDoubleClicked.connect(self.open_file) 
         self.tree_widget.currentItemChanged.connect(self.update_preview)
         self.tree_widget.customContextMenuRequested.connect(self.show_context_menu)
-        self.splitter.addWidget(self.tree_widget)
+        
+        tree_layout.addWidget(self.tree_widget)
+        
+        self.splitter.addWidget(self.tree_container)
 
         # [Right] Preview Panel
         self.preview_container = QWidget()
@@ -371,12 +418,45 @@ class DuplicateFinderApp(QMainWindow):
         bottom_layout.setSpacing(12)
         bottom_layout.setContentsMargins(0, 8, 0, 0)
         
-        self.btn_select_smart = QPushButton("⚡ " + strings.tr("btn_smart_select"))
+        self.btn_select_smart = QToolButton()
+        self.btn_select_smart.setText("⚡ " + strings.tr("btn_smart_select"))
         self.btn_select_smart.setToolTip(strings.tr("tip_smart_select"))
         self.btn_select_smart.setMinimumHeight(44)
         self.btn_select_smart.setObjectName("btn_secondary")
         self.btn_select_smart.setCursor(Qt.PointingHandCursor)
+        self.btn_select_smart.setPopupMode(QToolButton.MenuButtonPopup)
         self.btn_select_smart.clicked.connect(self.select_duplicates_smart)
+        
+        # Smart Select Menu
+        self.menu_smart_select = QMenu(self)
+        
+        # 1. Smart Select (Default)
+        self.action_smart = QAction("⚡ " + strings.tr("btn_smart_select"), self)
+        self.action_smart.triggered.connect(self.select_duplicates_smart)
+        self.menu_smart_select.addAction(self.action_smart)
+        
+        self.menu_smart_select.addSeparator()
+        
+        # 2. Select Newest (Keep Oldest)
+        self.action_newest = QAction("🆕 " + strings.tr("action_select_newest"), self)
+        self.action_newest.setToolTip(strings.tr("tip_select_newest"))
+        self.action_newest.triggered.connect(self.select_duplicates_newest)
+        self.menu_smart_select.addAction(self.action_newest)
+        
+        # 3. Select Oldest (Keep Newest)
+        self.action_oldest = QAction("💾 " + strings.tr("action_select_oldest"), self)
+        self.action_oldest.setToolTip(strings.tr("tip_select_oldest"))
+        self.action_oldest.triggered.connect(self.select_duplicates_oldest)
+        self.menu_smart_select.addAction(self.action_oldest)
+        
+        self.menu_smart_select.addSeparator()
+        
+        # 4. Select by Path Pattern
+        self.action_pattern = QAction("📝 " + strings.tr("action_select_pattern"), self)
+        self.action_pattern.triggered.connect(self.select_duplicates_by_pattern)
+        self.menu_smart_select.addAction(self.action_pattern)
+
+        self.btn_select_smart.setMenu(self.menu_smart_select)
         
         self.btn_export = QPushButton("📄 " + strings.tr("btn_export"))
         self.btn_export.setMinimumHeight(44)
@@ -395,9 +475,126 @@ class DuplicateFinderApp(QMainWindow):
         bottom_layout.addWidget(self.btn_delete)
         main_layout.addLayout(bottom_layout)
 
-        # === 5. 상태 표시줄 ===
+        # === PAGE 1: RESULTS PAGE (Placeholder for now - can be used for dedicated results view) ===
+        self.results_page = QWidget()
+        results_layout = QVBoxLayout(self.results_page)
+        results_layout.setContentsMargins(16, 12, 16, 12)
+        results_lbl = QLabel("📊 " + strings.tr("nav_results"))
+        results_lbl.setObjectName("card_title")
+        results_lbl.setStyleSheet("font-size: 18px; padding: 20px;")
+        results_layout.addWidget(results_lbl)
+        results_info = QLabel(strings.tr("msg_select_file"))
+        results_info.setStyleSheet("color: palette(mid); padding: 20px;")
+        results_layout.addWidget(results_info)
+        results_layout.addStretch()
+        self.page_stack.addWidget(self.results_page)
+        
+        # === PAGE 2: TOOLS PAGE ===
+        self.tools_page = QWidget()
+        tools_layout = QVBoxLayout(self.tools_page)
+        tools_layout.setSpacing(16)
+        tools_layout.setContentsMargins(16, 12, 16, 12)
+        
+        tools_title = QLabel("🛠️ " + strings.tr("nav_tools"))
+        tools_title.setObjectName("card_title")
+        tools_title.setStyleSheet("font-size: 18px; padding: 8px 0;")
+        tools_layout.addWidget(tools_title)
+        
+        # Empty Folder Finder Card
+        empty_card = QWidget()
+        empty_card.setObjectName("folder_card")
+        empty_card_layout = QVBoxLayout(empty_card)
+        empty_card_layout.setContentsMargins(20, 16, 20, 16)
+        empty_card_layout.setSpacing(12)
+        
+        empty_title = QLabel("📁 " + strings.tr("action_empty_finder"))
+        empty_title.setObjectName("card_title")
+        empty_card_layout.addWidget(empty_title)
+        
+        btn_empty_tools = QPushButton("🔍 " + strings.tr("btn_scan_empty"))
+        btn_empty_tools.setMinimumHeight(44)
+        btn_empty_tools.setCursor(Qt.PointingHandCursor)
+        btn_empty_tools.clicked.connect(self.open_empty_finder)
+        empty_card_layout.addWidget(btn_empty_tools)
+        
+        tools_layout.addWidget(empty_card)
+        tools_layout.addStretch()
+        self.page_stack.addWidget(self.tools_page)
+        
+        # === PAGE 3: SETTINGS PAGE ===
+        self.settings_page = QWidget()
+        settings_layout = QVBoxLayout(self.settings_page)
+        settings_layout.setSpacing(16)
+        settings_layout.setContentsMargins(16, 12, 16, 12)
+        
+        settings_title = QLabel("⚙️ " + strings.tr("nav_settings"))
+        settings_title.setObjectName("card_title")
+        settings_title.setStyleSheet("font-size: 18px; padding: 8px 0;")
+        settings_layout.addWidget(settings_title)
+        
+        # Theme Card
+        theme_card = QWidget()
+        theme_card.setObjectName("folder_card")
+        theme_card_layout = QVBoxLayout(theme_card)
+        theme_card_layout.setContentsMargins(20, 16, 20, 16)
+        theme_card_layout.setSpacing(12)
+        
+        theme_title = QLabel("🌙 " + strings.tr("action_theme"))
+        theme_title.setObjectName("card_title")
+        theme_card_layout.addWidget(theme_title)
+        
+        self.btn_theme_settings = QPushButton(strings.tr("action_theme"))
+        self.btn_theme_settings.setCheckable(True)
+        self.btn_theme_settings.setMinimumHeight(44)
+        self.btn_theme_settings.setCursor(Qt.PointingHandCursor)
+        self.btn_theme_settings.clicked.connect(self.toggle_theme)
+        theme_card_layout.addWidget(self.btn_theme_settings)
+        
+        settings_layout.addWidget(theme_card)
+        
+        # Shortcuts Card
+        shortcut_card = QWidget()
+        shortcut_card.setObjectName("folder_card")
+        shortcut_card_layout = QVBoxLayout(shortcut_card)
+        shortcut_card_layout.setContentsMargins(20, 16, 20, 16)
+        shortcut_card_layout.setSpacing(12)
+        
+        shortcut_title = QLabel("⌨️ " + strings.tr("action_shortcut_settings"))
+        shortcut_title.setObjectName("card_title")
+        shortcut_card_layout.addWidget(shortcut_title)
+        
+        btn_shortcuts_settings = QPushButton(strings.tr("action_shortcut_settings"))
+        btn_shortcuts_settings.setMinimumHeight(44)
+        btn_shortcuts_settings.setCursor(Qt.PointingHandCursor)
+        btn_shortcuts_settings.clicked.connect(self.open_shortcut_settings)
+        shortcut_card_layout.addWidget(btn_shortcuts_settings)
+        
+        settings_layout.addWidget(shortcut_card)
+        
+        # Presets Card
+        preset_card = QWidget()
+        preset_card.setObjectName("folder_card")
+        preset_card_layout = QVBoxLayout(preset_card)
+        preset_card_layout.setContentsMargins(20, 16, 20, 16)
+        preset_card_layout.setSpacing(12)
+        
+        preset_title = QLabel("📋 " + strings.tr("action_preset"))
+        preset_title.setObjectName("card_title")
+        preset_card_layout.addWidget(preset_title)
+        
+        btn_preset_settings = QPushButton(strings.tr("btn_manage_presets"))
+        btn_preset_settings.setMinimumHeight(44)
+        btn_preset_settings.setCursor(Qt.PointingHandCursor)
+        btn_preset_settings.clicked.connect(self.open_preset_dialog)
+        preset_card_layout.addWidget(btn_preset_settings)
+        
+        settings_layout.addWidget(preset_card)
+        settings_layout.addStretch()
+        self.page_stack.addWidget(self.settings_page)
+
+        # === STATUS BAR (Outside stacked widget - always visible) ===
         status_container = QHBoxLayout()
-        status_container.setContentsMargins(0, 8, 0, 0)
+        status_container.setContentsMargins(16, 8, 16, 8)
         status_container.setSpacing(16)
         
         self.progress_bar = QProgressBar()
@@ -411,7 +608,7 @@ class DuplicateFinderApp(QMainWindow):
         
         status_container.addWidget(self.progress_bar)
         status_container.addWidget(self.status_label, 1)
-        main_layout.addLayout(status_container)
+        content_layout.addLayout(status_container)
 
     def retranslate_ui(self):
         """Dynamic text update for language switching"""
@@ -437,6 +634,10 @@ class DuplicateFinderApp(QMainWindow):
         self.btn_start_scan.setText("▶️ " + strings.tr("btn_start_scan"))
         self.btn_stop_scan.setText("⏹️ " + strings.tr("scan_stop"))
         
+        # New Feature: Filter Placeholder
+        if hasattr(self, 'txt_result_filter'):
+            self.txt_result_filter.setPlaceholderText("🔍 " + strings.tr("ph_filter_results"))
+
         self.tree_widget.setHeaderLabels([strings.tr("col_path"), strings.tr("col_size"), strings.tr("col_mtime"), strings.tr("col_ext")])
         self.lbl_preview_header.setText("🔍 " + strings.tr("lbl_preview"))
         
@@ -445,6 +646,19 @@ class DuplicateFinderApp(QMainWindow):
 
         self.btn_select_smart.setText("⚡ " + strings.tr("btn_smart_select"))
         self.btn_select_smart.setToolTip(strings.tr("tip_smart_select"))
+        
+        # New Feature: Menu Actions
+        if hasattr(self, 'action_smart'):
+            self.action_smart.setText("⚡ " + strings.tr("btn_smart_select"))
+        if hasattr(self, 'action_newest'):
+            self.action_newest.setText("🆕 " + strings.tr("action_select_newest"))
+            self.action_newest.setToolTip(strings.tr("tip_select_newest"))
+        if hasattr(self, 'action_oldest'):
+            self.action_oldest.setText("💾 " + strings.tr("action_select_oldest"))
+            self.action_oldest.setToolTip(strings.tr("tip_select_oldest"))
+        if hasattr(self, 'action_pattern'):
+            self.action_pattern.setText("📝 " + strings.tr("action_select_pattern"))
+
         self.btn_export.setText("📄 " + strings.tr("btn_export"))
         self.btn_delete.setText("🗑️ " + strings.tr("btn_delete_selected"))
         
@@ -491,12 +705,12 @@ class DuplicateFinderApp(QMainWindow):
         # Expand/Collapse Actions
         self.action_expand_all = QAction("➕ " + strings.tr("action_expand_all"), self)
         self.action_expand_all.setToolTip(strings.tr("action_expand_all"))
-        self.action_expand_all.triggered.connect(self.tree_widget.expand_all_groups)
+        self.action_expand_all.triggered.connect(self.tree_widget.expandAll)
         toolbar.addAction(self.action_expand_all)
         
         self.action_collapse_all = QAction("➖ " + strings.tr("action_collapse_all"), self)
         self.action_collapse_all.setToolTip(strings.tr("action_collapse_all"))
-        self.action_collapse_all.triggered.connect(self.tree_widget.collapse_all_groups)
+        self.action_collapse_all.triggered.connect(self.tree_widget.collapseAll)
         toolbar.addAction(self.action_collapse_all)
         
         toolbar.addSeparator()
@@ -732,6 +946,10 @@ class DuplicateFinderApp(QMainWindow):
         self.btn_delete.setEnabled(not scanning)
         self.btn_select_smart.setEnabled(not scanning)
         self.btn_export.setEnabled(not scanning)
+        # Issue #22: Disable folder buttons during scan
+        self.btn_add_folder.setEnabled(not scanning)
+        self.btn_add_drive.setEnabled(not scanning)
+        self.btn_clear_folders.setEnabled(not scanning)
 
     @Slot(int, str)
     def update_progress(self, val, msg):
@@ -810,12 +1028,125 @@ class DuplicateFinderApp(QMainWindow):
                 path = item.data(0, Qt.UserRole)
                 try: mtime = os.path.getmtime(path)
                 except: mtime = 0
+                files.append((path, mtime, item))
+            
+            # 스마트 선택 로직 개선 (점수 기반)
+            def calculate_score(entry):
+                path, mtime, _ = entry
+                score = 0
+                lower_path = path.lower()
+                
+                # 1. 삭제 우선순위가 높은 패턴 (높은 점수 = 삭제 대상)
+                if any(x in lower_path for x in ['/temp/', '\\temp\\', '\\appdata\\local\\temp\\', '/cache/', '\\cache\\', '.tmp']):
+                    score += 1000
+                
+                # 2. 복사본 패턴
+                if 'copy' in lower_path or ' - 복사본' in lower_path or ' - copy' in lower_path or '(1)' in lower_path:
+                    score += 500
+                    
+                # 3. 파일명 길이 (보통 원본이 짧음)
+                score += len(os.path.basename(path)) * 0.1
+                
+                # 4. 최신 파일이 보통 복사본일 확률이 높음 (또는 원본 보존 정책에 따라 다름)
+                # 여기서는 "오래된 것이 원본"이라는 가정 하에, 최신 파일 점수를 높임
+                score += mtime * 0.0000001
+                
+                return score
+
+            # 점수가 낮은 순(원본 가능성 높음)으로 정렬
+            files.sort(key=calculate_score)
+            
+            # 첫 번째(가장 원본 같은) 파일만 체크 해제, 나머지는 삭제(체크)
+            for idx, (_, _, item) in enumerate(files):
+                item.setCheckState(0, Qt.Unchecked if idx == 0 else Qt.Checked)
+
+    def select_duplicates_newest(self):
+        """Keep Oldest, Select Newest (Date based)"""
+        root = self.tree_widget.invisibleRootItem()
+        for i in range(root.childCount()):
+            group = root.child(i)
+            files = []
+            for j in range(group.childCount()):
+                item = group.child(j)
+                path = item.data(0, Qt.UserRole)
+                try: mtime = os.path.getmtime(path)
+                except: mtime = 0
                 files.append((mtime, item))
             
-            # 오래된 순 정렬 -> 첫번째(가장 오래된 것) 제외하고 모두 체크
+            # Sort by Modified Time (Ascending: Oldest first)
             files.sort(key=lambda x: x[0])
+            # Keep first (Oldest), Check others (Newer)
             for idx, (_, item) in enumerate(files):
                 item.setCheckState(0, Qt.Unchecked if idx == 0 else Qt.Checked)
+
+    def select_duplicates_oldest(self):
+        """Keep Newest, Select Oldest (Date based)"""
+        root = self.tree_widget.invisibleRootItem()
+        for i in range(root.childCount()):
+            group = root.child(i)
+            files = []
+            for j in range(group.childCount()):
+                item = group.child(j)
+                path = item.data(0, Qt.UserRole)
+                try: mtime = os.path.getmtime(path)
+                except: mtime = 0
+                files.append((mtime, item))
+            
+            # Sort by Modified Time (Descending: Newest first)
+            files.sort(key=lambda x: x[0], reverse=True)
+            # Keep first (Newest), Check others (Older)
+            for idx, (_, item) in enumerate(files):
+                item.setCheckState(0, Qt.Unchecked if idx == 0 else Qt.Checked)
+
+    def select_duplicates_by_pattern(self):
+        """Select files matching a text pattern"""
+        text, ok = QInputDialog.getText(self, strings.tr("ctx_select_pattern_title"), 
+                                      strings.tr("ctx_select_pattern_msg"))
+        if not ok or not text: return
+        
+        pattern = text.lower()
+        root = self.tree_widget.invisibleRootItem()
+        
+        count = 0
+        for i in range(root.childCount()):
+            group = root.child(i)
+            # Don't uncheck everything, just check matches. 
+            # Or should we uncheck everything first? Usually "Select" adds to selection or replaces. 
+            # Smart Select replaces. Let's make this additive or independent.
+            # Let's check ONLY matches.
+            
+            for j in range(group.childCount()):
+                item = group.child(j)
+                path = item.data(0, Qt.UserRole).lower()
+                
+                if pattern in path:
+                    item.setCheckState(0, Qt.Checked)
+                    count += 1
+        
+        self.status_label.setText(f"Selected {count} files matching '{text}'")
+
+    def filter_results_tree(self, text):
+        """Filter the result tree by filename/path"""
+        text = text.lower()
+        root = self.tree_widget.invisibleRootItem()
+        
+        for i in range(root.childCount()):
+            group = root.child(i)
+            group_visible = False
+            
+            for j in range(group.childCount()):
+                item = group.child(j)
+                path = item.data(0, Qt.UserRole).lower()
+                
+                # Simple containment check
+                if not text or text in path:
+                    item.setHidden(False)
+                    group_visible = True
+                else:
+                    item.setHidden(True)
+            
+            # Hide group if no children visible
+            group.setHidden(not group_visible)
 
     def delete_selected_files(self):
         targets = []
@@ -831,6 +1162,9 @@ class DuplicateFinderApp(QMainWindow):
             group = root.child(i)
             for j in range(group.childCount()):
                 item = group.child(j)
+                # Issue #15: Skip hidden (filtered) items
+                if item.isHidden():
+                    continue
                 if item.checkState(0) == Qt.Checked:
                     targets.append(item.data(0, Qt.UserRole))
                     self.pending_delete_items.append(item)
@@ -903,20 +1237,56 @@ class DuplicateFinderApp(QMainWindow):
         if success:
             if op_type == 'delete':
                 if hasattr(self, 'pending_delete_items'):
+                    # Issue #13: Also update scan_results
+                    deleted_paths = set()
                     for item in self.pending_delete_items:
+                        path = item.data(0, Qt.UserRole)
+                        if path:
+                            deleted_paths.add(path)
                         parent = item.parent()
                         if parent: parent.removeChild(item)
+                    
+                    # Remove deleted files from scan_results
+                    self._remove_paths_from_results(deleted_paths)
                     self.pending_delete_items = []
-            elif op_type in ('undo', 'redo'):
-                 # Refresh tree might be better but checking logic is missing.
-                 # For now, just accept the message. Ideally we should re-scan or update tree.
-                 QMessageBox.information(self, strings.tr("app_title"), message + "\n" + strings.tr("status_ready"))
+                    
+            elif op_type == 'undo':
+                # Issue #23: Recommend rescan after undo since restored files may not be in scan_results
+                if self.scan_results:
+                    self.tree_widget.populate(self.scan_results)
+                # Inform user that rescan may be needed for accurate results
+                undo_msg = message + "\n\n" + (strings.tr("msg_rescan_recommended") 
+                           if strings.tr("msg_rescan_recommended") != "msg_rescan_recommended" 
+                           else "Rescan recommended for accurate results.")
+                QMessageBox.information(self, strings.tr("app_title"), undo_msg)
+                
+            elif op_type == 'redo':
+                # For redo, just inform user - tree already reflects state
+                QMessageBox.information(self, strings.tr("app_title"), message)
             
             self.update_undo_redo_buttons()
         else:
              QMessageBox.warning(self, strings.tr("app_title"), message)
              if op_type == 'delete':
                  self.pending_delete_items = []
+    
+    def _remove_paths_from_results(self, deleted_paths):
+        """Issue #13: Remove deleted paths from scan_results dict."""
+        if not self.scan_results or not deleted_paths:
+            return
+        
+        keys_to_remove = []
+        for key, paths in self.scan_results.items():
+            # Remove deleted paths from this group
+            remaining = [p for p in paths if p not in deleted_paths]
+            if len(remaining) < 2:
+                # No duplicates left in this group
+                keys_to_remove.append(key)
+            else:
+                self.scan_results[key] = remaining
+        
+        for key in keys_to_remove:
+            del self.scan_results[key]
 
     def update_undo_redo_buttons(self):
         self.action_undo.setEnabled(bool(self.history_manager.undo_stack))
@@ -1041,6 +1411,10 @@ class DuplicateFinderApp(QMainWindow):
         # Restore Theme
         theme = self.settings.value("app/theme", "light")
         self.action_theme.setChecked(theme == "dark")
+        
+        # Issue #14: Restore Language setting
+        lang = self.settings.value("app/language", "ko")
+        strings.set_language(lang)
         
         # 단축키 로드
         shortcuts_json = self.settings.value("app/shortcuts", "")
@@ -1249,3 +1623,38 @@ class DuplicateFinderApp(QMainWindow):
         for action_id, shortcut in shortcuts.items():
             if action_id in shortcut_map and shortcut:
                 shortcut_map[action_id].setShortcut(QKeySequence(shortcut))
+    
+    def _on_page_changed(self, page_name: str):
+        """Handle sidebar navigation - switch pages and show toast"""
+        try:
+            # Page index mapping
+            page_indices = {
+                "scan": 0,
+                "results": 1,
+                "tools": 2,
+                "settings": 3,
+            }
+            
+            page_names = {
+                "scan": "🔍 " + strings.tr("nav_scan"),
+                "results": "📊 " + strings.tr("nav_results"),
+                "tools": "🛠️ " + strings.tr("nav_tools"),
+                "settings": "⚙️ " + strings.tr("nav_settings"),
+            }
+            
+            if page_name in page_indices:
+                # Switch to the selected page
+                self.page_stack.setCurrentIndex(page_indices[page_name])
+                
+                # Update status label
+                if page_name in page_names:
+                    self.status_label.setText(page_names[page_name])
+                
+                # Show toast notification
+                if hasattr(self, 'toast_manager') and self.toast_manager:
+                    self.toast_manager.info(page_names[page_name], duration=2000)
+                    
+        except Exception as e:
+            print(f"Navigation error: {page_name} - {e}")
+
+
