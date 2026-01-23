@@ -52,10 +52,10 @@ class PresetDialog(QDialog):
         save_layout = QHBoxLayout()
         
         self.txt_name = QLineEdit()
-        self.txt_name.setPlaceholderText(strings.tr("ph_preset_name") if strings.tr("ph_preset_name") != "ph_preset_name" else "Enter preset name...")
+        self.txt_name.setPlaceholderText(strings.tr("ph_preset_name"))
         save_layout.addWidget(self.txt_name, 1)
         
-        self.btn_save = QPushButton(strings.tr("btn_save_preset") if strings.tr("btn_save_preset") != "btn_save_preset" else "💾 Save")
+        self.btn_save = QPushButton(strings.tr("btn_save_preset"))
         self.btn_save.clicked.connect(self.save_preset)
         save_layout.addWidget(self.btn_save)
         
@@ -64,17 +64,17 @@ class PresetDialog(QDialog):
         # === 버튼 영역 ===
         btn_layout = QHBoxLayout()
         
-        self.btn_load = QPushButton(strings.tr("btn_load_preset") if strings.tr("btn_load_preset") != "btn_load_preset" else "📂 Load")
+        self.btn_load = QPushButton(strings.tr("btn_load_preset"))
         self.btn_load.clicked.connect(self.load_selected)
         btn_layout.addWidget(self.btn_load)
         
-        self.btn_delete = QPushButton(strings.tr("btn_delete_preset") if strings.tr("btn_delete_preset") != "btn_delete_preset" else "🗑️ Delete")
+        self.btn_delete = QPushButton(strings.tr("btn_delete_preset"))
         self.btn_delete.clicked.connect(self.delete_selected)
         btn_layout.addWidget(self.btn_delete)
         
         btn_layout.addStretch()
         
-        self.btn_close = QPushButton(strings.tr("btn_close") if strings.tr("btn_close") != "btn_close" else "Close")
+        self.btn_close = QPushButton(strings.tr("btn_close"))
         self.btn_close.clicked.connect(self.reject)
         btn_layout.addWidget(self.btn_close)
         
@@ -85,7 +85,7 @@ class PresetDialog(QDialog):
         self.preset_list.clear()
         
         for preset in self.preset_manager.list_presets():
-            item = QListWidgetItem(f"📋 {preset['name']}")
+            item = QListWidgetItem(preset['name'])
             item.setData(Qt.UserRole, preset['name'])
             if preset.get('created_at'):
                 item.setToolTip(f"Created: {preset['created_at']}")
@@ -96,14 +96,14 @@ class PresetDialog(QDialog):
         name = self.txt_name.text().strip()
         if not name:
             QMessageBox.warning(self, strings.tr("app_title"), 
-                              strings.tr("err_preset_name") if strings.tr("err_preset_name") != "err_preset_name" else "Please enter a preset name.")
+                              strings.tr("err_preset_name"))
             return
         
         # 이미 존재하는 경우 덮어쓰기 확인
         if self.preset_manager.preset_exists(name):
             res = QMessageBox.question(
                 self, strings.tr("app_title"),
-                strings.tr("confirm_overwrite_preset").format(name) if strings.tr("confirm_overwrite_preset") != "confirm_overwrite_preset" else f"Preset '{name}' already exists. Overwrite?",
+                strings.tr("confirm_overwrite_preset").format(name),
                 QMessageBox.Yes | QMessageBox.No
             )
             if res != QMessageBox.Yes:
@@ -116,7 +116,7 @@ class PresetDialog(QDialog):
             self.refresh_list()
         else:
             QMessageBox.warning(self, strings.tr("app_title"),
-                              strings.tr("err_preset_save") if strings.tr("err_preset_save") != "err_preset_save" else "Failed to save preset.")
+                              strings.tr("err_preset_save"))
     
     def load_selected(self):
         """선택된 프리셋 로드"""
@@ -132,7 +132,7 @@ class PresetDialog(QDialog):
             self.accept()
         else:
             QMessageBox.warning(self, strings.tr("app_title"),
-                              strings.tr("err_preset_load") if strings.tr("err_preset_load") != "err_preset_load" else "Failed to load preset.")
+                              strings.tr("err_preset_load"))
     
     def delete_selected(self):
         """선택된 프리셋 삭제"""
@@ -144,7 +144,7 @@ class PresetDialog(QDialog):
         
         res = QMessageBox.question(
             self, strings.tr("app_title"),
-            strings.tr("confirm_delete_preset").format(name) if strings.tr("confirm_delete_preset") != "confirm_delete_preset" else f"Delete preset '{name}'?",
+            strings.tr("confirm_delete_preset").format(name),
             QMessageBox.Yes | QMessageBox.No
         )
         
@@ -153,4 +153,4 @@ class PresetDialog(QDialog):
                 self.refresh_list()
             else:
                 QMessageBox.warning(self, strings.tr("app_title"),
-                                  strings.tr("err_preset_delete") if strings.tr("err_preset_delete") != "err_preset_delete" else "Failed to delete preset.")
+                                  strings.tr("err_preset_delete"))

@@ -36,6 +36,12 @@ class DuplicateFinderApp(QMainWindow):
         self.selected_folders = []
         self.scan_results = {}
         self.history_manager = HistoryManager()
+        self.cache_manager = CacheManager()
+        self.current_session_id = None
+        self._pending_selected_paths = []
+        self._selection_save_timer = QTimer(self)
+        self._selection_save_timer.setSingleShot(True)
+        self._selection_save_timer.timeout.connect(self._flush_selected_paths)
         
         # 새 기능 관련 인스턴스 변수
         self.preset_manager = PresetManager()
@@ -62,12 +68,17 @@ class DuplicateFinderApp(QMainWindow):
         strings.set_language(current_lang)
         self.retranslate_ui()
 
+        # Restore cached scan session/results if present
+        self._restore_cached_session()
+
         # Drag & Drop 활성화
         self.setAcceptDrops(True)
 
     def closeEvent(self, event):
         self.save_settings()
+        self._flush_selected_paths()
         self.history_manager.cleanup()
+        self.cache_manager.close_all()
         event.accept()
 
     def dragEnterEvent(self, event):
@@ -145,28 +156,27 @@ class DuplicateFinderApp(QMainWindow):
         folder_header = QHBoxLayout()
         folder_header.setSpacing(8)
         
-        folder_label = QLabel("📁 " + strings.tr("grp_search_loc"))
+        folder_label = QLabel(strings.tr("grp_search_loc"))
         folder_label.setObjectName("card_title")
         folder_header.addWidget(folder_label)
         
-        self.btn_add_folder = QPushButton("📂 " + strings.tr("btn_add_folder"))
+        self.btn_add_folder = QPushButton(strings.tr("btn_add_folder"))
         self.btn_add_folder.setMinimumHeight(32)
         self.btn_add_folder.setCursor(Qt.PointingHandCursor)
         self.btn_add_folder.clicked.connect(self.add_folder)
         
-        self.btn_add_drive = QPushButton("💾 " + strings.tr("btn_add_drive"))
+        self.btn_add_drive = QPushButton(strings.tr("btn_add_drive"))
         self.btn_add_drive.setMinimumHeight(32)
         self.btn_add_drive.setCursor(Qt.PointingHandCursor)
         self.btn_add_drive.clicked.connect(self.add_drive_dialog)
 
-        self.btn_remove_folder = QPushButton("➖")
+        self.btn_remove_folder = QPushButton(strings.tr("btn_remove_folder"))
         self.btn_remove_folder.setMinimumHeight(32)
-        self.btn_remove_folder.setFixedWidth(36)
         self.btn_remove_folder.setCursor(Qt.PointingHandCursor)
-        self.btn_remove_folder.setToolTip(strings.tr("btn_clear"))
+        self.btn_remove_folder.setToolTip(strings.tr("btn_remove_folder"))
         self.btn_remove_folder.clicked.connect(self.remove_selected_folder)
 
-        self.btn_clear_folder = QPushButton("🗑️ " + strings.tr("btn_clear"))
+        self.btn_clear_folder = QPushButton(strings.tr("btn_clear"))
         self.btn_clear_folder.setMinimumHeight(32)
         self.btn_clear_folder.setCursor(Qt.PointingHandCursor)
         self.btn_clear_folder.clicked.connect(self.clear_folders)
@@ -187,7 +197,7 @@ class DuplicateFinderApp(QMainWindow):
 
         # --- ROW 3: Collapsible Filter Options ---
         # Filter Header (Toggle Button)
-        self.btn_filter_toggle = QPushButton("⚙️ " + strings.tr("lbl_filter_options") + " ▼")
+        self.btn_filter_toggle = QPushButton(strings.tr("lbl_filter_options") + " ▼")
         self.btn_filter_toggle.setObjectName("filter_header")
         self.btn_filter_toggle.setCheckable(True)
         self.btn_filter_toggle.setChecked(True)
@@ -197,11 +207,16 @@ class DuplicateFinderApp(QMainWindow):
         
         # Filter Content Container
         self.filter_container = QWidget()
-        self.filter_container.setObjectName("filter_content")
+        self.filter_container.setObjectName("filter_card")
         filter_main_layout = QVBoxLayout(self.filter_container)
         filter_main_layout.setSpacing(12)
         filter_main_layout.setContentsMargins(12, 12, 12, 12)
         
+        # --- Filter Section: Basic Filters ---
+        self.lbl_filter_basic = QLabel(strings.tr("hdr_filters_basic"))
+        self.lbl_filter_basic.setObjectName("section_header")
+        filter_main_layout.addWidget(self.lbl_filter_basic)
+
         # --- Filter Row 1: Basic Filters ---
         row1_layout = QHBoxLayout()
         row1_layout.setSpacing(20)
@@ -209,7 +224,7 @@ class DuplicateFinderApp(QMainWindow):
         # Extension Filter
         ext_layout = QHBoxLayout()
         ext_layout.setSpacing(8)
-        self.lbl_ext = QLabel("📄 " + strings.tr("lbl_ext"))
+        self.lbl_ext = QLabel(strings.tr("lbl_ext"))
         self.lbl_ext.setObjectName("filter_label")
         ext_layout.addWidget(self.lbl_ext)
         self.txt_extensions = QLineEdit()
@@ -223,7 +238,7 @@ class DuplicateFinderApp(QMainWindow):
         # Min Size Filter
         size_layout = QHBoxLayout()
         size_layout.setSpacing(8)
-        self.lbl_min_size = QLabel("📏 " + strings.tr("lbl_min_size"))
+        self.lbl_min_size = QLabel(strings.tr("lbl_min_size"))
         self.lbl_min_size.setObjectName("filter_label")
         size_layout.addWidget(self.lbl_min_size)
         self.spin_min_size = QSpinBox()
@@ -236,39 +251,52 @@ class DuplicateFinderApp(QMainWindow):
         size_layout.addWidget(self.spin_min_size)
         row1_layout.addLayout(size_layout)
         
-        row1_layout.addWidget(self._create_separator())
-        
-        # Basic Checkboxes
-        self.chk_same_name = QCheckBox("🏷️ " + strings.tr("chk_same_name"))
-        self.chk_name_only = QCheckBox("📝 " + strings.tr("chk_name_only"))
-        self.chk_name_only.setToolTip(strings.tr("tip_name_only"))
-        
-        row1_layout.addWidget(self.chk_same_name)
-        row1_layout.addWidget(self.chk_name_only)
-        row1_layout.addStretch()
-        
         filter_main_layout.addLayout(row1_layout)
         
-        # --- Filter Row 2: Advanced Options ---
+        # --- Filter Section: Comparison ---
+        self.lbl_filter_compare = QLabel(strings.tr("hdr_filters_compare"))
+        self.lbl_filter_compare.setObjectName("section_header")
+        filter_main_layout.addWidget(self.lbl_filter_compare)
+
+        # --- Filter Row 2: Comparison Options ---
         row2_layout = QHBoxLayout()
         row2_layout.setSpacing(20)
         
-        self.chk_byte_compare = QCheckBox("🔍 " + strings.tr("chk_byte_compare"))
-        self.chk_protect_system = QCheckBox("🛡️ " + strings.tr("chk_protect_system"))
+        self.chk_same_name = QCheckBox(strings.tr("chk_same_name"))
+        self.chk_same_name.setToolTip(strings.tr("tip_same_name"))
+        self.chk_name_only = QCheckBox(strings.tr("chk_name_only"))
+        self.chk_name_only.setToolTip(strings.tr("tip_name_only"))
+        self.chk_byte_compare = QCheckBox(strings.tr("chk_byte_compare"))
+
+        row2_layout.addWidget(self.chk_same_name)
+        row2_layout.addWidget(self.chk_name_only)
+        row2_layout.addWidget(self.chk_byte_compare)
+        row2_layout.addStretch()
+
+        filter_main_layout.addLayout(row2_layout)
+
+        # --- Filter Section: Advanced ---
+        self.lbl_filter_advanced = QLabel(strings.tr("hdr_filters_advanced"))
+        self.lbl_filter_advanced.setObjectName("section_header")
+        filter_main_layout.addWidget(self.lbl_filter_advanced)
+
+        # --- Filter Row 3: Advanced Options ---
+        row3_layout = QHBoxLayout()
+        row3_layout.setSpacing(20)
+
+        self.chk_protect_system = QCheckBox(strings.tr("chk_protect_system"))
         self.chk_protect_system.setChecked(True)
-        self.chk_use_trash = QCheckBox("♻️ " + strings.tr("chk_use_trash"))
+        self.chk_use_trash = QCheckBox(strings.tr("chk_use_trash"))
         self.chk_use_trash.setToolTip(strings.tr("tip_use_trash"))
         
-        row2_layout.addWidget(self.chk_byte_compare)
-        row2_layout.addWidget(self.chk_protect_system)
-        row2_layout.addWidget(self.chk_use_trash)
-        
-        row2_layout.addWidget(self._create_separator())
+        row3_layout.addWidget(self.chk_protect_system)
+        row3_layout.addWidget(self.chk_use_trash)
+        row3_layout.addWidget(self._create_separator())
         
         # Similar Image Section
-        self.chk_similar_image = QCheckBox("🖼️ " + strings.tr("chk_similar_image"))
+        self.chk_similar_image = QCheckBox(strings.tr("chk_similar_image"))
         self.chk_similar_image.setToolTip(strings.tr("tip_similar_image"))
-        row2_layout.addWidget(self.chk_similar_image)
+        row3_layout.addWidget(self.chk_similar_image)
         
         self.lbl_similarity = QLabel(strings.tr("lbl_similarity_threshold"))
         self.spin_similarity = QDoubleSpinBox()
@@ -278,39 +306,40 @@ class DuplicateFinderApp(QMainWindow):
         self.spin_similarity.setDecimals(2)
         self.spin_similarity.setMinimumWidth(80)
         self.spin_similarity.setEnabled(False)
-        self.chk_similar_image.toggled.connect(self.spin_similarity.setEnabled)
-        
-        row2_layout.addWidget(self.lbl_similarity)
-        row2_layout.addWidget(self.spin_similarity)
-        
-        row2_layout.addWidget(self._create_separator())
+        row3_layout.addWidget(self.lbl_similarity)
+        row3_layout.addWidget(self.spin_similarity)
+        row3_layout.addWidget(self._create_separator())
         
         # Exclude Patterns Button
-        self.btn_exclude_patterns = QPushButton("🚫 " + strings.tr("btn_exclude_patterns"))
+        self.btn_exclude_patterns = QPushButton(strings.tr("btn_exclude_patterns"))
         self.btn_exclude_patterns.setMinimumHeight(32)
         self.btn_exclude_patterns.setObjectName("btn_icon")
         self.btn_exclude_patterns.setCursor(Qt.PointingHandCursor)
         self.btn_exclude_patterns.clicked.connect(self.open_exclude_patterns_dialog)
-        row2_layout.addWidget(self.btn_exclude_patterns)
+        row3_layout.addWidget(self.btn_exclude_patterns)
         
-        row2_layout.addStretch()
+        row3_layout.addStretch()
         
-        filter_main_layout.addLayout(row2_layout)
+        filter_main_layout.addLayout(row3_layout)
+
+        self.chk_name_only.toggled.connect(self._sync_filter_states)
+        self.chk_similar_image.toggled.connect(self._sync_filter_states)
         
         top_main_layout.addWidget(self.filter_container)
+        self._sync_filter_states()
 
         # --- ROW 4: Action Buttons ---
         action_layout = QHBoxLayout()
         action_layout.setSpacing(12)
         
-        self.btn_start_scan = QPushButton("▶️ " + strings.tr("btn_start_scan"))
+        self.btn_start_scan = QPushButton(strings.tr("btn_start_scan"))
         self.btn_start_scan.setMinimumHeight(40)
         self.btn_start_scan.setMinimumWidth(150)
         self.btn_start_scan.setCursor(Qt.PointingHandCursor)
         self.btn_start_scan.setObjectName("btn_primary")
         self.btn_start_scan.clicked.connect(self.start_scan)
 
-        self.btn_stop_scan = QPushButton("⏹️ " + strings.tr("scan_stop"))
+        self.btn_stop_scan = QPushButton(strings.tr("scan_stop"))
         self.btn_stop_scan.setMinimumHeight(40)
         self.btn_stop_scan.setCursor(Qt.PointingHandCursor)
         self.btn_stop_scan.clicked.connect(self.stop_scan)
@@ -318,6 +347,11 @@ class DuplicateFinderApp(QMainWindow):
 
         action_layout.addWidget(self.btn_start_scan)
         action_layout.addWidget(self.btn_stop_scan)
+        self.lbl_scan_stage = QLabel(
+            strings.tr("msg_scan_stage").format(stage=strings.tr("status_ready"))
+        )
+        self.lbl_scan_stage.setObjectName("stage_badge")
+        action_layout.addWidget(self.lbl_scan_stage)
         action_layout.addStretch()
         
         top_main_layout.addLayout(action_layout)
@@ -332,32 +366,70 @@ class DuplicateFinderApp(QMainWindow):
         
         # [Left] Tree Widget Container
         self.tree_container = QWidget()
+        self.tree_container.setObjectName("result_card")
         tree_layout = QVBoxLayout(self.tree_container)
-        tree_layout.setContentsMargins(0, 0, 0, 0)
-        tree_layout.setSpacing(4)
+        tree_layout.setContentsMargins(12, 12, 12, 12)
+        tree_layout.setSpacing(8)
+
+        # Results header
+        results_header = QHBoxLayout()
+        results_header.setSpacing(8)
+        self.lbl_results_title = QLabel(strings.tr("nav_results"))
+        self.lbl_results_title.setObjectName("results_title")
+        self.lbl_results_meta = QLabel("")
+        self.lbl_results_meta.setObjectName("results_meta")
+        results_header.addWidget(self.lbl_results_title)
+        results_header.addStretch()
+        results_header.addWidget(self.lbl_results_meta)
+        tree_layout.addLayout(results_header)
         
         # Filter Input
+        filter_row = QHBoxLayout()
         self.txt_result_filter = QLineEdit()
         self.txt_result_filter.setPlaceholderText("🔍 " + strings.tr("ph_filter_results"))
+        self.txt_result_filter.setClearButtonEnabled(True)
         self.txt_result_filter.textChanged.connect(self.filter_results_tree)
-        tree_layout.addWidget(self.txt_result_filter)
+        filter_row.addWidget(self.txt_result_filter)
+        filter_row.addStretch()
+        self.lbl_filter_count = QLabel("")
+        self.lbl_filter_count.setObjectName("filter_count")
+        filter_row.addWidget(self.lbl_filter_count)
+        tree_layout.addLayout(filter_row)
         
         self.tree_widget = ResultsTreeWidget()
         self.tree_widget.itemDoubleClicked.connect(self.open_file) 
         self.tree_widget.currentItemChanged.connect(self.update_preview)
         self.tree_widget.customContextMenuRequested.connect(self.show_context_menu)
+        self.tree_widget.files_checked.connect(self.on_checked_files_changed)
         
-        tree_layout.addWidget(self.tree_widget)
-        
+        self.results_stack = QStackedWidget()
+        self.results_stack.setObjectName("results_stack")
+
+        empty_wrap = QWidget()
+        empty_layout = QVBoxLayout(empty_wrap)
+        empty_layout.setContentsMargins(24, 24, 24, 24)
+        self.lbl_results_empty = QLabel(strings.tr("msg_no_results"))
+        self.lbl_results_empty.setAlignment(Qt.AlignCenter)
+        self.lbl_results_empty.setWordWrap(True)
+        self.lbl_results_empty.setObjectName("empty_state")
+        empty_layout.addStretch()
+        empty_layout.addWidget(self.lbl_results_empty)
+        empty_layout.addStretch()
+
+        self.results_stack.addWidget(empty_wrap)
+        self.results_stack.addWidget(self.tree_widget)
+        tree_layout.addWidget(self.results_stack)
+
         self.splitter.addWidget(self.tree_container)
 
         # [Right] Preview Panel
         self.preview_container = QWidget()
+        self.preview_container.setObjectName("preview_card")
         preview_layout = QVBoxLayout(self.preview_container)
         preview_layout.setContentsMargins(0, 0, 0, 0)
         preview_layout.setSpacing(0)
         
-        self.lbl_preview_header = QLabel("🔍 " + strings.tr("lbl_preview"))
+        self.lbl_preview_header = QLabel(strings.tr("lbl_preview"))
         self.lbl_preview_header.setAlignment(Qt.AlignCenter)
         self.lbl_preview_header.setStyleSheet("""
             font-weight: 600; 
@@ -366,6 +438,27 @@ class DuplicateFinderApp(QMainWindow):
             border-bottom: 1px solid palette(mid);
         """) 
         preview_layout.addWidget(self.lbl_preview_header)
+
+        # Preview info panel
+        self.preview_info = QWidget()
+        self.preview_info.setObjectName("preview_info")
+        info_layout = QVBoxLayout(self.preview_info)
+        info_layout.setContentsMargins(16, 12, 16, 12)
+        info_layout.setSpacing(4)
+
+        self.lbl_preview_name = QLabel("")
+        self.lbl_preview_name.setObjectName("preview_name")
+        self.lbl_preview_path = QLabel("")
+        self.lbl_preview_path.setObjectName("preview_path")
+        self.lbl_preview_path.setWordWrap(True)
+        self.lbl_preview_meta = QLabel("")
+        self.lbl_preview_meta.setObjectName("preview_meta")
+
+        info_layout.addWidget(self.lbl_preview_name)
+        info_layout.addWidget(self.lbl_preview_path)
+        info_layout.addWidget(self.lbl_preview_meta)
+        preview_layout.addWidget(self.preview_info)
+        self.preview_info.hide()
 
         # Scroll Area for preview content
         self.preview_scroll = QScrollArea()
@@ -412,14 +505,17 @@ class DuplicateFinderApp(QMainWindow):
         self.main_v_splitter.setCollapsible(0, True) # Allow collapsing top
 
         main_layout.addWidget(self.main_v_splitter)
+        self.main_v_splitter.setSizes([260, 740])
 
         # === 4. 하단 선택 및 삭제 (Fixed at bottom) ===
-        bottom_layout = QHBoxLayout()
+        self.action_bar = QWidget()
+        self.action_bar.setObjectName("action_bar")
+        bottom_layout = QHBoxLayout(self.action_bar)
         bottom_layout.setSpacing(12)
-        bottom_layout.setContentsMargins(0, 8, 0, 0)
+        bottom_layout.setContentsMargins(16, 8, 16, 8)
         
         self.btn_select_smart = QToolButton()
-        self.btn_select_smart.setText("⚡ " + strings.tr("btn_smart_select"))
+        self.btn_select_smart.setText(strings.tr("btn_smart_select"))
         self.btn_select_smart.setToolTip(strings.tr("tip_smart_select"))
         self.btn_select_smart.setMinimumHeight(44)
         self.btn_select_smart.setObjectName("btn_secondary")
@@ -431,20 +527,20 @@ class DuplicateFinderApp(QMainWindow):
         self.menu_smart_select = QMenu(self)
         
         # 1. Smart Select (Default)
-        self.action_smart = QAction("⚡ " + strings.tr("btn_smart_select"), self)
+        self.action_smart = QAction(strings.tr("btn_smart_select"), self)
         self.action_smart.triggered.connect(self.select_duplicates_smart)
         self.menu_smart_select.addAction(self.action_smart)
         
         self.menu_smart_select.addSeparator()
         
         # 2. Select Newest (Keep Oldest)
-        self.action_newest = QAction("🆕 " + strings.tr("action_select_newest"), self)
+        self.action_newest = QAction(strings.tr("action_select_newest"), self)
         self.action_newest.setToolTip(strings.tr("tip_select_newest"))
         self.action_newest.triggered.connect(self.select_duplicates_newest)
         self.menu_smart_select.addAction(self.action_newest)
         
         # 3. Select Oldest (Keep Newest)
-        self.action_oldest = QAction("💾 " + strings.tr("action_select_oldest"), self)
+        self.action_oldest = QAction(strings.tr("action_select_oldest"), self)
         self.action_oldest.setToolTip(strings.tr("tip_select_oldest"))
         self.action_oldest.triggered.connect(self.select_duplicates_oldest)
         self.menu_smart_select.addAction(self.action_oldest)
@@ -452,18 +548,18 @@ class DuplicateFinderApp(QMainWindow):
         self.menu_smart_select.addSeparator()
         
         # 4. Select by Path Pattern
-        self.action_pattern = QAction("📝 " + strings.tr("action_select_pattern"), self)
+        self.action_pattern = QAction(strings.tr("action_select_pattern"), self)
         self.action_pattern.triggered.connect(self.select_duplicates_by_pattern)
         self.menu_smart_select.addAction(self.action_pattern)
 
         self.btn_select_smart.setMenu(self.menu_smart_select)
         
-        self.btn_export = QPushButton("📄 " + strings.tr("btn_export"))
+        self.btn_export = QPushButton(strings.tr("btn_export"))
         self.btn_export.setMinimumHeight(44)
         self.btn_export.setCursor(Qt.PointingHandCursor)
         self.btn_export.clicked.connect(self.export_results)
 
-        self.btn_delete = QPushButton("🗑️ " + strings.tr("btn_delete_selected"))
+        self.btn_delete = QPushButton(strings.tr("btn_delete_selected"))
         self.btn_delete.setObjectName("btn_danger")
         self.btn_delete.setMinimumHeight(44)
         self.btn_delete.setCursor(Qt.PointingHandCursor)
@@ -473,19 +569,34 @@ class DuplicateFinderApp(QMainWindow):
         bottom_layout.addWidget(self.btn_export)
         bottom_layout.addStretch()
         bottom_layout.addWidget(self.btn_delete)
-        main_layout.addLayout(bottom_layout)
+        main_layout.addWidget(self.action_bar)
+
+        self._set_results_view(False)
+        self._update_results_summary(0)
 
         # === PAGE 1: RESULTS PAGE (Placeholder for now - can be used for dedicated results view) ===
         self.results_page = QWidget()
         results_layout = QVBoxLayout(self.results_page)
         results_layout.setContentsMargins(16, 12, 16, 12)
-        results_lbl = QLabel("📊 " + strings.tr("nav_results"))
-        results_lbl.setObjectName("card_title")
-        results_lbl.setStyleSheet("font-size: 18px; padding: 20px;")
-        results_layout.addWidget(results_lbl)
-        results_info = QLabel(strings.tr("msg_select_file"))
-        results_info.setStyleSheet("color: palette(mid); padding: 20px;")
-        results_layout.addWidget(results_info)
+        self.lbl_results_page_title = QLabel(strings.tr("nav_results"))
+        self.lbl_results_page_title.setObjectName("card_title")
+        self.lbl_results_page_title.setStyleSheet("font-size: 18px; padding: 8px 0;")
+        results_layout.addWidget(self.lbl_results_page_title)
+
+        self.lbl_results_hint = QLabel(strings.tr("msg_results_page_hint"))
+        self.lbl_results_hint.setObjectName("empty_state")
+        self.lbl_results_hint.setWordWrap(True)
+        results_layout.addWidget(self.lbl_results_hint)
+
+        self.lbl_results_page_summary = QLabel("")
+        self.lbl_results_page_summary.setObjectName("results_meta")
+        results_layout.addWidget(self.lbl_results_page_summary)
+
+        self.btn_go_scan = QPushButton(strings.tr("btn_go_scan"))
+        self.btn_go_scan.setMinimumHeight(40)
+        self.btn_go_scan.setCursor(Qt.PointingHandCursor)
+        self.btn_go_scan.clicked.connect(lambda: self._navigate_to("scan"))
+        results_layout.addWidget(self.btn_go_scan)
         results_layout.addStretch()
         self.page_stack.addWidget(self.results_page)
         
@@ -495,10 +606,15 @@ class DuplicateFinderApp(QMainWindow):
         tools_layout.setSpacing(16)
         tools_layout.setContentsMargins(16, 12, 16, 12)
         
-        tools_title = QLabel("🛠️ " + strings.tr("nav_tools"))
-        tools_title.setObjectName("card_title")
-        tools_title.setStyleSheet("font-size: 18px; padding: 8px 0;")
-        tools_layout.addWidget(tools_title)
+        self.lbl_tools_title = QLabel(strings.tr("nav_tools"))
+        self.lbl_tools_title.setObjectName("card_title")
+        self.lbl_tools_title.setStyleSheet("font-size: 18px; padding: 8px 0;")
+        tools_layout.addWidget(self.lbl_tools_title)
+
+        self.lbl_tools_hint = QLabel(strings.tr("msg_tools_page_hint"))
+        self.lbl_tools_hint.setObjectName("empty_state")
+        self.lbl_tools_hint.setWordWrap(True)
+        tools_layout.addWidget(self.lbl_tools_hint)
         
         # Empty Folder Finder Card
         empty_card = QWidget()
@@ -507,15 +623,20 @@ class DuplicateFinderApp(QMainWindow):
         empty_card_layout.setContentsMargins(20, 16, 20, 16)
         empty_card_layout.setSpacing(12)
         
-        empty_title = QLabel("📁 " + strings.tr("action_empty_finder"))
-        empty_title.setObjectName("card_title")
-        empty_card_layout.addWidget(empty_title)
+        self.lbl_empty_title = QLabel(strings.tr("action_empty_finder"))
+        self.lbl_empty_title.setObjectName("card_title")
+        empty_card_layout.addWidget(self.lbl_empty_title)
+
+        self.lbl_empty_desc = QLabel(strings.tr("msg_empty_finder_desc"))
+        self.lbl_empty_desc.setWordWrap(True)
+        self.lbl_empty_desc.setObjectName("empty_state")
+        empty_card_layout.addWidget(self.lbl_empty_desc)
         
-        btn_empty_tools = QPushButton("🔍 " + strings.tr("btn_scan_empty"))
-        btn_empty_tools.setMinimumHeight(44)
-        btn_empty_tools.setCursor(Qt.PointingHandCursor)
-        btn_empty_tools.clicked.connect(self.open_empty_finder)
-        empty_card_layout.addWidget(btn_empty_tools)
+        self.btn_empty_tools = QPushButton(strings.tr("btn_scan_empty"))
+        self.btn_empty_tools.setMinimumHeight(44)
+        self.btn_empty_tools.setCursor(Qt.PointingHandCursor)
+        self.btn_empty_tools.clicked.connect(self.open_empty_finder)
+        empty_card_layout.addWidget(self.btn_empty_tools)
         
         tools_layout.addWidget(empty_card)
         tools_layout.addStretch()
@@ -527,10 +648,15 @@ class DuplicateFinderApp(QMainWindow):
         settings_layout.setSpacing(16)
         settings_layout.setContentsMargins(16, 12, 16, 12)
         
-        settings_title = QLabel("⚙️ " + strings.tr("nav_settings"))
-        settings_title.setObjectName("card_title")
-        settings_title.setStyleSheet("font-size: 18px; padding: 8px 0;")
-        settings_layout.addWidget(settings_title)
+        self.lbl_settings_title = QLabel(strings.tr("nav_settings"))
+        self.lbl_settings_title.setObjectName("card_title")
+        self.lbl_settings_title.setStyleSheet("font-size: 18px; padding: 8px 0;")
+        settings_layout.addWidget(self.lbl_settings_title)
+
+        self.lbl_settings_hint = QLabel(strings.tr("msg_settings_page_hint"))
+        self.lbl_settings_hint.setObjectName("empty_state")
+        self.lbl_settings_hint.setWordWrap(True)
+        settings_layout.addWidget(self.lbl_settings_hint)
         
         # Theme Card
         theme_card = QWidget()
@@ -539,9 +665,9 @@ class DuplicateFinderApp(QMainWindow):
         theme_card_layout.setContentsMargins(20, 16, 20, 16)
         theme_card_layout.setSpacing(12)
         
-        theme_title = QLabel("🌙 " + strings.tr("action_theme"))
-        theme_title.setObjectName("card_title")
-        theme_card_layout.addWidget(theme_title)
+        self.lbl_theme_title = QLabel(strings.tr("action_theme"))
+        self.lbl_theme_title.setObjectName("card_title")
+        theme_card_layout.addWidget(self.lbl_theme_title)
         
         self.btn_theme_settings = QPushButton(strings.tr("action_theme"))
         self.btn_theme_settings.setCheckable(True)
@@ -559,15 +685,15 @@ class DuplicateFinderApp(QMainWindow):
         shortcut_card_layout.setContentsMargins(20, 16, 20, 16)
         shortcut_card_layout.setSpacing(12)
         
-        shortcut_title = QLabel("⌨️ " + strings.tr("action_shortcut_settings"))
-        shortcut_title.setObjectName("card_title")
-        shortcut_card_layout.addWidget(shortcut_title)
+        self.lbl_shortcut_title = QLabel(strings.tr("action_shortcut_settings"))
+        self.lbl_shortcut_title.setObjectName("card_title")
+        shortcut_card_layout.addWidget(self.lbl_shortcut_title)
         
-        btn_shortcuts_settings = QPushButton(strings.tr("action_shortcut_settings"))
-        btn_shortcuts_settings.setMinimumHeight(44)
-        btn_shortcuts_settings.setCursor(Qt.PointingHandCursor)
-        btn_shortcuts_settings.clicked.connect(self.open_shortcut_settings)
-        shortcut_card_layout.addWidget(btn_shortcuts_settings)
+        self.btn_shortcuts_settings = QPushButton(strings.tr("action_shortcut_settings"))
+        self.btn_shortcuts_settings.setMinimumHeight(44)
+        self.btn_shortcuts_settings.setCursor(Qt.PointingHandCursor)
+        self.btn_shortcuts_settings.clicked.connect(self.open_shortcut_settings)
+        shortcut_card_layout.addWidget(self.btn_shortcuts_settings)
         
         settings_layout.addWidget(shortcut_card)
         
@@ -578,15 +704,15 @@ class DuplicateFinderApp(QMainWindow):
         preset_card_layout.setContentsMargins(20, 16, 20, 16)
         preset_card_layout.setSpacing(12)
         
-        preset_title = QLabel("📋 " + strings.tr("action_preset"))
-        preset_title.setObjectName("card_title")
-        preset_card_layout.addWidget(preset_title)
+        self.lbl_preset_title = QLabel(strings.tr("action_preset"))
+        self.lbl_preset_title.setObjectName("card_title")
+        preset_card_layout.addWidget(self.lbl_preset_title)
         
-        btn_preset_settings = QPushButton(strings.tr("btn_manage_presets"))
-        btn_preset_settings.setMinimumHeight(44)
-        btn_preset_settings.setCursor(Qt.PointingHandCursor)
-        btn_preset_settings.clicked.connect(self.open_preset_dialog)
-        preset_card_layout.addWidget(btn_preset_settings)
+        self.btn_preset_settings = QPushButton(strings.tr("btn_manage_presets"))
+        self.btn_preset_settings.setMinimumHeight(44)
+        self.btn_preset_settings.setCursor(Qt.PointingHandCursor)
+        self.btn_preset_settings.clicked.connect(self.open_preset_dialog)
+        preset_card_layout.addWidget(self.btn_preset_settings)
         
         settings_layout.addWidget(preset_card)
         settings_layout.addStretch()
@@ -614,68 +740,157 @@ class DuplicateFinderApp(QMainWindow):
         """Dynamic text update for language switching"""
         self.setWindowTitle(strings.tr("app_title"))
         
-        self.btn_add_folder.setText("📂 " + strings.tr("btn_add_folder"))
-        self.btn_add_drive.setText("💾 " + strings.tr("btn_add_drive"))
-        self.btn_clear_folder.setText("🗑️ " + strings.tr("btn_clear"))
-        self.btn_remove_folder.setToolTip(strings.tr("btn_clear"))
+        self.btn_add_folder.setText(strings.tr("btn_add_folder"))
+        self.btn_add_drive.setText(strings.tr("btn_add_drive"))
+        self.btn_clear_folder.setText(strings.tr("btn_clear"))
+        self.btn_remove_folder.setText(strings.tr("btn_remove_folder"))
+        self.btn_remove_folder.setToolTip(strings.tr("btn_remove_folder"))
         
         # Labels
         if hasattr(self, 'lbl_ext'):
-            self.lbl_ext.setText("📄 " + strings.tr("lbl_ext"))
+            self.lbl_ext.setText(strings.tr("lbl_ext"))
         if hasattr(self, 'lbl_min_size'):
-            self.lbl_min_size.setText("📏 " + strings.tr("lbl_min_size"))
+            self.lbl_min_size.setText(strings.tr("lbl_min_size"))
+        if hasattr(self, 'lbl_filter_basic'):
+            self.lbl_filter_basic.setText(strings.tr("hdr_filters_basic"))
+        if hasattr(self, 'lbl_filter_compare'):
+            self.lbl_filter_compare.setText(strings.tr("hdr_filters_compare"))
+        if hasattr(self, 'lbl_filter_advanced'):
+            self.lbl_filter_advanced.setText(strings.tr("hdr_filters_advanced"))
         
         self.txt_extensions.setPlaceholderText(strings.tr("ph_ext"))
         self.spin_min_size.setSuffix(" KB")
-        self.chk_same_name.setText("🏷️ " + strings.tr("chk_same_name"))
-        self.chk_byte_compare.setText("🔍 " + strings.tr("chk_byte_compare"))
-        self.chk_protect_system.setText("🛡️ " + strings.tr("chk_protect_system"))
+        self.chk_same_name.setText(strings.tr("chk_same_name"))
+        self.chk_same_name.setToolTip(strings.tr("tip_same_name"))
+        self.chk_name_only.setText(strings.tr("chk_name_only"))
+        self.chk_name_only.setToolTip(strings.tr("tip_name_only"))
+        self.chk_byte_compare.setText(strings.tr("chk_byte_compare"))
+        self.chk_protect_system.setText(strings.tr("chk_protect_system"))
+        self.chk_use_trash.setText(strings.tr("chk_use_trash"))
+        self.chk_use_trash.setToolTip(strings.tr("tip_use_trash"))
+        self.chk_similar_image.setText(strings.tr("chk_similar_image"))
+        self.chk_similar_image.setToolTip(strings.tr("tip_similar_image"))
+        self.lbl_similarity.setText(strings.tr("lbl_similarity_threshold"))
+        if hasattr(self, 'btn_exclude_patterns'):
+            if self.exclude_patterns:
+                self.btn_exclude_patterns.setText(
+                    f"{strings.tr('btn_exclude_patterns')} ({len(self.exclude_patterns)})"
+                )
+            else:
+                self.btn_exclude_patterns.setText(strings.tr("btn_exclude_patterns"))
         
-        self.btn_start_scan.setText("▶️ " + strings.tr("btn_start_scan"))
-        self.btn_stop_scan.setText("⏹️ " + strings.tr("scan_stop"))
+        self.btn_start_scan.setText(strings.tr("btn_start_scan"))
+        self.btn_stop_scan.setText(strings.tr("scan_stop"))
         
         # New Feature: Filter Placeholder
         if hasattr(self, 'txt_result_filter'):
             self.txt_result_filter.setPlaceholderText("🔍 " + strings.tr("ph_filter_results"))
 
         self.tree_widget.setHeaderLabels([strings.tr("col_path"), strings.tr("col_size"), strings.tr("col_mtime"), strings.tr("col_ext")])
-        self.lbl_preview_header.setText("🔍 " + strings.tr("lbl_preview"))
+        self.lbl_preview_header.setText(strings.tr("lbl_preview"))
+        if hasattr(self, 'lbl_results_title'):
+            self.lbl_results_title.setText(strings.tr("nav_results"))
+        if hasattr(self, 'lbl_results_empty'):
+            self.lbl_results_empty.setText(strings.tr("msg_no_results"))
+        if hasattr(self, 'lbl_results_page_title'):
+            self.lbl_results_page_title.setText(strings.tr("nav_results"))
+        if hasattr(self, 'lbl_results_hint'):
+            self.lbl_results_hint.setText(strings.tr("msg_results_page_hint"))
+        if hasattr(self, 'btn_go_scan'):
+            self.btn_go_scan.setText(strings.tr("btn_go_scan"))
+        if hasattr(self, 'lbl_tools_title'):
+            self.lbl_tools_title.setText(strings.tr("nav_tools"))
+        if hasattr(self, 'lbl_tools_hint'):
+            self.lbl_tools_hint.setText(strings.tr("msg_tools_page_hint"))
+        if hasattr(self, 'lbl_empty_title'):
+            self.lbl_empty_title.setText(strings.tr("action_empty_finder"))
+        if hasattr(self, 'lbl_empty_desc'):
+            self.lbl_empty_desc.setText(strings.tr("msg_empty_finder_desc"))
+        if hasattr(self, 'btn_empty_tools'):
+            self.btn_empty_tools.setText(strings.tr("btn_scan_empty"))
+        if hasattr(self, 'lbl_settings_title'):
+            self.lbl_settings_title.setText(strings.tr("nav_settings"))
+        if hasattr(self, 'lbl_settings_hint'):
+            self.lbl_settings_hint.setText(strings.tr("msg_settings_page_hint"))
+        if hasattr(self, 'lbl_theme_title'):
+            self.lbl_theme_title.setText(strings.tr("action_theme"))
+        if hasattr(self, 'btn_theme_settings'):
+            self.btn_theme_settings.setText(strings.tr("action_theme"))
+        if hasattr(self, 'lbl_shortcut_title'):
+            self.lbl_shortcut_title.setText(strings.tr("action_shortcut_settings"))
+        if hasattr(self, 'btn_shortcuts_settings'):
+            self.btn_shortcuts_settings.setText(strings.tr("action_shortcut_settings"))
+        if hasattr(self, 'lbl_preset_title'):
+            self.lbl_preset_title.setText(strings.tr("action_preset"))
+        if hasattr(self, 'btn_preset_settings'):
+            self.btn_preset_settings.setText(strings.tr("btn_manage_presets"))
+        self._update_results_summary()
+        if hasattr(self, "lbl_filter_count"):
+            self.lbl_filter_count.setText("")
         
         if not self.lbl_image_preview.isVisible() and not self.txt_text_preview.isVisible():
             self.lbl_info_preview.setText(strings.tr("msg_select_file"))
 
-        self.btn_select_smart.setText("⚡ " + strings.tr("btn_smart_select"))
+        self.btn_select_smart.setText(strings.tr("btn_smart_select"))
         self.btn_select_smart.setToolTip(strings.tr("tip_smart_select"))
         
         # New Feature: Menu Actions
         if hasattr(self, 'action_smart'):
-            self.action_smart.setText("⚡ " + strings.tr("btn_smart_select"))
+            self.action_smart.setText(strings.tr("btn_smart_select"))
         if hasattr(self, 'action_newest'):
-            self.action_newest.setText("🆕 " + strings.tr("action_select_newest"))
+            self.action_newest.setText(strings.tr("action_select_newest"))
             self.action_newest.setToolTip(strings.tr("tip_select_newest"))
         if hasattr(self, 'action_oldest'):
-            self.action_oldest.setText("💾 " + strings.tr("action_select_oldest"))
+            self.action_oldest.setText(strings.tr("action_select_oldest"))
             self.action_oldest.setToolTip(strings.tr("tip_select_oldest"))
         if hasattr(self, 'action_pattern'):
-            self.action_pattern.setText("📝 " + strings.tr("action_select_pattern"))
+            self.action_pattern.setText(strings.tr("action_select_pattern"))
 
-        self.btn_export.setText("📄 " + strings.tr("btn_export"))
-        self.btn_delete.setText("🗑️ " + strings.tr("btn_delete_selected"))
+        self.btn_export.setText(strings.tr("btn_export"))
+        self.btn_delete.setText(strings.tr("btn_delete_selected"))
         
         if self.status_label.text() in ["Ready", "준비됨"]:
              self.status_label.setText(strings.tr("status_ready"))
              
         # Toolbar Actions
         if hasattr(self, 'action_undo'):
-            self.action_undo.setText("↩️ " + strings.tr("action_undo"))
+            self.action_undo.setText(strings.tr("action_undo"))
         if hasattr(self, 'action_redo'):
-            self.action_redo.setText("↪️ " + strings.tr("action_redo"))
+            self.action_redo.setText(strings.tr("action_redo"))
+        if hasattr(self, 'action_expand_all'):
+            self.action_expand_all.setText(strings.tr("action_expand_all"))
+            self.action_expand_all.setToolTip(strings.tr("action_expand_all"))
+        if hasattr(self, 'action_collapse_all'):
+            self.action_collapse_all.setText(strings.tr("action_collapse_all"))
+            self.action_collapse_all.setToolTip(strings.tr("action_collapse_all"))
+        if hasattr(self, 'action_save_results'):
+            self.action_save_results.setText(strings.tr("action_save_results"))
+        if hasattr(self, 'action_load_results'):
+            self.action_load_results.setText(strings.tr("action_load_results"))
+        if hasattr(self, 'action_shortcut_settings'):
+            self.action_shortcut_settings.setText(strings.tr("action_shortcut_settings"))
         if hasattr(self, 'action_empty_finder'):
-            self.action_empty_finder.setText("📁 " + strings.tr("action_empty_finder"))
+            self.action_empty_finder.setText(strings.tr("action_empty_finder"))
         if hasattr(self, 'action_theme'):
-            self.action_theme.setText("🌙 " + strings.tr("action_theme"))
+            self.action_theme.setText(strings.tr("action_theme"))
         if hasattr(self, 'menu_lang'):
-            self.menu_lang.setTitle("🌐 " + strings.tr("menu_lang"))
+            self.menu_lang.setTitle(strings.tr("menu_lang"))
+        if hasattr(self, 'btn_lang'):
+            self.btn_lang.setText(strings.tr("menu_lang"))
+        if hasattr(self, 'action_lang_ko'):
+            self.action_lang_ko.setText(strings.tr("lang_ko"))
+        if hasattr(self, 'action_lang_en'):
+            self.action_lang_en.setText(strings.tr("lang_en"))
+        if hasattr(self, 'btn_preset'):
+            self.btn_preset.setText(strings.tr("action_preset"))
+
+        if hasattr(self, 'sidebar'):
+            self.sidebar.retranslate()
+
+        if hasattr(self, 'btn_filter_toggle'):
+            self._toggle_filter_panel(self.btn_filter_toggle.isChecked())
+        if hasattr(self, 'lbl_scan_stage'):
+            self._set_scan_stage(self.status_label.text())
 
     def create_toolbar(self):
         toolbar = QToolBar("Main Toolbar")
@@ -688,13 +903,13 @@ class DuplicateFinderApp(QMainWindow):
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         
         # Actions
-        self.action_undo = QAction("↩️ " + strings.tr("action_undo"), self)
+        self.action_undo = QAction(strings.tr("action_undo"), self)
         self.action_undo.setShortcut(QKeySequence.Undo)
         self.action_undo.triggered.connect(self.perform_undo)
         self.action_undo.setEnabled(False)
         toolbar.addAction(self.action_undo)
 
-        self.action_redo = QAction("↪️ " + strings.tr("action_redo"), self)
+        self.action_redo = QAction(strings.tr("action_redo"), self)
         self.action_redo.setShortcut(QKeySequence.Redo)
         self.action_redo.triggered.connect(self.perform_redo)
         self.action_redo.setEnabled(False)
@@ -703,12 +918,12 @@ class DuplicateFinderApp(QMainWindow):
         toolbar.addSeparator()
         
         # Expand/Collapse Actions
-        self.action_expand_all = QAction("➕ " + strings.tr("action_expand_all"), self)
+        self.action_expand_all = QAction(strings.tr("action_expand_all"), self)
         self.action_expand_all.setToolTip(strings.tr("action_expand_all"))
         self.action_expand_all.triggered.connect(self.tree_widget.expandAll)
         toolbar.addAction(self.action_expand_all)
         
-        self.action_collapse_all = QAction("➖ " + strings.tr("action_collapse_all"), self)
+        self.action_collapse_all = QAction(strings.tr("action_collapse_all"), self)
         self.action_collapse_all.setToolTip(strings.tr("action_collapse_all"))
         self.action_collapse_all.triggered.connect(self.tree_widget.collapseAll)
         toolbar.addAction(self.action_collapse_all)
@@ -716,23 +931,23 @@ class DuplicateFinderApp(QMainWindow):
         toolbar.addSeparator()
         
         # 결과 저장/불러오기
-        self.action_save_results = QAction("💾 " + strings.tr("action_save_results"), self)
+        self.action_save_results = QAction(strings.tr("action_save_results"), self)
         self.action_save_results.setShortcut(QKeySequence.Save)
         self.action_save_results.triggered.connect(self.save_scan_results)
         toolbar.addAction(self.action_save_results)
         
-        self.action_load_results = QAction("📂 " + strings.tr("action_load_results"), self)
+        self.action_load_results = QAction(strings.tr("action_load_results"), self)
         self.action_load_results.setShortcut(QKeySequence.Open)
         self.action_load_results.triggered.connect(self.load_scan_results)
         toolbar.addAction(self.action_load_results)
         
         toolbar.addSeparator()
 
-        self.action_empty_finder = QAction("📁 " + strings.tr("action_empty_finder"), self)
+        self.action_empty_finder = QAction(strings.tr("action_empty_finder"), self)
         self.action_empty_finder.triggered.connect(self.open_empty_finder)
         toolbar.addAction(self.action_empty_finder)
 
-        self.action_theme = QAction("🌙 " + strings.tr("action_theme"), self)
+        self.action_theme = QAction(strings.tr("action_theme"), self)
         self.action_theme.setCheckable(True)
         self.action_theme.triggered.connect(self.toggle_theme)
         toolbar.addAction(self.action_theme)
@@ -740,9 +955,9 @@ class DuplicateFinderApp(QMainWindow):
         toolbar.addSeparator()
         
         # 프리셋 메뉴
-        btn_preset = QToolButton(self)
-        btn_preset.setText("📋 " + strings.tr("action_preset"))
-        btn_preset.setPopupMode(QToolButton.InstantPopup)
+        self.btn_preset = QToolButton(self)
+        self.btn_preset.setText(strings.tr("action_preset"))
+        self.btn_preset.setPopupMode(QToolButton.InstantPopup)
         
         self.menu_preset = QMenu(self)
         action_save_preset = QAction(strings.tr("btn_save_preset"), self)
@@ -753,33 +968,33 @@ class DuplicateFinderApp(QMainWindow):
         action_manage_presets.triggered.connect(self.open_preset_dialog)
         self.menu_preset.addAction(action_manage_presets)
         
-        btn_preset.setMenu(self.menu_preset)
-        toolbar.addWidget(btn_preset)
+        self.btn_preset.setMenu(self.menu_preset)
+        toolbar.addWidget(self.btn_preset)
         
         # 단축키 설정
-        self.action_shortcut_settings = QAction("⌨️ " + strings.tr("action_shortcut_settings"), self)
+        self.action_shortcut_settings = QAction(strings.tr("action_shortcut_settings"), self)
         self.action_shortcut_settings.triggered.connect(self.open_shortcut_settings)
         toolbar.addAction(self.action_shortcut_settings)
         
         toolbar.addSeparator()
         
         # Language Button with Menu
-        btn_lang = QToolButton(self)
-        btn_lang.setText("Language")
-        btn_lang.setPopupMode(QToolButton.InstantPopup)
+        self.btn_lang = QToolButton(self)
+        self.btn_lang.setText(strings.tr("menu_lang"))
+        self.btn_lang.setPopupMode(QToolButton.InstantPopup)
         
         self.menu_lang = QMenu(self)
         
-        action_ko = QAction(strings.tr("lang_ko"), self)
-        action_ko.triggered.connect(lambda: self.change_language("ko"))
-        self.menu_lang.addAction(action_ko)
+        self.action_lang_ko = QAction(strings.tr("lang_ko"), self)
+        self.action_lang_ko.triggered.connect(lambda: self.change_language("ko"))
+        self.menu_lang.addAction(self.action_lang_ko)
         
-        action_en = QAction(strings.tr("lang_en"), self)
-        action_en.triggered.connect(lambda: self.change_language("en"))
-        self.menu_lang.addAction(action_en)
+        self.action_lang_en = QAction(strings.tr("lang_en"), self)
+        self.action_lang_en.triggered.connect(lambda: self.change_language("en"))
+        self.menu_lang.addAction(self.action_lang_en)
         
-        btn_lang.setMenu(self.menu_lang)
-        toolbar.addWidget(btn_lang)
+        self.btn_lang.setMenu(self.menu_lang)
+        toolbar.addWidget(self.btn_lang)
 
     def change_language(self, lang_code):
         strings.set_language(lang_code)
@@ -824,7 +1039,7 @@ class DuplicateFinderApp(QMainWindow):
             background-color: {colors['hover']};
         }}
         
-        QWidget#filter_content {{
+        QWidget#filter_card {{
             border: 1px solid {colors['border']};
             border-top: none;
             border-bottom-left-radius: 8px;
@@ -850,6 +1065,8 @@ class DuplicateFinderApp(QMainWindow):
         # Action state update
         if hasattr(self, 'action_theme'):
              self.action_theme.setChecked(theme_name == "dark")
+        if hasattr(self, 'btn_theme_settings'):
+             self.btn_theme_settings.setChecked(theme_name == "dark")
 
     def toggle_theme(self, checked):
         self.apply_theme("dark" if checked else "light")
@@ -858,7 +1075,31 @@ class DuplicateFinderApp(QMainWindow):
         """Toggle visibility of the filter panel with animation"""
         self.filter_container.setVisible(checked)
         arrow = "▼" if checked else "▶"
-        self.btn_filter_toggle.setText("⚙️ " + strings.tr("lbl_filter_options") + " " + arrow)
+        self.btn_filter_toggle.setText(strings.tr("lbl_filter_options") + " " + arrow)
+
+    def _sync_filter_states(self, *_):
+        name_only = self.chk_name_only.isChecked()
+        if name_only:
+            self.chk_same_name.setChecked(False)
+            self.chk_byte_compare.setChecked(False)
+            self.chk_similar_image.setChecked(False)
+
+        self.chk_same_name.setEnabled(not name_only)
+        self.chk_byte_compare.setEnabled(not name_only)
+        self.chk_similar_image.setEnabled(not name_only)
+        self.spin_similarity.setEnabled(self.chk_similar_image.isChecked() and not name_only)
+
+    def _set_scan_stage(self, message):
+        if not hasattr(self, "lbl_scan_stage"):
+            return
+        stage = message or ""
+        for sep in (":", "("):
+            if sep in stage:
+                stage = stage.split(sep, 1)[0]
+        stage = stage.strip() or strings.tr("status_ready")
+        self.lbl_scan_stage.setText(
+            strings.tr("msg_scan_stage").format(stage=stage)
+        )
 
     # --- 기능 구현: 드라이브 및 폴더 ---
 
@@ -904,10 +1145,13 @@ class DuplicateFinderApp(QMainWindow):
             self.list_folders.takeItem(current_row)
             if current_row < len(self.selected_folders):
                 del self.selected_folders[current_row]
+        else:
+            # Issue #12: Show feedback when no folder is selected
+            self.status_label.setText(strings.tr("lbl_no_selection"))
 
     # --- 기능 구현: 스캔 ---
     # --- 기능 구현: 스캔 ---
-    def start_scan(self):
+    def start_scan(self, force_new=False):
         if not self.selected_folders:
             QMessageBox.warning(self, strings.tr("app_title"), strings.tr("err_no_folder"))
             return
@@ -916,8 +1160,40 @@ class DuplicateFinderApp(QMainWindow):
         extensions = [x.strip() for x in raw_ext.split(',')] if raw_ext.strip() else None
         min_size = self.spin_min_size.value()
 
+        current_config = self._get_current_config()
+        hash_config = self._get_scan_hash_config(current_config)
+        config_hash = self.cache_manager.get_config_hash(hash_config)
+        resumable = None
+        if not force_new:
+            resumable = self.cache_manager.find_resumable_session_by_hash(config_hash)
+        session_id = None
+        use_cached_files = False
+
+        if resumable:
+            session_id = resumable.get("id")
+            use_cached_files = resumable.get("stage") in ("collected", "hashing", "completed")
+            if not use_cached_files:
+                self.cache_manager.clear_scan_files(session_id)
+        else:
+            session_id = self.cache_manager.create_scan_session(current_config, config_hash=config_hash)
+            self.cache_manager.clear_selected_paths(session_id)
+
+        if not session_id:
+            use_cached_files = False
+            session_id = None
+
+        self.current_session_id = session_id
+        self._pending_selected_paths = []
+
+        self._previous_results = self.scan_results
+        self._previous_selected_paths = self.tree_widget.get_checked_files()
+
         self.tree_widget.clear()
+        self.scan_results = {}
+        self._set_results_view(False)
+        self._update_results_summary(0)
         self.toggle_ui_state(scanning=True)
+        self._set_scan_stage(strings.tr("status_collecting_files"))
         
         self.worker = ScanWorker(
             self.selected_folders, 
@@ -929,10 +1205,14 @@ class DuplicateFinderApp(QMainWindow):
             exclude_patterns=self.exclude_patterns,
             name_only=self.chk_name_only.isChecked(),
             use_similar_image=self.chk_similar_image.isChecked(),
-            similarity_threshold=self.spin_similarity.value()
+            similarity_threshold=self.spin_similarity.value(),
+            session_id=session_id,
+            use_cached_files=use_cached_files
         )
         self.worker.progress_updated.connect(self.update_progress)
         self.worker.scan_finished.connect(self.on_scan_finished)
+        self.worker.scan_cancelled.connect(self.on_scan_cancelled)  # Issue #3
+        self.worker.scan_failed.connect(self.on_scan_failed)
         self.worker.start()
 
     def stop_scan(self):
@@ -949,20 +1229,66 @@ class DuplicateFinderApp(QMainWindow):
         # Issue #22: Disable folder buttons during scan
         self.btn_add_folder.setEnabled(not scanning)
         self.btn_add_drive.setEnabled(not scanning)
-        self.btn_clear_folders.setEnabled(not scanning)
+        self.btn_clear_folder.setEnabled(not scanning)
+        self.btn_remove_folder.setEnabled(not scanning)
 
     @Slot(int, str)
     def update_progress(self, val, msg):
         self.progress_bar.setValue(val)
         self.status_label.setText(msg)
+        self._set_scan_stage(msg)
 
     @Slot(dict)
     def on_scan_finished(self, results):
         self.scan_results = results
+        self._previous_results = None
+        self._previous_selected_paths = []
         self.toggle_ui_state(scanning=False)
         self.progress_bar.setValue(100)
         self.status_label.setText(strings.tr("msg_scan_complete").format(len(results)))
+        self._set_scan_stage(strings.tr("status_done"))
         self.tree_widget.populate(results)
+        self.filter_results_tree(self.txt_result_filter.text())
+        self._set_results_view(bool(results))
+        self._update_results_summary(0)
+        if self.current_session_id:
+            self.cache_manager.save_scan_results(self.current_session_id, results)
+            self.cache_manager.save_selected_paths(self.current_session_id, [])
+
+    @Slot()
+    def on_scan_cancelled(self):
+        """Issue #3: Handle scan cancellation - preserve previous results"""
+        self.toggle_ui_state(scanning=False)
+        self.progress_bar.setValue(0)
+        self.status_label.setText(strings.tr("status_stopped"))
+        self._set_scan_stage(strings.tr("status_stopped"))
+        if getattr(self, "_previous_results", None):
+            self.scan_results = self._previous_results
+            self.tree_widget.populate(self.scan_results, selected_paths=self._previous_selected_paths)
+            self.filter_results_tree(self.txt_result_filter.text())
+            self._set_results_view(True)
+            self._update_results_summary(len(self._previous_selected_paths))
+        else:
+            self._set_results_view(False)
+            self._update_results_summary(0)
+
+    @Slot(str)
+    def on_scan_failed(self, message):
+        self.toggle_ui_state(scanning=False)
+        self.progress_bar.setValue(0)
+        err_msg = strings.tr("err_scan_failed").format(message)
+        self.status_label.setText(err_msg)
+        self._set_scan_stage(strings.tr("status_stopped"))
+        if getattr(self, "_previous_results", None):
+            self.scan_results = self._previous_results
+            self.tree_widget.populate(self.scan_results, selected_paths=self._previous_selected_paths)
+            self.filter_results_tree(self.txt_result_filter.text())
+            self._set_results_view(True)
+            self._update_results_summary(len(self._previous_selected_paths))
+        else:
+            self._set_results_view(False)
+            self._update_results_summary(0)
+        QMessageBox.critical(self, strings.tr("app_title"), err_msg)
 
     def populate_tree(self, results):
         self.tree_widget.populate(results)
@@ -1117,36 +1443,54 @@ class DuplicateFinderApp(QMainWindow):
             
             for j in range(group.childCount()):
                 item = group.child(j)
-                path = item.data(0, Qt.UserRole).lower()
+                path = item.data(0, Qt.UserRole) or ""
+                path = path.lower()
                 
                 if pattern in path:
                     item.setCheckState(0, Qt.Checked)
                     count += 1
         
-        self.status_label.setText(f"Selected {count} files matching '{text}'")
+        self.status_label.setText(
+            strings.tr("msg_selected_pattern").format(count=count, pattern=text)
+        )
 
     def filter_results_tree(self, text):
         """Filter the result tree by filename/path"""
         text = text.lower()
         root = self.tree_widget.invisibleRootItem()
-        
+
+        total_files = 0
+        visible_files = 0
         for i in range(root.childCount()):
             group = root.child(i)
             group_visible = False
             
             for j in range(group.childCount()):
                 item = group.child(j)
-                path = item.data(0, Qt.UserRole).lower()
+                path = item.data(0, Qt.UserRole) or ""
+                path = path.lower()
+                total_files += 1
                 
                 # Simple containment check
                 if not text or text in path:
                     item.setHidden(False)
                     group_visible = True
+                    visible_files += 1
                 else:
                     item.setHidden(True)
             
             # Hide group if no children visible
             group.setHidden(not group_visible)
+
+        if hasattr(self, "lbl_filter_count"):
+            if total_files == 0:
+                self.lbl_filter_count.setText("")
+            else:
+                self.lbl_filter_count.setText(
+                    strings.tr("msg_filter_count").format(
+                        visible=visible_files, total=total_files
+                    )
+                )
 
     def delete_selected_files(self):
         targets = []
@@ -1239,25 +1583,38 @@ class DuplicateFinderApp(QMainWindow):
                 if hasattr(self, 'pending_delete_items'):
                     # Issue #13: Also update scan_results
                     deleted_paths = set()
+                    parents = {}
                     for item in self.pending_delete_items:
                         path = item.data(0, Qt.UserRole)
                         if path:
                             deleted_paths.add(path)
                         parent = item.parent()
-                        if parent: parent.removeChild(item)
+                        if parent:
+                            parents[id(parent)] = parent
+                            parent.removeChild(item)
+
+                    for parent in parents.values():
+                        if parent.childCount() < 2:
+                            self.tree_widget.invisibleRootItem().removeChild(parent)
                     
                     # Remove deleted files from scan_results
                     self._remove_paths_from_results(deleted_paths)
                     self.pending_delete_items = []
+                    if self.current_session_id:
+                        self.cache_manager.save_scan_results(self.current_session_id, self.scan_results)
+                        self.cache_manager.save_selected_paths(
+                            self.current_session_id,
+                            self.tree_widget.get_checked_files()
+                        )
                     
             elif op_type == 'undo':
                 # Issue #23: Recommend rescan after undo since restored files may not be in scan_results
                 if self.scan_results:
                     self.tree_widget.populate(self.scan_results)
+                    self._set_results_view(True)
+                    self._update_results_summary()
                 # Inform user that rescan may be needed for accurate results
-                undo_msg = message + "\n\n" + (strings.tr("msg_rescan_recommended") 
-                           if strings.tr("msg_rescan_recommended") != "msg_rescan_recommended" 
-                           else "Rescan recommended for accurate results.")
+                undo_msg = message + "\n\n" + strings.tr("msg_rescan_recommended")
                 QMessageBox.information(self, strings.tr("app_title"), undo_msg)
                 
             elif op_type == 'redo':
@@ -1288,6 +1645,24 @@ class DuplicateFinderApp(QMainWindow):
         for key in keys_to_remove:
             del self.scan_results[key]
 
+        self._set_results_view(bool(self.scan_results))
+        self._update_results_summary()
+
+    def _prune_missing_results(self):
+        """Remove missing files from current scan_results. Returns True if changed."""
+        if not self.scan_results:
+            return False
+        missing_paths = set()
+        for paths in self.scan_results.values():
+            for path in paths:
+                if not os.path.exists(path):
+                    missing_paths.add(path)
+
+        if not missing_paths:
+            return False
+        self._remove_paths_from_results(missing_paths)
+        return True
+
     def update_undo_redo_buttons(self):
         self.action_undo.setEnabled(bool(self.history_manager.undo_stack))
         self.action_redo.setEnabled(bool(self.history_manager.redo_stack))
@@ -1303,7 +1678,8 @@ class DuplicateFinderApp(QMainWindow):
             return
 
         if os.path.isdir(path):
-            self.show_preview_info(f"Folder: {path}")
+            self._set_preview_info(path, is_folder=True)
+            self.show_preview_info(strings.tr("msg_preview_folder_hint"), keep_info=True)
             return
 
         _, ext = os.path.splitext(path)
@@ -1314,12 +1690,13 @@ class DuplicateFinderApp(QMainWindow):
             if ext in ['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.ico']:
                 pixmap = QPixmap(path)
                 if not pixmap.isNull():
+                    self._set_preview_info(path)
                     scaled = pixmap.scaled(self.lbl_image_preview.size().boundedTo(QSize(400, 400)), 
                                          Qt.KeepAspectRatio, Qt.SmoothTransformation)
                     self.lbl_image_preview.setPixmap(scaled)
                     self.lbl_image_preview.show()
                     self.txt_text_preview.hide()
-                    self.lbl_info_preview.setText(f"{path}\n({pixmap.width()}x{pixmap.height()})")
+                    self.lbl_info_preview.hide()
                     return
             
             # 2. 텍스트 및 코드
@@ -1336,6 +1713,7 @@ class DuplicateFinderApp(QMainWindow):
                             content = json.dumps(parsed, indent=4, ensure_ascii=False)
                         except: pass
                         
+                    self._set_preview_info(path)
                     self.txt_text_preview.setText(content)
                     font = QFont("Consolas")
                     font.setStyleHint(QFont.Monospace)
@@ -1343,9 +1721,7 @@ class DuplicateFinderApp(QMainWindow):
                     self.txt_text_preview.setFont(font)
                     self.txt_text_preview.show()
                     self.lbl_image_preview.hide()
-                    self.txt_text_preview.show()
-                    self.lbl_image_preview.hide()
-                    self.lbl_info_preview.setText(f"{path}\n({strings.tr('lbl_preview')})")
+                    self.lbl_info_preview.hide()
                     return
                 except:
                     pass
@@ -1354,14 +1730,45 @@ class DuplicateFinderApp(QMainWindow):
             pass
 
         # 3. 그 외
-        size_str = self.format_size(os.path.getsize(path))
-        self.show_preview_info(f"{strings.tr('lbl_preview')}: {os.path.basename(path)}\n{size_str}")
+        self._set_preview_info(path)
+        self.show_preview_info(strings.tr("msg_preview_unavailable"), keep_info=True)
 
-    def show_preview_info(self, msg):
+    def show_preview_info(self, msg, keep_info=False):
         self.lbl_image_preview.hide()
         self.txt_text_preview.hide()
         self.lbl_info_preview.setText(msg)
         self.lbl_info_preview.show()
+        if keep_info:
+            self.preview_info.show()
+        else:
+            self.preview_info.hide()
+
+    def _set_preview_info(self, path, is_folder=False):
+        name = os.path.basename(path) or path
+        self.lbl_preview_name.setText(name)
+        self.lbl_preview_path.setText(path)
+
+        if is_folder:
+            self.lbl_preview_meta.setText(strings.tr("msg_preview_meta_folder"))
+            self.preview_info.show()
+            return
+
+        size_str = strings.tr("msg_preview_meta_unknown")
+        mtime_str = strings.tr("msg_preview_meta_unknown")
+        try:
+            size_str = self.format_size(os.path.getsize(path))
+        except Exception:
+            pass
+        try:
+            mtime = os.path.getmtime(path)
+            mtime_str = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M')
+        except Exception:
+            pass
+
+        self.lbl_preview_meta.setText(
+            strings.tr("msg_preview_meta").format(size=size_str, mtime=mtime_str)
+        )
+        self.preview_info.show()
 
     # --- 기능 구현: 설정 저장/로드 ---
     def save_settings(self):
@@ -1371,6 +1778,11 @@ class DuplicateFinderApp(QMainWindow):
         self.settings.setValue("filter/min_size", self.spin_min_size.value())
         self.settings.setValue("filter/protect_system", self.chk_protect_system.isChecked())
         self.settings.setValue("filter/byte_compare", self.chk_byte_compare.isChecked())
+        self.settings.setValue("filter/same_name", self.chk_same_name.isChecked())
+        self.settings.setValue("filter/name_only", self.chk_name_only.isChecked())
+        self.settings.setValue("filter/use_trash", self.chk_use_trash.isChecked())
+        self.settings.setValue("filter/use_similar_image", self.chk_similar_image.isChecked())
+        self.settings.setValue("filter/similarity_threshold", self.spin_similarity.value())
         self.settings.setValue("folders", self.selected_folders)
         
         # 단축키 저장
@@ -1395,6 +1807,16 @@ class DuplicateFinderApp(QMainWindow):
         
         self.chk_protect_system.setChecked(str(self.settings.value("filter/protect_system", True)).lower() == 'true')
         self.chk_byte_compare.setChecked(str(self.settings.value("filter/byte_compare", False)).lower() == 'true')
+        self.chk_same_name.setChecked(str(self.settings.value("filter/same_name", False)).lower() == 'true')
+        self.chk_name_only.setChecked(str(self.settings.value("filter/name_only", False)).lower() == 'true')
+        self.chk_use_trash.setChecked(str(self.settings.value("filter/use_trash", False)).lower() == 'true')
+        self.chk_similar_image.setChecked(str(self.settings.value("filter/use_similar_image", False)).lower() == 'true')
+        similarity = self.settings.value("filter/similarity_threshold", 0.9)
+        try:
+            self.spin_similarity.setValue(float(similarity))
+        except (TypeError, ValueError):
+            self.spin_similarity.setValue(0.9)
+        self._sync_filter_states()
         
         folders = self.settings.value("folders", [])
         # 리스트가 아니라 단일 문자열로 저장되는 경우가 있어 타입 체크
@@ -1431,9 +1853,118 @@ class DuplicateFinderApp(QMainWindow):
             try:
                 self.exclude_patterns = json.loads(patterns_json)
                 if self.exclude_patterns:
-                    self.btn_exclude_patterns.setText(f"🚫 {strings.tr('btn_exclude_patterns')} ({len(self.exclude_patterns)})")
+                    self.btn_exclude_patterns.setText(
+                        f"{strings.tr('btn_exclude_patterns')} ({len(self.exclude_patterns)})"
+                    )
             except:
                 self.exclude_patterns = []
+
+    def _restore_cached_session(self):
+        self.cache_manager.cleanup_old_sessions()
+        session = self.cache_manager.get_latest_session()
+        if not session:
+            return
+
+        config = None
+        try:
+            config = json.loads(session.get("config_json", ""))
+        except Exception:
+            config = None
+
+        if config:
+            self._apply_config(config)
+
+        self.current_session_id = session.get("id")
+
+        if session.get("status") == "completed":
+            results = self.cache_manager.load_scan_results(self.current_session_id)
+            if results:
+                selected_paths = self.cache_manager.load_selected_paths(self.current_session_id)
+                self.scan_results = results
+                pruned = self._prune_missing_results()
+                if pruned:
+                    results = self.scan_results
+                    selected_paths = [p for p in selected_paths if os.path.exists(p)]
+                self.tree_widget.populate(results, selected_paths=selected_paths)
+                self.filter_results_tree(self.txt_result_filter.text())
+                self._set_results_view(bool(results))
+                self._update_results_summary(len(selected_paths))
+                self.status_label.setText(strings.tr("msg_results_loaded").format(len(results)))
+                if pruned and self.current_session_id:
+                    self.cache_manager.save_scan_results(self.current_session_id, results)
+                    self.cache_manager.save_selected_paths(self.current_session_id, selected_paths)
+        else:
+            if session.get("progress_message"):
+                self.status_label.setText(session.get("progress_message"))
+            if session.get("status") in ("running", "paused"):
+                self._prompt_resume_session()
+
+    def _prompt_resume_session(self):
+        box = QMessageBox(self)
+        box.setWindowTitle(strings.tr("app_title"))
+        box.setIcon(QMessageBox.Question)
+        box.setText(strings.tr("msg_resume_scan"))
+        btn_resume = box.addButton(strings.tr("btn_resume"), QMessageBox.AcceptRole)
+        btn_new = box.addButton(strings.tr("btn_new_scan"), QMessageBox.DestructiveRole)
+        btn_later = box.addButton(strings.tr("btn_later"), QMessageBox.RejectRole)
+        box.setDefaultButton(btn_resume)
+        box.exec()
+
+        clicked = box.clickedButton()
+        if clicked == btn_resume:
+            QTimer.singleShot(0, self.start_scan)
+        elif clicked == btn_new:
+            if self.current_session_id:
+                self.cache_manager.update_scan_session(
+                    self.current_session_id,
+                    status="abandoned",
+                    stage="abandoned"
+                )
+                self.current_session_id = None
+            QTimer.singleShot(0, lambda: self.start_scan(force_new=True))
+
+    def _get_scan_hash_config(self, config: dict) -> dict:
+        hash_config = dict(config)
+        hash_config.pop("use_trash", None)
+        if not hash_config.get("use_similar_image"):
+            hash_config.pop("similarity_threshold", None)
+        return hash_config
+
+    def on_checked_files_changed(self, paths):
+        self._update_results_summary(len(paths))
+        if not self.current_session_id:
+            return
+        self._pending_selected_paths = paths
+        self._selection_save_timer.start(400)
+
+    def _flush_selected_paths(self):
+        if not self.current_session_id:
+            return
+        self.cache_manager.save_selected_paths(self.current_session_id, self._pending_selected_paths)
+
+    def _set_results_view(self, has_results: bool):
+        if not hasattr(self, "results_stack"):
+            return
+        self.results_stack.setCurrentIndex(1 if has_results else 0)
+
+    def _update_results_summary(self, selected_count: int = None):
+        if not hasattr(self, "lbl_results_meta"):
+            return
+        groups = len(self.scan_results) if self.scan_results else 0
+        files = sum(len(paths) for paths in self.scan_results.values()) if self.scan_results else 0
+        if selected_count is None:
+            selected_count = len(self.tree_widget.get_checked_files()) if groups else 0
+        self.lbl_results_meta.setText(
+            strings.tr("msg_results_summary").format(
+                groups=groups, files=files, selected=selected_count
+            )
+        )
+        if hasattr(self, "lbl_results_page_summary"):
+            self.lbl_results_page_summary.setText(
+                strings.tr("msg_results_summary").format(
+                    groups=groups, files=files, selected=selected_count
+                )
+            )
 
     def show_context_menu(self, position):
         item = self.tree_widget.itemAt(position)
@@ -1525,9 +2056,12 @@ class DuplicateFinderApp(QMainWindow):
                 self.scan_results[key] = paths
             
             self.tree_widget.populate(self.scan_results)
+            self.filter_results_tree(self.txt_result_filter.text())
+            self._set_results_view(bool(self.scan_results))
+            self._update_results_summary(0)
             self.status_label.setText(strings.tr("msg_results_loaded").format(len(self.scan_results)))
         except Exception as e:
-            QMessageBox.critical(self, strings.tr("app_title"), strings.tr("err_save").format(e))
+            QMessageBox.critical(self, strings.tr("app_title"), strings.tr("err_load").format(e))
     
     def open_preset_dialog(self):
         """프리셋 관리 다이얼로그 열기"""
@@ -1543,9 +2077,11 @@ class DuplicateFinderApp(QMainWindow):
             self.exclude_patterns = dlg.get_patterns()
             # 제외 패턴 수 표시
             if self.exclude_patterns:
-                self.btn_exclude_patterns.setText(f"🚫 {strings.tr('btn_exclude_patterns')} ({len(self.exclude_patterns)})")
+                self.btn_exclude_patterns.setText(
+                    f"{strings.tr('btn_exclude_patterns')} ({len(self.exclude_patterns)})"
+                )
             else:
-                self.btn_exclude_patterns.setText(f"🚫 {strings.tr('btn_exclude_patterns')}")
+                self.btn_exclude_patterns.setText(strings.tr("btn_exclude_patterns"))
     
     def open_shortcut_settings(self):
         """단축키 설정 다이얼로그 열기"""
@@ -1605,7 +2141,10 @@ class DuplicateFinderApp(QMainWindow):
         if 'exclude_patterns' in config:
             self.exclude_patterns = config['exclude_patterns']
             if self.exclude_patterns:
-                self.btn_exclude_patterns.setText(f"🚫 {strings.tr('btn_exclude_patterns')} ({len(self.exclude_patterns)})")
+                self.btn_exclude_patterns.setText(
+                    f"{strings.tr('btn_exclude_patterns')} ({len(self.exclude_patterns)})"
+                )
+        self._sync_filter_states()
     
     def _apply_shortcuts(self, shortcuts: dict):
         """커스텀 단축키를 액션에 적용"""
@@ -1636,10 +2175,10 @@ class DuplicateFinderApp(QMainWindow):
             }
             
             page_names = {
-                "scan": "🔍 " + strings.tr("nav_scan"),
-                "results": "📊 " + strings.tr("nav_results"),
-                "tools": "🛠️ " + strings.tr("nav_tools"),
-                "settings": "⚙️ " + strings.tr("nav_settings"),
+                "scan": strings.tr("nav_scan"),
+                "results": strings.tr("nav_results"),
+                "tools": strings.tr("nav_tools"),
+                "settings": strings.tr("nav_settings"),
             }
             
             if page_name in page_indices:
@@ -1656,5 +2195,10 @@ class DuplicateFinderApp(QMainWindow):
                     
         except Exception as e:
             print(f"Navigation error: {page_name} - {e}")
+
+    def _navigate_to(self, page_name: str):
+        if hasattr(self, "sidebar"):
+            self.sidebar.set_page(page_name)
+        self._on_page_changed(page_name)
 
 

@@ -109,12 +109,16 @@ class FileLockChecker:
         """
         return [path for path, locked in self.check_files(paths) if not locked]
     
-    def get_locking_processes(self, path: str) -> List[str]:
+    def get_locking_processes(self, path: str, max_results: int = 5, timeout_seconds: float = 2.0) -> List[str]:
         """
         파일을 잠그고 있는 프로세스 목록 반환 (Windows 전용)
         
+        Issue #5: 성능 개선 - 조기 종료, 타임아웃 처리
+        
         Args:
             path: 파일 경로
+            max_results: 최대 결과 수 (기본값 5, 조기 종료)
+            timeout_seconds: 타임아웃 시간 (기본값 2초)
             
         Returns:
             프로세스 이름 리스트 (지원하지 않는 OS에서는 빈 리스트)
@@ -123,20 +127,29 @@ class FileLockChecker:
             return []
         
         try:
-            # Windows에서 handle.exe 또는 psutil 사용
             import psutil
+            import time
             
             abs_path = os.path.abspath(path).lower()
             locking_procs = []
+            start_time = time.time()
             
             for proc in psutil.process_iter(['pid', 'name']):
+                # Issue #5: 타임아웃 체크
+                if time.time() - start_time > timeout_seconds:
+                    break
+                    
+                # Issue #5: 조기 종료 (max_results 도달 시)
+                if len(locking_procs) >= max_results:
+                    break
+                
                 try:
                     # 프로세스가 열고 있는 파일 확인
                     for f in proc.open_files():
                         if f.path.lower() == abs_path:
                             locking_procs.append(f"{proc.info['name']} (PID: {proc.info['pid']})")
                             break
-                except (psutil.AccessDenied, psutil.NoSuchProcess):
+                except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
                     continue
             
             return locking_procs

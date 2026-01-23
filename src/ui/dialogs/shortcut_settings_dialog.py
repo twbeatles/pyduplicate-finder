@@ -59,8 +59,7 @@ class ShortcutSettingsDialog(QDialog):
         layout.setSpacing(12)
         
         # === 설명 ===
-        desc = QLabel(strings.tr("lbl_shortcut_desc") if strings.tr("lbl_shortcut_desc") != "lbl_shortcut_desc" 
-                     else "Click on a shortcut to edit it. Press the new key combination to change.")
+        desc = QLabel(strings.tr("lbl_shortcut_desc"))
         desc.setWordWrap(True)
         desc.setStyleSheet("color: gray; font-size: 12px;")
         layout.addWidget(desc)
@@ -69,9 +68,9 @@ class ShortcutSettingsDialog(QDialog):
         self.table = QTableWidget()
         self.table.setColumnCount(3)
         self.table.setHorizontalHeaderLabels([
-            strings.tr("col_action") if strings.tr("col_action") != "col_action" else "Action",
-            strings.tr("col_shortcut") if strings.tr("col_shortcut") != "col_shortcut" else "Shortcut",
-            strings.tr("col_default") if strings.tr("col_default") != "col_default" else "Default"
+            strings.tr("col_action"),
+            strings.tr("col_shortcut"),
+            strings.tr("col_default")
         ])
         
         header = self.table.horizontalHeader()
@@ -89,7 +88,7 @@ class ShortcutSettingsDialog(QDialog):
         # === 편집 영역 ===
         edit_layout = QHBoxLayout()
         
-        self.lbl_editing = QLabel(strings.tr("lbl_press_key") if strings.tr("lbl_press_key") != "lbl_press_key" else "Press keys:")
+        self.lbl_editing = QLabel(strings.tr("lbl_press_key"))
         edit_layout.addWidget(self.lbl_editing)
         
         self.key_edit = QKeySequenceEdit()
@@ -97,7 +96,7 @@ class ShortcutSettingsDialog(QDialog):
         self.key_edit.editingFinished.connect(self.on_key_changed)
         edit_layout.addWidget(self.key_edit, 1)
         
-        self.btn_clear_key = QPushButton(strings.tr("btn_clear_key") if strings.tr("btn_clear_key") != "btn_clear_key" else "Clear")
+        self.btn_clear_key = QPushButton(strings.tr("btn_clear_key"))
         self.btn_clear_key.clicked.connect(self.clear_selected_shortcut)
         edit_layout.addWidget(self.btn_clear_key)
         
@@ -106,17 +105,17 @@ class ShortcutSettingsDialog(QDialog):
         # === 버튼 영역 ===
         btn_layout = QHBoxLayout()
         
-        self.btn_reset = QPushButton(strings.tr("btn_reset_defaults") if strings.tr("btn_reset_defaults") != "btn_reset_defaults" else "🔄 Reset to Defaults")
+        self.btn_reset = QPushButton(strings.tr("btn_reset_defaults"))
         self.btn_reset.clicked.connect(self.reset_defaults)
         btn_layout.addWidget(self.btn_reset)
         
         btn_layout.addStretch()
         
-        self.btn_cancel = QPushButton(strings.tr("btn_cancel") if strings.tr("btn_cancel") != "btn_cancel" else "Cancel")
+        self.btn_cancel = QPushButton(strings.tr("btn_cancel"))
         self.btn_cancel.clicked.connect(self.reject)
         btn_layout.addWidget(self.btn_cancel)
         
-        self.btn_ok = QPushButton(strings.tr("btn_ok") if strings.tr("btn_ok") != "btn_ok" else "OK")
+        self.btn_ok = QPushButton(strings.tr("btn_ok"))
         self.btn_ok.clicked.connect(self.accept)
         btn_layout.addWidget(self.btn_ok)
         
@@ -131,7 +130,7 @@ class ShortcutSettingsDialog(QDialog):
         
         for row, (action_id, (shortcut, label_key)) in enumerate(self.shortcuts.items()):
             # 액션 이름
-            action_name = strings.tr(label_key) if strings.tr(label_key) != label_key else action_id.replace('_', ' ').title()
+            action_name = strings.tr(label_key)
             name_item = QTableWidgetItem(action_name)
             name_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable)
             name_item.setData(Qt.UserRole, action_id)
@@ -173,8 +172,7 @@ class ShortcutSettingsDialog(QDialog):
                         action_name = self.table.item(r, 0).text()
                         QMessageBox.warning(
                             self, strings.tr("app_title"),
-                            strings.tr("err_shortcut_conflict").format(action_name) if strings.tr("err_shortcut_conflict") != "err_shortcut_conflict" 
-                            else f"This shortcut is already used by '{action_name}'."
+                            strings.tr("err_shortcut_conflict").format(action_name)
                         )
                         return
         
@@ -202,8 +200,7 @@ class ShortcutSettingsDialog(QDialog):
         """모든 단축키를 기본값으로 복원"""
         res = QMessageBox.question(
             self, strings.tr("app_title"),
-            strings.tr("confirm_reset_shortcuts") if strings.tr("confirm_reset_shortcuts") != "confirm_reset_shortcuts" 
-            else "Reset all shortcuts to defaults?",
+            strings.tr("confirm_reset_shortcuts"),
             QMessageBox.Yes | QMessageBox.No
         )
         

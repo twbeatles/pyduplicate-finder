@@ -29,12 +29,12 @@ class SidebarButton(QPushButton):
         """Update button display"""
         if self._expanded:
             self.setText(f"{self.icon_text}\n{self.label_text}")
-            self.setFixedSize(72, 60)
-            self.setFont(QFont("Malgun Gothic", 9))
+            self.setFixedSize(80, 68)
+            self.setFont(QFont("Malgun Gothic", 10))
         else:
             self.setText(self.icon_text)
-            self.setFixedSize(48, 48)
-            self.setFont(QFont("Segoe UI Emoji", 16))
+            self.setFixedSize(52, 52)
+            self.setFont(QFont("Segoe UI Emoji", 18))
         
         # Explicit white text styling
         self.setStyleSheet("""
@@ -102,10 +102,10 @@ class Sidebar(QFrame):
         layout.setSpacing(6)
         
         # Toggle button at top with label
-        self.btn_toggle = QPushButton("◀ 접기")
+        self.btn_toggle = QPushButton(self._get_toggle_text())
         self.btn_toggle.setFixedHeight(28)
         self.btn_toggle.setCursor(Qt.PointingHandCursor)
-        self.btn_toggle.setToolTip("사이드바 접기/펼치기")
+        self.btn_toggle.setToolTip(strings.tr("sidebar_toggle_tooltip"))
         self.btn_toggle.setFont(QFont("Malgun Gothic", 9))
         self.btn_toggle.setStyleSheet("""
             QPushButton {
@@ -159,10 +159,10 @@ class Sidebar(QFrame):
         
         if self._expanded:
             self.setFixedWidth(self.EXPANDED_WIDTH)
-            self.btn_toggle.setText("◀ 접기")
+            self.btn_toggle.setText(self._get_toggle_text())
         else:
             self.setFixedWidth(self.COLLAPSED_WIDTH)
-            self.btn_toggle.setText("▶")
+            self.btn_toggle.setText(self._get_toggle_text())
         
         for btn in self.buttons.values():
             btn.set_expanded(self._expanded)
@@ -178,6 +178,8 @@ class Sidebar(QFrame):
             self.current_page = name
     
     def retranslate(self):
+        self.btn_toggle.setToolTip(strings.tr("sidebar_toggle_tooltip"))
+        self.btn_toggle.setText(self._get_toggle_text())
         for icon, i18n_key, name in self.NAV_ITEMS + self.BOTTOM_ITEMS:
             if name in self.buttons:
                 label = strings.tr(i18n_key)
@@ -185,3 +187,6 @@ class Sidebar(QFrame):
                 btn.label_text = label
                 btn.setToolTip(label)
                 btn._update_display()
+
+    def _get_toggle_text(self):
+        return strings.tr("sidebar_collapse") if self._expanded else strings.tr("sidebar_expand")

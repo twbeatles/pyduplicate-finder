@@ -255,18 +255,35 @@ class ModernTheme:
 
             /* Secondary Button - Enhanced with outline style */
             QPushButton#btn_secondary {{
-                background-color: transparent;
-                border: 2px solid {c['primary']};
+                background-color: {c['primary_light']};
+                border: 1px solid {c['primary_light']};
                 border-radius: 10px;
                 color: {c['primary']};
                 font-weight: 600;
                 padding: 10px 22px;
             }}
             QPushButton#btn_secondary:hover {{
-                background-color: {c['primary_light']};
-                border-color: {c['primary_hover']};
+                background-color: {c['hover']};
+                border-color: {c['primary']};
             }}
             QPushButton#btn_secondary:pressed {{
+                background-color: {c['primary']};
+                color: #ffffff;
+            }}
+
+            QToolButton#btn_secondary {{
+                background-color: {c['primary_light']};
+                border: 1px solid {c['primary_light']};
+                border-radius: 10px;
+                color: {c['primary']};
+                font-weight: 600;
+                padding: 10px 22px;
+            }}
+            QToolButton#btn_secondary:hover {{
+                background-color: {c['hover']};
+                border-color: {c['primary']};
+            }}
+            QToolButton#btn_secondary:pressed {{
                 background-color: {c['primary']};
                 color: #ffffff;
             }}
@@ -282,6 +299,24 @@ class ModernTheme:
             QPushButton#btn_icon:hover {{
                 background-color: {c['hover']};
                 border-color: {c['border']};
+            }}
+
+            /* Filter Header Button */
+            QPushButton#filter_header {{
+                background-color: {c['card_bg']};
+                border: 1px solid {c['card_border']};
+                border-radius: 10px;
+                padding: 10px 14px;
+                text-align: left;
+                font-weight: 600;
+            }}
+            QPushButton#filter_header:hover {{
+                border-color: {c['primary']};
+                background-color: {c['hover']};
+            }}
+            QPushButton#filter_header:checked {{
+                background-color: {c['primary_light']};
+                border-color: {c['primary']};
             }}
 
             /* ==================== INPUT FIELDS ==================== */
@@ -608,6 +643,63 @@ class ModernTheme:
                 padding: 4px 8px;
             }}
 
+            QLabel#stage_badge {{
+                background-color: {c['primary_light']};
+                color: {c['primary']};
+                border: 1px solid {c['primary']};
+                border-radius: 999px;
+                padding: 4px 10px;
+                font-size: 12px;
+            }}
+
+            QLabel#filter_count {{
+                color: {c['text_secondary']};
+                font-size: 12px;
+                padding: 2px 8px;
+            }}
+
+            /* ==================== RESULTS HEADER ==================== */
+            QLabel#results_title {{
+                font-weight: 700;
+                font-size: 14px;
+                color: {c['text_primary']};
+            }}
+
+            QLabel#results_meta {{
+                background-color: {c['primary_light']};
+                color: {c['primary']};
+                border-radius: 999px;
+                padding: 4px 10px;
+                font-size: 12px;
+            }}
+
+            QLabel#empty_state {{
+                color: {c['text_tertiary']};
+                font-size: 13px;
+                padding: 12px;
+            }}
+
+            QWidget#preview_info {{
+                background-color: {c['preview_bg']};
+                border-bottom: 1px solid {c['preview_border']};
+            }}
+
+            QLabel#preview_name {{
+                font-weight: 600;
+                font-size: 14px;
+                color: {c['text_primary']};
+            }}
+
+            QLabel#preview_path {{
+                color: {c['text_secondary']};
+                font-size: 12px;
+            }}
+
+            QLabel#preview_meta {{
+                color: {c['text_secondary']};
+                font-size: 12px;
+            }}
+
             /* ==================== SIDEBAR ==================== */
             QWidget#sidebar {{
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
@@ -658,6 +750,10 @@ class ModernTheme:
                 border: 1px solid {c['card_border']};
                 border-radius: 16px;
             }}
+
+            QWidget#result_card QTreeWidget {{
+                border: none;
+            }}
             
             QWidget#preview_card {{
                 background-color: {c['preview_bg']};
@@ -667,7 +763,8 @@ class ModernTheme:
 
             /* ==================== FLOATING ACTION BAR ==================== */
             QWidget#action_bar {{
-                background-color: {c['panel']};
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {c['panel']}, stop:1 {c['bg']});
                 border-top: 1px solid {c['border']};
                 padding: 0px;
             }}

@@ -43,6 +43,7 @@ class ResultsTreeWidget(QTreeWidget):
         self.setIndentation(24)
         self.setAnimated(True)
         self.setUniformRowHeights(True)
+        self.setTextElideMode(Qt.ElideMiddle)
         
         # Batch processing state
         self._populate_timer = QTimer(self)
@@ -50,6 +51,8 @@ class ResultsTreeWidget(QTreeWidget):
         self._result_iterator = None
         self._rendered_count = 0
         self._total_results = 0
+        self._selected_paths = set()
+        self._suppress_item_changed = False
         
         self.current_theme_mode = "light"
         
@@ -97,15 +100,20 @@ class ResultsTreeWidget(QTreeWidget):
                 item.setBackground(col, QBrush(bg_color))
                 item.setForeground(col, QBrush(fg_color))
 
-    def populate(self, results):
+    def populate(self, results, selected_paths=None):
         """
         Populate the tree with scan results (batched).
         results: dict { (hash, size, type): [paths] }
         """
+        # Issue #R1: Stop any ongoing batch rendering before clearing
+        self._populate_timer.stop()
+        
         self.clear()
         if not results:
             return
 
+        self._selected_paths = set(selected_paths or [])
+        self._suppress_item_changed = True
         self._result_iterator = iter(results.items())
         self._rendered_count = 0
         self._total_results = len(results)
@@ -126,34 +134,91 @@ class ResultsTreeWidget(QTreeWidget):
             
         except StopIteration:
             self._populate_timer.stop()
+            self._suppress_item_changed = False
             
     def _add_group_item(self, key, paths):
         """Add a duplicate group to the tree."""
-        # Parse key to get size and hash
-        size = 0
+        # Parse key to get hash/name label and mode flags
         hash_str = "???"
-        
-        if len(key) >= 2:
-            if isinstance(key[0], int):
-                size = key[0]
-                hash_str = str(key[1])
-            elif isinstance(key[1], int):
-                size = key[1]
-                hash_str = str(key[0])
+        is_name_only = False
+        is_similar = False
+        is_byte_compare = False
+        if isinstance(key, (tuple, list)) and key:
+            if key[0] == "NAME_ONLY":
+                is_name_only = True
+                if len(key) > 1:
+                    hash_str = str(key[1])
+            else:
+                for part in key:
+                    if isinstance(part, str) and part.startswith("similar_"):
+                        is_similar = True
+                        group_id = part.split("_", 1)[1] if "_" in part else part
+                        hash_str = strings.tr("label_similar_group").format(id=group_id)
+                        break
+                if hash_str == "???":
+                    for part in key:
+                        if not isinstance(part, int):
+                            hash_str = str(part)
+                            break
+            is_byte_compare = any(
+                isinstance(part, str) and part.startswith("byte_") for part in key
+            )
 
-        size_str = self._format_size(size)
+        # Determine group size from actual files (supports name-only/similar mixed sizes)
+        size_from_key = None
+        if isinstance(key, (tuple, list)):
+            for part in key:
+                if isinstance(part, int):
+                    size_from_key = part
+                    break
+
+        sizes = []
+        if size_from_key is not None and not is_name_only and not is_similar:
+            sizes = [size_from_key] * len(paths)
+            size_str = self._format_size(size_from_key)
+        else:
+            for p in paths:
+                try:
+                    sizes.append(os.path.getsize(p))
+                except Exception:
+                    sizes.append(None)
+
+            valid_sizes = [s for s in sizes if s is not None]
+            size_str = "—"
+            if valid_sizes:
+                first_size = valid_sizes[0]
+                if all(s == first_size for s in valid_sizes):
+                    size_str = self._format_size(first_size)
+                else:
+                    size_str = strings.tr("term_size_varies")
         
         # Create group item
         group_item = QTreeWidgetItem(self)
         
         # Localized labels
-        label_group = strings.tr("term_duplicate_group") 
+        label_group = strings.tr("term_name_group") if is_name_only else strings.tr("term_duplicate_group") 
         label_files = strings.tr("term_files")
         
         # Truncated hash for display
-        hash_disp = hash_str[:8] if len(hash_str) >= 8 else hash_str
+        if is_name_only or is_similar:
+            hash_disp = hash_str
+        else:
+            hash_disp = hash_str[:8] if len(hash_str) >= 8 else hash_str
         
-        group_item.setText(0, f"📁 {label_group} ({len(paths)} {label_files}) • {hash_disp}...")
+        suffix = "" if (is_name_only or is_similar) else "..."
+        badges = []
+        if is_name_only:
+            badges.append(strings.tr("badge_name_only"))
+        if is_similar:
+            badges.append(strings.tr("badge_similar"))
+        if is_byte_compare:
+            badges.append(strings.tr("badge_byte_compare"))
+        badge_text = f" [{', '.join(badges)}]" if badges else ""
+
+        group_item.setText(
+            0,
+            f"📁 {label_group} ({len(paths)} {label_files}) • {hash_disp}{suffix}{badge_text}"
+        )
         group_item.setText(1, size_str)
         
         # Apply theme styling to group
@@ -174,7 +239,7 @@ class ResultsTreeWidget(QTreeWidget):
         group_item.setExpanded(True)
 
         # Add file items
-        for p in paths:
+        for idx, p in enumerate(paths):
             child = QTreeWidgetItem(group_item)
             
             # Display full path with type-specific icon
@@ -184,7 +249,8 @@ class ResultsTreeWidget(QTreeWidget):
             child.setText(0, f"  {icon} {p}")
             child.setToolTip(0, p)  # Full path in tooltip
             
-            child.setText(1, size_str)
+            file_size = sizes[idx] if idx < len(sizes) else None
+            child.setText(1, self._format_size(file_size) if file_size is not None else "—")
             child.setText(3, os.path.splitext(p)[1].upper())
             
             try:
@@ -195,7 +261,10 @@ class ResultsTreeWidget(QTreeWidget):
                 child.setText(2, "—")
 
             child.setFlags(child.flags() | Qt.ItemIsUserCheckable)
-            child.setCheckState(0, Qt.Unchecked)
+            if p in self._selected_paths:
+                child.setCheckState(0, Qt.Checked)
+            else:
+                child.setCheckState(0, Qt.Unchecked)
             child.setData(0, Qt.UserRole, p)
 
     def _format_size(self, size):
@@ -208,7 +277,11 @@ class ResultsTreeWidget(QTreeWidget):
 
     def _on_item_changed(self, item, column):
         """Handle checkbox state changes."""
-        pass
+        if self._suppress_item_changed:
+            return
+        if column != 0:
+            return
+        self.files_checked.emit(self.get_checked_files())
 
     def get_checked_files(self):
         """Returns list of paths checked by user."""

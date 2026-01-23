@@ -80,8 +80,14 @@ class HistoryManager:
         return (available >= required_with_margin, total_size, available)
     
     def _delete_to_system_trash(self, file_paths, progress_callback=None):
-        """시스템 휴지통으로 파일 이동 (Undo 불가)"""
+        """
+        시스템 휴지통으로 파일 이동 (Undo 불가)
+        
+        Returns:
+            tuple: (success: bool, message: str)
+        """
         success_count = 0
+        failed_files = []
         total_files = len(file_paths)
         
         for idx, path in enumerate(file_paths):
@@ -90,22 +96,35 @@ class HistoryManager:
                     send_to_trash(path)
                     success_count += 1
                 except Exception as e:
+                    failed_files.append(os.path.basename(path))
                     print(f"Trash error: {e}")
             
             if progress_callback:
                 progress_callback(idx + 1, total_files)
         
-        return success_count > 0
+        if success_count == 0:
+            return (False, f"Failed to move files to trash")
+        elif failed_files:
+            return (True, f"Moved {success_count}/{total_files} files. Failed: {len(failed_files)}")
+        return (True, f"Successfully moved {success_count} files to trash")
     
     def _delete_to_temp(self, file_paths, progress_callback=None):
-        """임시 폴더로 파일 이동 (Undo 가능)"""
+        """
+        임시 폴더로 파일 이동 (Undo 가능)
+        
+        Returns:
+            tuple: (success: bool, message: str)
+        """
         # 디스크 공간 사전 확인
         has_space, required, available = self.check_disk_space(file_paths)
         if not has_space:
-            print(f"Warning: Insufficient disk space. Required: {required}, Available: {available}")
-            # 경고만 출력하고 진행 (사용자가 판단)
+            # Issue #1: 디스크 공간 부족 시 실패 반환
+            required_mb = required / (1024 * 1024)
+            available_mb = available / (1024 * 1024)
+            return (False, f"Insufficient disk space. Required: {required_mb:.1f}MB, Available: {available_mb:.1f}MB")
         
         transaction = []
+        failed_files = []
         total_files = len(file_paths)
         
         for idx, original_path in enumerate(file_paths):
@@ -120,6 +139,7 @@ class HistoryManager:
                     shutil.move(original_path, backup_path)
                     transaction.append({'orig': original_path, 'backup': backup_path})
                 except Exception as e:
+                    failed_files.append(os.path.basename(original_path))
                     print(f"Error moving file: {e}")
             
             if progress_callback:
@@ -127,9 +147,13 @@ class HistoryManager:
         
         if transaction:
             self.undo_stack.append(transaction)
-            self.redo_stack.clear() # 새로운 동작이 발생하면 Redo 스택 초기화
-            return True
-        return False
+            self.redo_stack.clear()  # 새로운 동작이 발생하면 Redo 스택 초기화
+            
+            if failed_files:
+                return (True, f"Deleted {len(transaction)}/{total_files} files. Failed: {len(failed_files)}")
+            return (True, f"Successfully deleted {len(transaction)} files")
+        
+        return (False, "No files were deleted")
     
     @staticmethod
     def is_trash_available():
@@ -138,18 +162,27 @@ class HistoryManager:
 
 
     def undo(self):
-        """삭제 취소 (복구)"""
+        """
+        삭제 취소 (복구)
+        
+        Issue #8: 부분 실패 정보 포함
+        
+        Returns:
+            tuple: (restored_paths: List[str], failed_count: int) or None if stack empty
+        """
         if not self.undo_stack:
             return None
         
         transaction = self.undo_stack.pop()
         restored_paths = []
+        failed_count = 0
         
         for record in transaction:
             try:
                 # 백업 파일이 존재하는지 확인
                 if not os.path.exists(record['backup']):
                     print(f"Undo Failed: Backup file missing for {record['orig']}")
+                    failed_count += 1
                     continue
 
                 # 원본 폴더가 없어졌을 수도 있으므로 생성 시도
@@ -161,31 +194,42 @@ class HistoryManager:
                 restored_paths.append(record['orig'])
             except Exception as e:
                 print(f"Undo Error: {e}")
+                failed_count += 1
         
         self.redo_stack.append(transaction)
-        return restored_paths
+        return (restored_paths, failed_count)
 
     def redo(self):
-        """다시 삭제"""
+        """
+        다시 삭제
+        
+        Issue #8: 부분 실패 정보 포함
+        
+        Returns:
+            tuple: (deleted_paths: List[str], failed_count: int) or None if stack empty
+        """
         if not self.redo_stack:
             return None
             
         transaction = self.redo_stack.pop()
         deleted_paths = []
+        failed_count = 0
 
         for record in transaction:
             try:
                 # 원본 파일이 존재하지 않으면 스킵
                 if not os.path.exists(record['orig']):
                     print(f"Redo Skip: File not found - {record['orig']}")
+                    failed_count += 1
                     continue
                 shutil.move(record['orig'], record['backup'])
                 deleted_paths.append(record['orig'])
             except Exception as e:
                 print(f"Redo Error: {e}")
+                failed_count += 1
                 
         self.undo_stack.append(transaction)
-        return deleted_paths
+        return (deleted_paths, failed_count)
 
     def cleanup(self):
         """프로그램 종료 시 임시 폴더 정리"""

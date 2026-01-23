@@ -20,6 +20,8 @@ a = Analysis(
         'src.ui.theme',
         'src.ui.empty_folder_dialog',
         'src.ui.components.results_tree',
+        'src.ui.components.sidebar',
+        'src.ui.components.toast',
         'src.ui.dialogs.preset_dialog',
         'src.ui.dialogs.exclude_patterns_dialog',
         'src.ui.dialogs.shortcut_settings_dialog',
@@ -37,10 +39,10 @@ a = Analysis(
     excludes=[
         # Python Standard Library exclusions (unused)
         'tkinter', 'unittest', 'pydoc', 'pdb',
-        'bz2', 'lzma', '_bz2', '_lzma',
-        'curses', 'html', 'lib2to3', 'test', 'turtledemo',
-        'xml', 'xmlrpc', 'email', 'ftplib', 'smtplib',
-        'tarfile', 'zipfile',  # We use shutil, not these directly if possible, or basic
+        # 'bz2', 'lzma', '_bz2', '_lzma', # Standard lib compression - useful
+        'curses', 'test', 'turtledemo',
+        # 'xmlrpc', 'ftplib', 'smtplib', # Standard lib network - might be used by deps
+        # 'tarfile',  # Standard lib archive - definitely used by pkg_resources
         
         # PySide6 Unused Modules (Heavy ones - aggressively exclude)
         'PySide6.QtNetwork',
@@ -100,8 +102,29 @@ a = Analysis(
         'scipy.special', 
         'scipy.stats',
         'numpy.random',
-        'numpy.f2py',
         'numpy.distutils',
+        'numpy.f2py',
+        'numpy.f2py.__main__',
+        'numpy.f2py.__version__',
+        'numpy.f2py._backends',
+        'numpy.f2py._backends._backend',
+        'numpy.f2py._backends._distutils',
+        'numpy.f2py._backends._meson',
+        'numpy.f2py._isocbind',
+        'numpy.f2py._src_pyf',
+        'numpy.f2py.auxfuncs',
+        'numpy.f2py.capi_maps',
+        'numpy.f2py.cb_rules',
+        'numpy.f2py.cfuncs',
+        'numpy.f2py.common_rules',
+        'numpy.f2py.crackfortran',
+        'numpy.f2py.diagnose',
+        'numpy.f2py.f2py2e',
+        'numpy.f2py.f90mod_rules',
+        'numpy.f2py.func2subr',
+        'numpy.f2py.rules',
+        'numpy.f2py.symbolic',
+        'numpy.f2py.use_rules',
         
         # Heavy ML/Data libs (prevent accidental inclusion)
         'torch', 'torchvision', 'torchaudio',
@@ -111,6 +134,14 @@ a = Analysis(
         'sklearn', 'scikit-learn',
         'notebook', 'jupyter',
         'ipython',
+
+        # Optional deps/hooks not used by this app
+        'sqlalchemy',
+        'importlib_resources',
+        'importlib_resources.trees',
+        'pysqlite2',
+        'MySQLdb',
+        'psycopg2',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,

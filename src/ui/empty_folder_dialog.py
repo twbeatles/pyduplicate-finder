@@ -51,7 +51,7 @@ class EmptyFolderDialog(QDialog):
         layout.setContentsMargins(20, 20, 20, 20)
         
         # Header
-        header_label = QLabel(f"📁 {strings.tr('lbl_search_target').format(len(self.folders))}")
+        header_label = QLabel(strings.tr('lbl_search_target').format(len(self.folders)))
         header_label.setStyleSheet("font-size: 15px; font-weight: 600; padding: 8px 0;")
         layout.addWidget(header_label)
         
@@ -64,19 +64,19 @@ class EmptyFolderDialog(QDialog):
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(12)
         
-        self.btn_scan = QPushButton("🔍 " + strings.tr("btn_scan_empty"))
+        self.btn_scan = QPushButton(strings.tr("btn_scan_empty"))
         self.btn_scan.setMinimumHeight(44)
         self.btn_scan.setCursor(Qt.PointingHandCursor)
         self.btn_scan.setObjectName("btn_primary")
         self.btn_scan.clicked.connect(self.scan_folders)
         
-        self.btn_stop = QPushButton("⏹️ " + strings.tr("action_stop_scan"))
+        self.btn_stop = QPushButton(strings.tr("action_stop_scan"))
         self.btn_stop.setMinimumHeight(44)
         self.btn_stop.setCursor(Qt.PointingHandCursor)
         self.btn_stop.setEnabled(False)
         self.btn_stop.clicked.connect(self.stop_scan)
         
-        self.btn_delete = QPushButton("🗑️ " + strings.tr("btn_delete_all"))
+        self.btn_delete = QPushButton(strings.tr("btn_delete_all"))
         self.btn_delete.setMinimumHeight(44)
         self.btn_delete.setCursor(Qt.PointingHandCursor)
         self.btn_delete.setObjectName("btn_danger")
@@ -96,15 +96,17 @@ class EmptyFolderDialog(QDialog):
 
     def scan_folders(self):
         """비동기적으로 빈 폴더 검색 시작"""
-        self.lbl_status.setText("⏳ " + strings.tr("status_searching"))
+        self.lbl_status.setText(strings.tr("status_searching"))
         self.list_widget.clear()
         self.btn_scan.setEnabled(False)
         self.btn_stop.setEnabled(True)
         self.btn_delete.setEnabled(False)
         
         # 워커 스레드 시작
-        self.worker = EmptyFolderWorker(self.folders, self)
-        self.worker.finished.connect(self.on_scan_finished)
+        # Issue #F3: EmptyFolderWorker takes only 1 argument (roots)
+        self.worker = EmptyFolderWorker(self.folders)
+        # Issue #F1: Connect to search_finished signal (not QThread.finished)
+        self.worker.search_finished.connect(self.on_scan_finished)
         self.worker.start()
     
     def stop_scan(self):
@@ -118,9 +120,9 @@ class EmptyFolderDialog(QDialog):
     def on_scan_finished(self, empties):
         """스캔 완료 핸들러"""
         for path in empties:
-            self.list_widget.addItem(f"📂 {path}")
+            self.list_widget.addItem(path)
             
-        self.lbl_status.setText("✅ " + strings.tr("status_search_done").format(len(empties)))
+        self.lbl_status.setText(strings.tr("status_search_done").format(len(empties)))
         self.btn_delete.setEnabled(len(empties) > 0)
         self.btn_scan.setEnabled(True)
         self.btn_stop.setEnabled(False)
@@ -144,9 +146,7 @@ class EmptyFolderDialog(QDialog):
         targets = []
         for i in range(count):
             item_text = self.list_widget.item(i).text()
-            # Remove "📂 " prefix
-            path = item_text[2:].strip() if item_text.startswith("📂") else item_text
-            targets.append(path)
+            targets.append(item_text)
         
         deleted, failed = self.finder.delete_folders(targets)
         

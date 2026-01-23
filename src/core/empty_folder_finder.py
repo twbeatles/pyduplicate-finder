@@ -35,7 +35,8 @@ class EmptyFolderFinder:
                     total_dirs += 1
         
         for root_dir in self.roots:
-            for dirpath, dirnames, filenames in os.walk(root_dir, topdown=False):
+            # Issue #R4: Handle permission errors gracefully with onerror
+            for dirpath, dirnames, filenames in os.walk(root_dir, topdown=False, onerror=lambda e: None):
                 # 취소 요청 확인
                 if check_cancel and check_cancel():
                     return empty_folders  # 중간 결과 반환

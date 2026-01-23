@@ -34,25 +34,52 @@ class FileOperationWorker(QThread):
             percent = int((current / total) * 100)
             self.progress_updated.emit(percent, f"{strings.tr('status_analyzing')} ({current}/{total})")
 
-        success = self.manager.execute_delete(self.data, progress_callback=progress_callback, use_trash=self.use_trash)
+        result = self.manager.execute_delete(self.data, progress_callback=progress_callback, use_trash=self.use_trash)
         
-        if success:
-             self.operation_finished.emit(True, strings.tr("msg_delete_success").format(len(self.data)))
+        # Issue #2: execute_delete now returns Tuple[bool, str]
+        if isinstance(result, tuple):
+            success, message = result
         else:
-             self.operation_finished.emit(False, strings.tr("err_operation_failed"))
+            # Backwards compatibility fallback
+            success = result
+            message = strings.tr("msg_delete_success").format(len(self.data)) if success else strings.tr("err_operation_failed")
+        
+        self.operation_finished.emit(success, message)
 
     def _run_undo(self):
         self.progress_updated.emit(0, strings.tr("status_undoing"))
         res = self.manager.undo()
-        if res is not None:
-            self.operation_finished.emit(True, strings.tr("msg_undo_complete"))
-        else:
+        
+        if res is None:
             self.operation_finished.emit(False, strings.tr("err_undo_failed"))
+            return
+            
+        # Issue #8: Handle tuple return (restored_paths, failed_count)
+        if isinstance(res, tuple):
+            restored_paths, failed_count = res
+            if failed_count > 0:
+                self.operation_finished.emit(True, f"{strings.tr('msg_undo_complete')} ({len(restored_paths)} restored, {failed_count} failed)")
+            else:
+                self.operation_finished.emit(True, strings.tr("msg_undo_complete"))
+        else:
+            # Backwards compatibility
+            self.operation_finished.emit(True, strings.tr("msg_undo_complete"))
 
     def _run_redo(self):
         self.progress_updated.emit(0, strings.tr("status_redoing"))
         res = self.manager.redo()
-        if res is not None:
-             self.operation_finished.emit(True, strings.tr("msg_redo_complete").format(len(res)))
+        
+        if res is None:
+            self.operation_finished.emit(False, strings.tr("err_redo_failed"))
+            return
+            
+        # Issue #8: Handle tuple return (deleted_paths, failed_count)
+        if isinstance(res, tuple):
+            deleted_paths, failed_count = res
+            if failed_count > 0:
+                self.operation_finished.emit(True, f"{strings.tr('msg_redo_complete').format(len(deleted_paths))} ({failed_count} failed)")
+            else:
+                self.operation_finished.emit(True, strings.tr("msg_redo_complete").format(len(deleted_paths)))
         else:
-             self.operation_finished.emit(False, strings.tr("err_redo_failed"))
+            # Backwards compatibility
+            self.operation_finished.emit(True, strings.tr("msg_redo_complete").format(len(res)))

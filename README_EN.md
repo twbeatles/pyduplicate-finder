@@ -12,6 +12,7 @@
 - **Ultra-Fast Scanning**: Recursive `os.scandir` engine for significantly faster file traversal compared to `os.walk`.
 - **Optimized Hashing (BLAKE2b)**: Uses `BLAKE2b` algorithm optimized for 64-bit systems, faster and more secure than MD5.
 - **Smart Caching & Batch Processing**: `SQLite WAL` mode with batch processing handles hundreds of thousands of files seamlessly.
+- **Resume Interrupted Scans**: File lists and hash progress are cached so scans can resume after a restart.
 - **Smooth UI**: Incremental rendering of results keeps the app responsive even with massive datasets.
 
 ### 🛡️ Safety & Precision
@@ -29,6 +30,7 @@
 - **Exclude Patterns**: Skip unwanted folders/files like `node_modules`, `.git`, `*.tmp` using glob patterns.
 - **Scan Presets**: Save and load frequently used scan configurations.
 - **Result Save/Load**: Export scan results to JSON and reload later.
+- **Session Restore**: Detects the latest session and lets you resume or start a new scan.
 - **Intuitive Tree View**: Expand/collapse all groups, right-click context menu for quick actions.
 - **Custom Shortcuts**: Configure keyboard shortcuts for all functions.
 - **Multi-language Support**: Full Korean and English interface support.
@@ -42,6 +44,8 @@ duplicate_finder/
 ├── main.py                  # Application entry point
 ├── requirements.txt         # Dependencies
 ├── PyDuplicateFinder.spec   # PyInstaller build config
+├── claude.md                # AI context (Claude)
+├── gemini.md                # AI context (Gemini)
 ├── src/
 │   ├── core/                # Business logic (UI-independent)
 │   │   ├── scanner.py           # Multi-threaded scan engine
@@ -64,9 +68,6 @@ duplicate_finder/
 │   │       └── shortcut_settings_dialog.py
 │   └── utils/
 │       └── i18n.py              # Internationalization strings
-└── docs/
-    ├── claude.md            # AI context (Claude)
-    └── gemini.md            # AI context (Gemini)
 ```
 
 ---
@@ -131,6 +132,7 @@ python main.py
 ### 3. Scan & Review
 - **Start Scan**: Click to begin high-speed scanning.
 - **Cancel Scan**: Stop anytime during scanning.
+- **Resume Scan**: On relaunch, the app asks whether to resume an interrupted scan.
 - **Review Results**:
     - View duplicate groups in the left tree view
     - Use `+`/`-` buttons to expand/collapse all
