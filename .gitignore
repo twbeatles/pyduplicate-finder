@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+venv/
+env/
+.env
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+
+# Distribution / Build
+build/
+dist/
+*.spec
+!PyDuplicateFinder.spec
+
+# Logs
+*.log
+
+# Temp
+tmp/
+
+# Local app cache
+scan_cache.db
+scan_cache.db-*
+
+# Local backups/artifacts
+backup/
+* (1).py
+* (2).py
