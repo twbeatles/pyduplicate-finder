@@ -54,7 +54,7 @@ class ExcludePatternsDialog(QDialog):
         # === 설명 ===
         desc = QLabel(strings.tr("lbl_exclude_desc"))
         desc.setWordWrap(True)
-        desc.setStyleSheet("color: gray; font-size: 12px;")
+        desc.setObjectName("card_desc")
         layout.addWidget(desc)
         
         # === 패턴 목록 ===

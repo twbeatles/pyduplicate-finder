@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QLabel, QProgressBar, QCheckBox, QMessageBox, QGroupBox, QTreeWidget, QTreeWidgetItem, QToolBar, QSpinBox, QLineEdit, QMenu, QSplitter, QTextEdit, QScrollArea, QStyle, QProgressDialog, QToolButton, QSizePolicy, QListWidget, QDoubleSpinBox, QInputDialog, QStackedWidget, QFrame)
+from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QLabel, QProgressBar, QCheckBox, QMessageBox, QGroupBox, QTreeWidget, QTreeWidgetItem, QToolBar, QSpinBox, QLineEdit, QMenu, QSplitter, QTextEdit, QScrollArea, QStyle, QProgressDialog, QToolButton, QSizePolicy, QListWidget, QDoubleSpinBox, QInputDialog, QStackedWidget, QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView)
 from PySide6.QtCore import Qt, Slot, QSize, QSettings, QTimer
 from PySide6.QtGui import QAction, QKeySequence, QIcon, QPixmap, QFont, QCursor
 
@@ -17,6 +17,10 @@ from src.core.cache_manager import CacheManager
 from src.core.file_ops import FileOperationWorker
 from src.core.preset_manager import PresetManager, get_default_config
 from src.core.file_lock_checker import FileLockChecker
+from src.core.quarantine_manager import QuarantineManager
+from src.core.preflight import PreflightAnalyzer
+from src.core.selection_rules import parse_rules, decide_keep_delete_for_group
+from src.core.operation_queue import OperationWorker, Operation
 from src.ui.empty_folder_dialog import EmptyFolderDialog
 from src.ui.components.results_tree import ResultsTreeWidget
 from src.ui.components.sidebar import Sidebar
@@ -24,8 +28,15 @@ from src.ui.components.toast import ToastManager
 from src.ui.dialogs.preset_dialog import PresetDialog
 from src.ui.dialogs.exclude_patterns_dialog import ExcludePatternsDialog
 from src.ui.dialogs.shortcut_settings_dialog import ShortcutSettingsDialog
+from src.ui.dialogs.selection_rules_dialog import SelectionRulesDialog
+from src.ui.dialogs.preflight_dialog import PreflightDialog
+from src.ui.dialogs.operation_log_dialog import OperationLogDialog
 from src.utils.i18n import strings
 from src.ui.theme import ModernTheme
+from src.ui.pages.scan_page import build_scan_page
+from src.ui.pages.results_page import build_results_page
+from src.ui.pages.tools_page import build_tools_page
+from src.ui.pages.settings_page import build_settings_page
 
 
 class DuplicateFinderApp(QMainWindow):
@@ -35,8 +46,9 @@ class DuplicateFinderApp(QMainWindow):
         self.resize(1200, 850)
         self.selected_folders = []
         self.scan_results = {}
-        self.history_manager = HistoryManager()
         self.cache_manager = CacheManager()
+        self.quarantine_manager = QuarantineManager(self.cache_manager)
+        self.history_manager = HistoryManager(cache_manager=self.cache_manager, quarantine_manager=self.quarantine_manager)
         self.current_session_id = None
         self._pending_selected_paths = []
         self._selection_save_timer = QTimer(self)
@@ -48,6 +60,15 @@ class DuplicateFinderApp(QMainWindow):
         self.file_lock_checker = FileLockChecker()
         self.exclude_patterns = []
         self.custom_shortcuts = {}
+
+        # Quarantine / operations / rules
+        self.preflight_analyzer = PreflightAnalyzer(lock_checker=self.file_lock_checker)
+        self.selection_rules_json = []
+        self.selection_rules = []
+
+        self._op_worker = None
+        self._op_progress = None
+        self._op_queue = []
         
         self.init_ui()
         self.create_toolbar()
@@ -70,10 +91,13 @@ class DuplicateFinderApp(QMainWindow):
 
         # Restore cached scan session/results if present
         self._restore_cached_session()
+        # Populate maintenance data on startup (best-effort).
+        try:
+            self.refresh_quarantine_list()
+            self.refresh_operations_list()
+        except Exception:
+            pass
 
-        # Current scan page layout mode: "scan" (shows options) or "results" (results-focused).
-        self._scan_page_mode = "scan"
-        self._scan_splitter_sizes_scan = None
         self._current_scan_stage_code = None
 
         # Drag & Drop 활성화
@@ -88,7 +112,11 @@ class DuplicateFinderApp(QMainWindow):
     def closeEvent(self, event):
         self.save_settings()
         self._flush_selected_paths()
-        self.history_manager.cleanup()
+        try:
+            if hasattr(self.history_manager, "cleanup"):
+                self.history_manager.cleanup()
+        except Exception:
+            pass
         self.cache_manager.close_all()
         event.accept()
 
@@ -212,637 +240,27 @@ class DuplicateFinderApp(QMainWindow):
         # === STACKED WIDGET FOR PAGES ===
         self.page_stack = QStackedWidget()
         content_layout.addWidget(self.page_stack, 1)
-        
-        # === PAGE 0: SCAN PAGE (Contains splitter with settings + results) ===
-        self.scan_page = QWidget()
-        main_layout = QVBoxLayout(self.scan_page)  # main_layout refers to scan page now
-        main_layout.setSpacing(12)
-        main_layout.setContentsMargins(16, 12, 16, 12)
+
+        # === Pages (Scan / Results / Tools / Settings) ===
+        self.scan_page = build_scan_page(self)
         self.page_stack.addWidget(self.scan_page)
 
-        # === GLOBAL VERTICAL SPLITTER ===
-        self.main_v_splitter = QSplitter(Qt.Vertical)
-        self.main_v_splitter.setHandleWidth(6) 
-
-        # === TOP CONTAINER: Settings & Scan Actions (Card style) ===
-        self.top_container = QWidget()
-        self.top_container.setObjectName("folder_card")
-        top_main_layout = QVBoxLayout(self.top_container)
-        top_main_layout.setSpacing(12)
-        top_main_layout.setContentsMargins(20, 16, 20, 16)
-
-        # --- ROW 1: Folder Selection Header ---
-        folder_header = QHBoxLayout()
-        folder_header.setSpacing(8)
-        
-        folder_label = QLabel(strings.tr("grp_search_loc"))
-        folder_label.setObjectName("card_title")
-        folder_header.addWidget(folder_label)
-
-        self.lbl_folder_count = QLabel("")
-        self.lbl_folder_count.setObjectName("results_meta")
-        folder_header.addWidget(self.lbl_folder_count)
-        
-        self.btn_add_folder = QPushButton(strings.tr("btn_add_folder"))
-        self.btn_add_folder.setMinimumHeight(32)
-        self.btn_add_folder.setCursor(Qt.PointingHandCursor)
-        self.btn_add_folder.clicked.connect(self.add_folder)
-        
-        self.btn_add_drive = QPushButton(strings.tr("btn_add_drive"))
-        self.btn_add_drive.setMinimumHeight(32)
-        self.btn_add_drive.setCursor(Qt.PointingHandCursor)
-        self.btn_add_drive.clicked.connect(self.add_drive_dialog)
-
-        self.btn_remove_folder = QPushButton(strings.tr("btn_remove_folder"))
-        self.btn_remove_folder.setMinimumHeight(32)
-        self.btn_remove_folder.setCursor(Qt.PointingHandCursor)
-        self.btn_remove_folder.setToolTip(strings.tr("btn_remove_folder"))
-        self.btn_remove_folder.clicked.connect(self.remove_selected_folder)
-
-        self.btn_clear_folder = QPushButton(strings.tr("btn_clear"))
-        self.btn_clear_folder.setMinimumHeight(32)
-        self.btn_clear_folder.setCursor(Qt.PointingHandCursor)
-        self.btn_clear_folder.clicked.connect(self.clear_folders)
-
-        folder_header.addStretch()
-        folder_header.addWidget(self.btn_add_folder)
-        folder_header.addWidget(self.btn_add_drive)
-        folder_header.addWidget(self.btn_remove_folder)
-        folder_header.addWidget(self.btn_clear_folder)
-        
-        top_main_layout.addLayout(folder_header)
-        
-        # --- ROW 2: Folder List ---
-        self.list_folders = QListWidget()
-        self.list_folders.setMinimumHeight(50)
-        self.list_folders.setMaximumHeight(100)
-        top_main_layout.addWidget(self.list_folders)
-
-        # --- ROW 3: Collapsible Filter Options ---
-        # Filter Header (Toggle Button)
-        self.btn_filter_toggle = QPushButton(strings.tr("lbl_filter_options") + " ▼")
-        self.btn_filter_toggle.setObjectName("filter_header")
-        self.btn_filter_toggle.setCheckable(True)
-        self.btn_filter_toggle.setChecked(True)
-        self.btn_filter_toggle.setCursor(Qt.PointingHandCursor)
-        self.btn_filter_toggle.clicked.connect(self._toggle_filter_panel)
-        top_main_layout.addWidget(self.btn_filter_toggle)
-        
-        # Filter Content Container
-        self.filter_container = QWidget()
-        self.filter_container.setObjectName("filter_card")
-        filter_main_layout = QVBoxLayout(self.filter_container)
-        filter_main_layout.setSpacing(12)
-        filter_main_layout.setContentsMargins(12, 12, 12, 12)
-        
-        # --- Filter Section: Basic Filters ---
-        self.lbl_filter_basic = QLabel(strings.tr("hdr_filters_basic"))
-        self.lbl_filter_basic.setObjectName("section_header")
-        filter_main_layout.addWidget(self.lbl_filter_basic)
-
-        # --- Filter Row 1: Basic Filters ---
-        row1_layout = QHBoxLayout()
-        row1_layout.setSpacing(20)
-        
-        # Extension Filter
-        ext_layout = QHBoxLayout()
-        ext_layout.setSpacing(8)
-        self.lbl_ext = QLabel(strings.tr("lbl_ext"))
-        self.lbl_ext.setObjectName("filter_label")
-        ext_layout.addWidget(self.lbl_ext)
-        self.txt_extensions = QLineEdit()
-        self.txt_extensions.setPlaceholderText(strings.tr("ph_ext"))
-        self.txt_extensions.setMinimumWidth(120)
-        self.txt_extensions.setMaximumWidth(180)
-        self.txt_extensions.setMinimumHeight(32)
-        ext_layout.addWidget(self.txt_extensions)
-        row1_layout.addLayout(ext_layout)
-        
-        # Min Size Filter
-        size_layout = QHBoxLayout()
-        size_layout.setSpacing(8)
-        self.lbl_min_size = QLabel(strings.tr("lbl_min_size"))
-        self.lbl_min_size.setObjectName("filter_label")
-        size_layout.addWidget(self.lbl_min_size)
-        self.spin_min_size = QSpinBox()
-        self.spin_min_size.setRange(0, 10000000)
-        self.spin_min_size.setValue(0)
-        self.spin_min_size.setSuffix(" KB")
-        self.spin_min_size.setMinimumWidth(100)
-        self.spin_min_size.setMaximumWidth(140)
-        self.spin_min_size.setMinimumHeight(32)
-        size_layout.addWidget(self.spin_min_size)
-        row1_layout.addLayout(size_layout)
-        
-        filter_main_layout.addLayout(row1_layout)
-        
-        # --- Filter Section: Comparison ---
-        self.lbl_filter_compare = QLabel(strings.tr("hdr_filters_compare"))
-        self.lbl_filter_compare.setObjectName("section_header")
-        filter_main_layout.addWidget(self.lbl_filter_compare)
-
-        # --- Filter Row 2: Comparison Options ---
-        row2_layout = QHBoxLayout()
-        row2_layout.setSpacing(20)
-        
-        self.chk_same_name = QCheckBox(strings.tr("chk_same_name"))
-        self.chk_same_name.setToolTip(strings.tr("tip_same_name"))
-        self.chk_name_only = QCheckBox(strings.tr("chk_name_only"))
-        self.chk_name_only.setToolTip(strings.tr("tip_name_only"))
-        self.chk_byte_compare = QCheckBox(strings.tr("chk_byte_compare"))
-
-        row2_layout.addWidget(self.chk_same_name)
-        row2_layout.addWidget(self.chk_name_only)
-        row2_layout.addWidget(self.chk_byte_compare)
-        row2_layout.addStretch()
-
-        filter_main_layout.addLayout(row2_layout)
-
-        # --- Filter Section: Advanced ---
-        self.lbl_filter_advanced = QLabel(strings.tr("hdr_filters_advanced"))
-        self.lbl_filter_advanced.setObjectName("section_header")
-        filter_main_layout.addWidget(self.lbl_filter_advanced)
-
-        # --- Filter Row 3: Advanced Options ---
-        row3_layout = QHBoxLayout()
-        row3_layout.setSpacing(20)
-
-        self.chk_protect_system = QCheckBox(strings.tr("chk_protect_system"))
-        self.chk_protect_system.setChecked(True)
-        self.chk_use_trash = QCheckBox(strings.tr("chk_use_trash"))
-        self.chk_use_trash.setToolTip(strings.tr("tip_use_trash"))
-        
-        row3_layout.addWidget(self.chk_protect_system)
-        row3_layout.addWidget(self.chk_use_trash)
-        row3_layout.addWidget(self._create_separator())
-        
-        # Similar Image Section
-        self.chk_similar_image = QCheckBox(strings.tr("chk_similar_image"))
-        self.chk_similar_image.setToolTip(strings.tr("tip_similar_image"))
-        row3_layout.addWidget(self.chk_similar_image)
-        
-        self.lbl_similarity = QLabel(strings.tr("lbl_similarity_threshold"))
-        self.spin_similarity = QDoubleSpinBox()
-        self.spin_similarity.setRange(0.1, 1.0)
-        self.spin_similarity.setSingleStep(0.05)
-        self.spin_similarity.setValue(0.9)
-        self.spin_similarity.setDecimals(2)
-        self.spin_similarity.setMinimumWidth(80)
-        self.spin_similarity.setEnabled(False)
-        row3_layout.addWidget(self.lbl_similarity)
-        row3_layout.addWidget(self.spin_similarity)
-        row3_layout.addWidget(self._create_separator())
-        
-        # Exclude Patterns Button
-        self.btn_exclude_patterns = QPushButton(strings.tr("btn_exclude_patterns"))
-        self.btn_exclude_patterns.setMinimumHeight(32)
-        self.btn_exclude_patterns.setObjectName("btn_icon")
-        self.btn_exclude_patterns.setCursor(Qt.PointingHandCursor)
-        self.btn_exclude_patterns.clicked.connect(self.open_exclude_patterns_dialog)
-        row3_layout.addWidget(self.btn_exclude_patterns)
-        
-        row3_layout.addStretch()
-        
-        filter_main_layout.addLayout(row3_layout)
-
-        self.chk_name_only.toggled.connect(self._sync_filter_states)
-        self.chk_similar_image.toggled.connect(self._sync_filter_states)
-        
-        top_main_layout.addWidget(self.filter_container)
-        self._sync_filter_states()
-
-        # --- ROW 4: Action Buttons ---
-        action_layout = QHBoxLayout()
-        action_layout.setSpacing(12)
-        
-        self.btn_start_scan = QPushButton(strings.tr("btn_start_scan"))
-        self.btn_start_scan.setMinimumHeight(40)
-        self.btn_start_scan.setMinimumWidth(150)
-        self.btn_start_scan.setCursor(Qt.PointingHandCursor)
-        self.btn_start_scan.setObjectName("btn_primary")
-        self.btn_start_scan.clicked.connect(self.start_scan)
-
-        self.btn_stop_scan = QPushButton(strings.tr("scan_stop"))
-        self.btn_stop_scan.setMinimumHeight(40)
-        self.btn_stop_scan.setCursor(Qt.PointingHandCursor)
-        self.btn_stop_scan.clicked.connect(self.stop_scan)
-        self.btn_stop_scan.setEnabled(False)
-
-        action_layout.addWidget(self.btn_start_scan)
-        action_layout.addWidget(self.btn_stop_scan)
-        self.lbl_scan_stage = QLabel(
-            strings.tr("msg_scan_stage").format(stage=strings.tr("status_ready"))
-        )
-        self.lbl_scan_stage.setObjectName("stage_badge")
-        action_layout.addWidget(self.lbl_scan_stage)
-        action_layout.addStretch()
-        
-        top_main_layout.addLayout(action_layout)
-
-        # Add Top Container to V-Splitter
-        self.main_v_splitter.addWidget(self.top_container)
-
-        # === BOTTOM CONTAINER: Results Tree + Preview ===
-        # Use existing Horizontal splitter, but put it into the V-Splitter
-        self.splitter = QSplitter(Qt.Horizontal)
-        self.splitter.setHandleWidth(12)
-        
-        # [Left] Tree Widget Container
-        self.tree_container = QWidget()
-        self.tree_container.setObjectName("result_card")
-        tree_layout = QVBoxLayout(self.tree_container)
-        tree_layout.setContentsMargins(12, 12, 12, 12)
-        tree_layout.setSpacing(8)
-
-        # Results header
-        results_header = QHBoxLayout()
-        results_header.setSpacing(8)
-        self.lbl_results_title = QLabel(strings.tr("nav_results"))
-        self.lbl_results_title.setObjectName("results_title")
-        self.lbl_results_meta = QLabel("")
-        self.lbl_results_meta.setObjectName("results_meta")
-        results_header.addWidget(self.lbl_results_title)
-        results_header.addStretch()
-        # In results-focused mode, provide a quick way back to scan options.
-        self.btn_show_options = QPushButton(strings.tr("btn_show_options"))
-        self.btn_show_options.setMinimumHeight(28)
-        self.btn_show_options.setCursor(Qt.PointingHandCursor)
-        self.btn_show_options.setObjectName("btn_icon")
-        self.btn_show_options.clicked.connect(lambda: self._navigate_to("scan"))
-        self.btn_show_options.setVisible(False)
-        results_header.addWidget(self.btn_show_options)
-        results_header.addWidget(self.lbl_results_meta)
-        tree_layout.addLayout(results_header)
-        
-        # Filter Input
-        filter_row = QHBoxLayout()
-        self.txt_result_filter = QLineEdit()
-        self.txt_result_filter.setPlaceholderText("🔍 " + strings.tr("ph_filter_results"))
-        self.txt_result_filter.setClearButtonEnabled(True)
-        self.txt_result_filter.textChanged.connect(self.filter_results_tree)
-        filter_row.addWidget(self.txt_result_filter)
-        filter_row.addStretch()
-        self.lbl_filter_count = QLabel("")
-        self.lbl_filter_count.setObjectName("filter_count")
-        filter_row.addWidget(self.lbl_filter_count)
-        tree_layout.addLayout(filter_row)
-        
-        self.tree_widget = ResultsTreeWidget()
-        self.tree_widget.itemDoubleClicked.connect(self.open_file) 
-        self.tree_widget.currentItemChanged.connect(self.update_preview)
-        self.tree_widget.customContextMenuRequested.connect(self.show_context_menu)
-        self.tree_widget.files_checked.connect(self.on_checked_files_changed)
-        
-        self.results_stack = QStackedWidget()
-        self.results_stack.setObjectName("results_stack")
-
-        empty_wrap = QWidget()
-        empty_layout = QVBoxLayout(empty_wrap)
-        empty_layout.setContentsMargins(24, 24, 24, 24)
-        self.lbl_results_empty = QLabel(strings.tr("msg_no_results"))
-        self.lbl_results_empty.setAlignment(Qt.AlignCenter)
-        self.lbl_results_empty.setWordWrap(True)
-        self.lbl_results_empty.setObjectName("empty_state")
-        empty_layout.addStretch()
-        empty_layout.addWidget(self.lbl_results_empty)
-
-        # Empty-state CTAs
-        empty_btn_row = QHBoxLayout()
-        empty_btn_row.setSpacing(10)
-        self.btn_results_empty_add_folder = QPushButton(strings.tr("btn_add_folder"))
-        self.btn_results_empty_add_folder.setMinimumHeight(40)
-        self.btn_results_empty_add_folder.setCursor(Qt.PointingHandCursor)
-        self.btn_results_empty_add_folder.clicked.connect(self.add_folder)
-        empty_btn_row.addWidget(self.btn_results_empty_add_folder)
-
-        self.btn_results_empty_start_scan = QPushButton(strings.tr("btn_start_scan"))
-        self.btn_results_empty_start_scan.setMinimumHeight(40)
-        self.btn_results_empty_start_scan.setCursor(Qt.PointingHandCursor)
-        self.btn_results_empty_start_scan.setObjectName("btn_primary")
-        self.btn_results_empty_start_scan.clicked.connect(self.start_scan)
-        empty_btn_row.addWidget(self.btn_results_empty_start_scan)
-        empty_layout.addLayout(empty_btn_row)
-
-        empty_layout.addStretch()
-
-        self.results_stack.addWidget(empty_wrap)
-        self.results_stack.addWidget(self.tree_widget)
-        tree_layout.addWidget(self.results_stack)
-
-        self.splitter.addWidget(self.tree_container)
-
-        # [Right] Preview Panel
-        self.preview_container = QWidget()
-        self.preview_container.setObjectName("preview_card")
-        preview_layout = QVBoxLayout(self.preview_container)
-        preview_layout.setContentsMargins(0, 0, 0, 0)
-        preview_layout.setSpacing(0)
-        
-        self.lbl_preview_header = QLabel(strings.tr("lbl_preview"))
-        self.lbl_preview_header.setAlignment(Qt.AlignCenter)
-        self.lbl_preview_header.setStyleSheet("""
-            font-weight: 600; 
-            font-size: 14px;
-            padding: 12px; 
-            border-bottom: 1px solid palette(mid);
-        """) 
-        preview_layout.addWidget(self.lbl_preview_header)
-
-        # Preview info panel
-        self.preview_info = QWidget()
-        self.preview_info.setObjectName("preview_info")
-        info_layout = QVBoxLayout(self.preview_info)
-        info_layout.setContentsMargins(16, 12, 16, 12)
-        info_layout.setSpacing(4)
-
-        self.lbl_preview_name = QLabel("")
-        self.lbl_preview_name.setObjectName("preview_name")
-        self.lbl_preview_path = QLabel("")
-        self.lbl_preview_path.setObjectName("preview_path")
-        self.lbl_preview_path.setWordWrap(True)
-        self.lbl_preview_meta = QLabel("")
-        self.lbl_preview_meta.setObjectName("preview_meta")
-
-        info_layout.addWidget(self.lbl_preview_name)
-        info_layout.addWidget(self.lbl_preview_path)
-        info_layout.addWidget(self.lbl_preview_meta)
-        preview_layout.addWidget(self.preview_info)
-        self.preview_info.hide()
-
-        # Scroll Area for preview content
-        self.preview_scroll = QScrollArea()
-        self.preview_scroll.setWidgetResizable(True)
-        self.preview_scroll.setFrameShape(QScrollArea.NoFrame)
-        
-        scroll_content = QWidget()
-        scroll_content.setObjectName("preview_content")
-        scroll_layout = QVBoxLayout(scroll_content)
-        scroll_layout.setContentsMargins(16, 16, 16, 16)
-        scroll_layout.setSpacing(12)
-        
-        self.lbl_image_preview = QLabel()
-        self.lbl_image_preview.setAlignment(Qt.AlignCenter)
-        self.lbl_image_preview.hide()
-        scroll_layout.addWidget(self.lbl_image_preview)
-
-        self.txt_text_preview = QTextEdit()
-        self.txt_text_preview.setReadOnly(True)
-        self.txt_text_preview.hide()
-        scroll_layout.addWidget(self.txt_text_preview)
-
-        self.lbl_info_preview = QLabel(strings.tr("msg_select_file"))
-        self.lbl_info_preview.setAlignment(Qt.AlignCenter)
-        self.lbl_info_preview.setWordWrap(True)
-        self.lbl_info_preview.setStyleSheet("color: palette(mid); font-size: 14px; padding: 40px;")
-        scroll_layout.addWidget(self.lbl_info_preview)
-        
-        scroll_layout.addStretch()
-        self.preview_scroll.setWidget(scroll_content)
-        preview_layout.addWidget(self.preview_scroll)
-
-        self.splitter.addWidget(self.preview_container)
-        self.splitter.setSizes([700, 400])
-        self.splitter.setCollapsible(0, False) # Tree view always visible
-        self.splitter.setCollapsible(1, True) # Preview collapsible
-
-        # Add Horizontal Splitter to Vertical Splitter
-        self.main_v_splitter.addWidget(self.splitter)
-        
-        # Set V-Splitter Proportions (Top small, Bottom big)
-        self.main_v_splitter.setStretchFactor(0, 1) # Top
-        self.main_v_splitter.setStretchFactor(1, 10) # Bottom (much bigger)
-        self.main_v_splitter.setCollapsible(0, True) # Allow collapsing top
-
-        main_layout.addWidget(self.main_v_splitter)
-        self.main_v_splitter.setSizes([260, 740])
-
-        # === 4. 하단 선택 및 삭제 (Fixed at bottom) ===
-        self.action_bar = QWidget()
-        self.action_bar.setObjectName("action_bar")
-        bottom_layout = QHBoxLayout(self.action_bar)
-        bottom_layout.setSpacing(12)
-        bottom_layout.setContentsMargins(16, 8, 16, 8)
-        
-        self.btn_select_smart = QToolButton()
-        self.btn_select_smart.setText(strings.tr("btn_smart_select"))
-        self.btn_select_smart.setToolTip(strings.tr("tip_smart_select"))
-        self.btn_select_smart.setMinimumHeight(44)
-        self.btn_select_smart.setObjectName("btn_secondary")
-        self.btn_select_smart.setCursor(Qt.PointingHandCursor)
-        self.btn_select_smart.setPopupMode(QToolButton.MenuButtonPopup)
-        self.btn_select_smart.clicked.connect(self.select_duplicates_smart)
-        
-        # Smart Select Menu
-        self.menu_smart_select = QMenu(self)
-        
-        # 1. Smart Select (Default)
-        self.action_smart = QAction(strings.tr("btn_smart_select"), self)
-        self.action_smart.triggered.connect(self.select_duplicates_smart)
-        self.menu_smart_select.addAction(self.action_smart)
-        
-        self.menu_smart_select.addSeparator()
-        
-        # 2. Select Newest (Keep Oldest)
-        self.action_newest = QAction(strings.tr("action_select_newest"), self)
-        self.action_newest.setToolTip(strings.tr("tip_select_newest"))
-        self.action_newest.triggered.connect(self.select_duplicates_newest)
-        self.menu_smart_select.addAction(self.action_newest)
-        
-        # 3. Select Oldest (Keep Newest)
-        self.action_oldest = QAction(strings.tr("action_select_oldest"), self)
-        self.action_oldest.setToolTip(strings.tr("tip_select_oldest"))
-        self.action_oldest.triggered.connect(self.select_duplicates_oldest)
-        self.menu_smart_select.addAction(self.action_oldest)
-        
-        self.menu_smart_select.addSeparator()
-        
-        # 4. Select by Path Pattern
-        self.action_pattern = QAction(strings.tr("action_select_pattern"), self)
-        self.action_pattern.triggered.connect(self.select_duplicates_by_pattern)
-        self.menu_smart_select.addAction(self.action_pattern)
-
-        self.btn_select_smart.setMenu(self.menu_smart_select)
-        
-        self.btn_export = QPushButton(strings.tr("btn_export"))
-        self.btn_export.setMinimumHeight(44)
-        self.btn_export.setCursor(Qt.PointingHandCursor)
-        self.btn_export.clicked.connect(self.export_results)
-
-        self.btn_delete = QPushButton(strings.tr("btn_delete_selected"))
-        self.btn_delete.setObjectName("btn_danger")
-        self.btn_delete.setMinimumHeight(44)
-        self.btn_delete.setCursor(Qt.PointingHandCursor)
-        self.btn_delete.clicked.connect(self.delete_selected_files)
-
-        bottom_layout.addWidget(self.btn_select_smart)
-        bottom_layout.addWidget(self.btn_export)
-
-        # UX: show selection count / filter state next to actions
-        self.lbl_action_meta = QLabel("")
-        self.lbl_action_meta.setObjectName("filter_count")
-        bottom_layout.addWidget(self.lbl_action_meta)
-
-        bottom_layout.addStretch()
-        bottom_layout.addWidget(self.btn_delete)
-        main_layout.addWidget(self.action_bar)
-
-        self._set_results_view(False)
-        self._update_results_summary(0)
-
-        # === PAGE 1: RESULTS PAGE (Placeholder for now - can be used for dedicated results view) ===
-        self.results_page = QWidget()
-        results_layout = QVBoxLayout(self.results_page)
-        results_layout.setContentsMargins(16, 12, 16, 12)
-        self.lbl_results_page_title = QLabel(strings.tr("nav_results"))
-        self.lbl_results_page_title.setObjectName("card_title")
-        self.lbl_results_page_title.setStyleSheet("font-size: 18px; padding: 8px 0;")
-        results_layout.addWidget(self.lbl_results_page_title)
-
-        self.lbl_results_hint = QLabel(strings.tr("msg_results_page_hint"))
-        self.lbl_results_hint.setObjectName("empty_state")
-        self.lbl_results_hint.setWordWrap(True)
-        results_layout.addWidget(self.lbl_results_hint)
-
-        self.lbl_results_page_summary = QLabel("")
-        self.lbl_results_page_summary.setObjectName("results_meta")
-        results_layout.addWidget(self.lbl_results_page_summary)
-
-        self.btn_go_scan = QPushButton(strings.tr("btn_go_scan"))
-        self.btn_go_scan.setMinimumHeight(40)
-        self.btn_go_scan.setCursor(Qt.PointingHandCursor)
-        self.btn_go_scan.clicked.connect(lambda: self._navigate_to("scan"))
-        results_layout.addWidget(self.btn_go_scan)
-        results_layout.addStretch()
+        self.results_page = build_results_page(self)
         self.page_stack.addWidget(self.results_page)
-        
-        # === PAGE 2: TOOLS PAGE ===
-        self.tools_page = QWidget()
-        tools_layout = QVBoxLayout(self.tools_page)
-        tools_layout.setSpacing(16)
-        tools_layout.setContentsMargins(16, 12, 16, 12)
-        
-        self.lbl_tools_title = QLabel(strings.tr("nav_tools"))
-        self.lbl_tools_title.setObjectName("card_title")
-        self.lbl_tools_title.setStyleSheet("font-size: 18px; padding: 8px 0;")
-        tools_layout.addWidget(self.lbl_tools_title)
 
-        self.lbl_tools_hint = QLabel(strings.tr("msg_tools_page_hint"))
-        self.lbl_tools_hint.setObjectName("empty_state")
-        self.lbl_tools_hint.setWordWrap(True)
-        tools_layout.addWidget(self.lbl_tools_hint)
+        self.tools_page = build_tools_page(self)
+        tools_scroll = QScrollArea()
+        tools_scroll.setWidgetResizable(True)
+        tools_scroll.setFrameShape(QScrollArea.NoFrame)
+        tools_scroll.setWidget(self.tools_page)
+        self.page_stack.addWidget(tools_scroll)
 
-        self.lbl_tools_target = QLabel("")
-        self.lbl_tools_target.setObjectName("filter_count")
-        tools_layout.addWidget(self.lbl_tools_target)
-
-        self.btn_tools_go_scan = QPushButton(strings.tr("btn_go_scan"))
-        self.btn_tools_go_scan.setMinimumHeight(40)
-        self.btn_tools_go_scan.setCursor(Qt.PointingHandCursor)
-        self.btn_tools_go_scan.clicked.connect(lambda: self._navigate_to("scan"))
-        self.btn_tools_go_scan.setVisible(False)
-        tools_layout.addWidget(self.btn_tools_go_scan)
-         
-        # Empty Folder Finder Card
-        empty_card = QWidget()
-        empty_card.setObjectName("folder_card")
-        empty_card_layout = QVBoxLayout(empty_card)
-        empty_card_layout.setContentsMargins(20, 16, 20, 16)
-        empty_card_layout.setSpacing(12)
-        
-        self.lbl_empty_title = QLabel(strings.tr("action_empty_finder"))
-        self.lbl_empty_title.setObjectName("card_title")
-        empty_card_layout.addWidget(self.lbl_empty_title)
-
-        self.lbl_empty_desc = QLabel(strings.tr("msg_empty_finder_desc"))
-        self.lbl_empty_desc.setWordWrap(True)
-        self.lbl_empty_desc.setObjectName("empty_state")
-        empty_card_layout.addWidget(self.lbl_empty_desc)
-        
-        self.btn_empty_tools = QPushButton(strings.tr("btn_scan_empty"))
-        self.btn_empty_tools.setMinimumHeight(44)
-        self.btn_empty_tools.setCursor(Qt.PointingHandCursor)
-        self.btn_empty_tools.clicked.connect(self.open_empty_finder)
-        empty_card_layout.addWidget(self.btn_empty_tools)
-        
-        tools_layout.addWidget(empty_card)
-        tools_layout.addStretch()
-        self.page_stack.addWidget(self.tools_page)
-        
-        # === PAGE 3: SETTINGS PAGE ===
-        self.settings_page = QWidget()
-        settings_layout = QVBoxLayout(self.settings_page)
-        settings_layout.setSpacing(16)
-        settings_layout.setContentsMargins(16, 12, 16, 12)
-        
-        self.lbl_settings_title = QLabel(strings.tr("nav_settings"))
-        self.lbl_settings_title.setObjectName("card_title")
-        self.lbl_settings_title.setStyleSheet("font-size: 18px; padding: 8px 0;")
-        settings_layout.addWidget(self.lbl_settings_title)
-
-        self.lbl_settings_hint = QLabel(strings.tr("msg_settings_page_hint"))
-        self.lbl_settings_hint.setObjectName("empty_state")
-        self.lbl_settings_hint.setWordWrap(True)
-        settings_layout.addWidget(self.lbl_settings_hint)
-        
-        # Theme Card
-        theme_card = QWidget()
-        theme_card.setObjectName("folder_card")
-        theme_card_layout = QVBoxLayout(theme_card)
-        theme_card_layout.setContentsMargins(20, 16, 20, 16)
-        theme_card_layout.setSpacing(12)
-        
-        self.lbl_theme_title = QLabel(strings.tr("action_theme"))
-        self.lbl_theme_title.setObjectName("card_title")
-        theme_card_layout.addWidget(self.lbl_theme_title)
-        
-        self.btn_theme_settings = QPushButton(strings.tr("action_theme"))
-        self.btn_theme_settings.setCheckable(True)
-        self.btn_theme_settings.setMinimumHeight(44)
-        self.btn_theme_settings.setCursor(Qt.PointingHandCursor)
-        self.btn_theme_settings.clicked.connect(self.toggle_theme)
-        theme_card_layout.addWidget(self.btn_theme_settings)
-        
-        settings_layout.addWidget(theme_card)
-        
-        # Shortcuts Card
-        shortcut_card = QWidget()
-        shortcut_card.setObjectName("folder_card")
-        shortcut_card_layout = QVBoxLayout(shortcut_card)
-        shortcut_card_layout.setContentsMargins(20, 16, 20, 16)
-        shortcut_card_layout.setSpacing(12)
-        
-        self.lbl_shortcut_title = QLabel(strings.tr("action_shortcut_settings"))
-        self.lbl_shortcut_title.setObjectName("card_title")
-        shortcut_card_layout.addWidget(self.lbl_shortcut_title)
-        
-        self.btn_shortcuts_settings = QPushButton(strings.tr("action_shortcut_settings"))
-        self.btn_shortcuts_settings.setMinimumHeight(44)
-        self.btn_shortcuts_settings.setCursor(Qt.PointingHandCursor)
-        self.btn_shortcuts_settings.clicked.connect(self.open_shortcut_settings)
-        shortcut_card_layout.addWidget(self.btn_shortcuts_settings)
-        
-        settings_layout.addWidget(shortcut_card)
-        
-        # Presets Card
-        preset_card = QWidget()
-        preset_card.setObjectName("folder_card")
-        preset_card_layout = QVBoxLayout(preset_card)
-        preset_card_layout.setContentsMargins(20, 16, 20, 16)
-        preset_card_layout.setSpacing(12)
-        
-        self.lbl_preset_title = QLabel(strings.tr("action_preset"))
-        self.lbl_preset_title.setObjectName("card_title")
-        preset_card_layout.addWidget(self.lbl_preset_title)
-        
-        self.btn_preset_settings = QPushButton(strings.tr("btn_manage_presets"))
-        self.btn_preset_settings.setMinimumHeight(44)
-        self.btn_preset_settings.setCursor(Qt.PointingHandCursor)
-        self.btn_preset_settings.clicked.connect(self.open_preset_dialog)
-        preset_card_layout.addWidget(self.btn_preset_settings)
-        
-        settings_layout.addWidget(preset_card)
-        settings_layout.addStretch()
-        self.page_stack.addWidget(self.settings_page)
+        self.settings_page = build_settings_page(self)
+        settings_scroll = QScrollArea()
+        settings_scroll.setWidgetResizable(True)
+        settings_scroll.setFrameShape(QScrollArea.NoFrame)
+        settings_scroll.setWidget(self.settings_page)
+        self.page_stack.addWidget(settings_scroll)
 
         # === STATUS BAR (Outside stacked widget - always visible) ===
         status_container = QHBoxLayout()
@@ -861,50 +279,6 @@ class DuplicateFinderApp(QMainWindow):
         status_container.addWidget(self.progress_bar)
         status_container.addWidget(self.status_label, 1)
         content_layout.addLayout(status_container)
-
-    def _set_scan_page_mode(self, mode: str):
-        """
-        Make the Scan page either option-focused or results-focused.
-        This keeps the UI simple and avoids duplicating the results view.
-        """
-        if not hasattr(self, "main_v_splitter") or not hasattr(self, "top_container"):
-            return
-        if mode not in ("scan", "results"):
-            mode = "scan"
-        if getattr(self, "_scan_page_mode", "scan") == mode:
-            return
-
-        if mode == "results":
-            try:
-                self._scan_splitter_sizes_scan = self.main_v_splitter.sizes()
-            except Exception:
-                self._scan_splitter_sizes_scan = None
-
-            self.top_container.setVisible(False)
-            if hasattr(self, "btn_show_options"):
-                self.btn_show_options.setVisible(True)
-            try:
-                self.main_v_splitter.setSizes([0, 1])
-            except Exception:
-                pass
-
-            # Focus results interaction
-            if hasattr(self, "tree_widget"):
-                self.tree_widget.setFocus()
-        else:
-            self.top_container.setVisible(True)
-            if hasattr(self, "btn_show_options"):
-                self.btn_show_options.setVisible(False)
-            try:
-                sizes = self._scan_splitter_sizes_scan
-                if sizes and len(sizes) >= 2 and sizes[1] > 0:
-                    self.main_v_splitter.setSizes(sizes)
-                else:
-                    self.main_v_splitter.setSizes([360, 640])
-            except Exception:
-                pass
-
-        self._scan_page_mode = mode
 
     def retranslate_ui(self):
         """Dynamic text update for language switching"""
@@ -951,6 +325,8 @@ class DuplicateFinderApp(QMainWindow):
         
         self.btn_start_scan.setText(strings.tr("btn_start_scan"))
         self.btn_stop_scan.setText(strings.tr("scan_stop"))
+        if hasattr(self, "btn_go_results"):
+            self.btn_go_results.setText(strings.tr("nav_results"))
         
         # New Feature: Filter Placeholder
         if hasattr(self, 'txt_result_filter'):
@@ -1002,6 +378,76 @@ class DuplicateFinderApp(QMainWindow):
             self.lbl_preset_title.setText(strings.tr("action_preset"))
         if hasattr(self, 'btn_preset_settings'):
             self.btn_preset_settings.setText(strings.tr("btn_manage_presets"))
+        if hasattr(self, "lbl_cache_title"):
+            self.lbl_cache_title.setText(strings.tr("settings_cache_title"))
+        if hasattr(self, "lbl_cache_desc"):
+            self.lbl_cache_desc.setText(strings.tr("settings_cache_desc"))
+        if hasattr(self, "btn_cache_open"):
+            self.btn_cache_open.setText(strings.tr("ctx_open_folder"))
+        if hasattr(self, "btn_cache_copy"):
+            self.btn_cache_copy.setText(strings.tr("ctx_copy_path"))
+
+        # Tools: Quarantine / Rules / Ops
+        if hasattr(self, "lbl_quarantine_title"):
+            self.lbl_quarantine_title.setText(strings.tr("tool_quarantine_title"))
+        if hasattr(self, "lbl_quarantine_desc"):
+            self.lbl_quarantine_desc.setText(strings.tr("tool_quarantine_desc"))
+        if hasattr(self, "txt_quarantine_search"):
+            self.txt_quarantine_search.setPlaceholderText(strings.tr("ph_quarantine_search"))
+        if hasattr(self, "btn_quarantine_refresh"):
+            self.btn_quarantine_refresh.setText(strings.tr("btn_refresh"))
+        if hasattr(self, "btn_quarantine_restore"):
+            self.btn_quarantine_restore.setText(strings.tr("btn_restore_selected"))
+        if hasattr(self, "btn_quarantine_purge"):
+            self.btn_quarantine_purge.setText(strings.tr("btn_purge_selected"))
+        if hasattr(self, "btn_quarantine_purge_all"):
+            self.btn_quarantine_purge_all.setText(strings.tr("btn_purge_all"))
+        if hasattr(self, "tbl_quarantine"):
+            self.tbl_quarantine.setHorizontalHeaderLabels(
+                [strings.tr("col_path"), strings.tr("col_size"), strings.tr("col_created"), strings.tr("col_status")]
+            )
+
+        if hasattr(self, "lbl_rules_title"):
+            self.lbl_rules_title.setText(strings.tr("tool_rules_title"))
+        if hasattr(self, "lbl_rules_desc"):
+            self.lbl_rules_desc.setText(strings.tr("tool_rules_desc"))
+        if hasattr(self, "btn_rules_edit"):
+            self.btn_rules_edit.setText(strings.tr("btn_edit_rules"))
+        if hasattr(self, "btn_rules_apply"):
+            self.btn_rules_apply.setText(strings.tr("btn_apply_rules"))
+
+        if hasattr(self, "lbl_ops_title"):
+            self.lbl_ops_title.setText(strings.tr("tool_ops_title"))
+        if hasattr(self, "btn_ops_refresh"):
+            self.btn_ops_refresh.setText(strings.tr("btn_refresh"))
+        if hasattr(self, "btn_ops_view"):
+            self.btn_ops_view.setText(strings.tr("btn_view_details"))
+        if hasattr(self, "tbl_ops"):
+            self.tbl_ops.setHorizontalHeaderLabels(
+                [strings.tr("col_id"), strings.tr("col_created"), strings.tr("col_type"), strings.tr("col_status"), strings.tr("col_message")]
+            )
+        if hasattr(self, "btn_hardlink_checked"):
+            self.btn_hardlink_checked.setText(strings.tr("btn_hardlink_checked"))
+
+        # Settings: Quarantine / Hardlink
+        if hasattr(self, "lbl_quarantine_settings_title"):
+            self.lbl_quarantine_settings_title.setText(strings.tr("settings_quarantine_title"))
+        if hasattr(self, "chk_quarantine_enabled"):
+            self.chk_quarantine_enabled.setText(strings.tr("settings_quarantine_enabled"))
+        if hasattr(self, "lbl_quarantine_days"):
+            self.lbl_quarantine_days.setText(strings.tr("settings_quarantine_days"))
+        if hasattr(self, "lbl_quarantine_gb"):
+            self.lbl_quarantine_gb.setText(strings.tr("settings_quarantine_gb"))
+        if hasattr(self, "txt_quarantine_path"):
+            self.txt_quarantine_path.setPlaceholderText(strings.tr("ph_quarantine_path"))
+        if hasattr(self, "btn_quarantine_pick"):
+            self.btn_quarantine_pick.setText(strings.tr("btn_choose_folder"))
+        if hasattr(self, "btn_quarantine_apply"):
+            self.btn_quarantine_apply.setText(strings.tr("btn_apply"))
+        if hasattr(self, "lbl_hardlink_title"):
+            self.lbl_hardlink_title.setText(strings.tr("settings_hardlink_title"))
+        if hasattr(self, "chk_enable_hardlink"):
+            self.chk_enable_hardlink.setText(strings.tr("settings_hardlink_enabled"))
         self._update_results_summary()
         if hasattr(self, "lbl_filter_count"):
             self.lbl_filter_count.setText("")
@@ -1233,56 +679,24 @@ class DuplicateFinderApp(QMainWindow):
         dlg = EmptyFolderDialog(self.selected_folders, self)
         dlg.exec()
 
+
     def apply_theme(self, theme_name):
         style = ModernTheme.get_stylesheet(theme_name)
-        colors = ModernTheme.get_palette(theme_name)
-        
-        # Apply preview panel and filter panel specific styling
-        extra_style = f"""
-        QWidget#preview_content {{
-            background-color: {colors['preview_bg']};
-        }}
-        
-        QPushButton#filter_header {{
-            text-align: left;
-            padding: 10px 14px;
-            font-weight: 600;
-            font-size: 13px;
-            border: 1px solid {colors['border']};
-            border-radius: 8px;
-            background-color: {colors['card_bg']};
-            color: {colors['text_primary']};
-        }}
-        QPushButton#filter_header:checked {{
-            border-bottom-left-radius: 0;
-            border-bottom-right-radius: 0;
-        }}
-        QPushButton#filter_header:hover {{
-            background-color: {colors['hover']};
-        }}
-        
-        QWidget#filter_card {{
-            border: 1px solid {colors['border']};
-            border-top: none;
-            border-bottom-left-radius: 8px;
-            border-bottom-right-radius: 8px;
-            background-color: {colors['card_bg']};
-        }}
-        
-        QLabel#filter_label {{
-            font-weight: 600;
-            font-size: 12px;
-            color: {colors['text_primary']};
-            background: transparent;
-            border: none;
-        }}
-        """
-        
-        self.setStyleSheet(style + extra_style)
+        self.setStyleSheet(style)
         self.settings.setValue("app/theme", theme_name)
         
         # Propagate to custom widgets
         self.tree_widget.set_theme_mode(theme_name)
+        if hasattr(self, "sidebar"):
+            try:
+                self.sidebar.apply_theme(theme_name)
+            except Exception:
+                pass
+        if hasattr(self, "toast_manager") and self.toast_manager:
+            try:
+                self.toast_manager.set_theme_mode(theme_name)
+            except Exception:
+                pass
         
         # Action state update
         if hasattr(self, 'action_theme'):
@@ -1531,6 +945,11 @@ class DuplicateFinderApp(QMainWindow):
         self._set_results_view(bool(results))
         self._update_results_summary(0)
         self._update_action_buttons_state(selected_count=0)
+        # UX: bring user to focused results page after scan completes.
+        try:
+            self._navigate_to("results")
+        except Exception:
+            pass
         if self.current_session_id:
             self.cache_manager.save_scan_results(self.current_session_id, results)
             self.cache_manager.save_selected_paths(self.current_session_id, [])
@@ -1605,50 +1024,14 @@ class DuplicateFinderApp(QMainWindow):
         if not path: return
 
         try:
-            import csv
-            with open(path, 'w', newline='', encoding='utf-8-sig') as f:
-                writer = csv.writer(f)
-                # Keep CSV schema stable but avoid assuming scan_results key shape.
-                writer.writerow(["Group ID", "Group Label", "Size (Bytes)", "File Path", "Modified Time"])
-                
-                group_id = 1
-                for key, paths in self.scan_results.items():
-                    # Human-friendly label for group key variants (hash/name-only/similar/etc.)
-                    try:
-                        if isinstance(key, (tuple, list)) and key:
-                            if key[0] == "NAME_ONLY":
-                                group_label = f"NAME_ONLY:{key[1] if len(key) > 1 else ''}"
-                            else:
-                                group_label = ""
-                                for part in key:
-                                    if isinstance(part, str) and part.startswith("similar_"):
-                                        group_label = f"SIMILAR:{part.split('_', 1)[1] if '_' in part else part}"
-                                        break
-                                if not group_label:
-                                    for part in key:
-                                        if isinstance(part, str):
-                                            group_label = part
-                                            break
-                        else:
-                            group_label = str(key)
-                    except Exception:
-                        group_label = ""
-                    for p in paths:
-                        size = ""
-                        try:
-                            size = os.path.getsize(p)
-                        except Exception:
-                            size = ""
+            from src.ui.exporting import export_scan_results_csv
 
-                        mtime_str = ""
-                        try:
-                            mtime = os.path.getmtime(p)
-                            mtime_str = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')
-                        except: pass
-                        
-                        writer.writerow([group_id, group_label, size, p, mtime_str])
-                    group_id += 1
-            
+            try:
+                selected = self.tree_widget.get_checked_files()
+            except Exception:
+                selected = []
+
+            export_scan_results_csv(scan_results=self.scan_results, out_path=path, selected_paths=selected)
             QMessageBox.information(self, strings.tr("status_done"), strings.tr("status_done") + f":\n{path}")
         except Exception as e:
             QMessageBox.critical(self, strings.tr("app_title"), strings.tr("err_save").format(e))
@@ -1854,32 +1237,37 @@ class DuplicateFinderApp(QMainWindow):
         # 휴지통 옵션 확인
         use_trash = self.chk_use_trash.isChecked()
 
-        extra_lines = []
-        if filter_active:
-            extra_lines.append(
-                strings.tr("confirm_delete_selected_counts").format(total=len(targets), visible=visible_checked)
-            )
-            extra_lines.append(strings.tr("msg_delete_includes_hidden"))
-        extra_msg = ("\n\n" + "\n".join(extra_lines)) if extra_lines else ""
-        
+        # Use persistent quarantine for undoable deletes if enabled.
+        quarantine_enabled = str(self.settings.value("quarantine/enabled", True)).lower() == "true"
         if use_trash:
-            res = QMessageBox.question(self, strings.tr("confirm_delete_title"), 
-                                       strings.tr("confirm_trash_delete").format(len(targets)) + extra_msg,
-                                       QMessageBox.Yes | QMessageBox.No)
+            op_type = "delete_trash"
         else:
-            res = QMessageBox.question(self, strings.tr("confirm_delete_title"), 
-                                       strings.tr("confirm_delete_msg").format(len(targets)) + extra_msg,
-                                       QMessageBox.Yes | QMessageBox.No)
-        
-        if res != QMessageBox.Yes: return
+            op_type = "delete_quarantine" if quarantine_enabled else "delete_trash"
+            if not quarantine_enabled:
+                QMessageBox.information(self, strings.tr("app_title"), strings.tr("msg_quarantine_disabled_fallback"))
 
-        self.start_file_operation('delete', targets, use_trash=use_trash)
+        # Preflight dialog is the confirmation surface; include filter warning in status bar/toast.
+        if filter_active:
+            try:
+                self.status_label.setText(
+                    strings.tr("confirm_delete_selected_counts").format(total=len(targets), visible=visible_checked)
+                )
+            except Exception:
+                pass
+
+        self._start_operation(
+            Operation(
+                op_type,
+                paths=targets,
+                options={"filter_active": filter_active, "visible_checked": visible_checked},
+            )
+        )
 
     def perform_undo(self):
-        self.start_file_operation('undo')
+        self._start_operation(Operation("undo"))
 
     def perform_redo(self):
-        self.start_file_operation('redo')
+        self._start_operation(Operation("redo"))
 
     def start_file_operation(self, op_type, data=None, use_trash=False):
         # Disable UI
@@ -2133,6 +1521,28 @@ class DuplicateFinderApp(QMainWindow):
         if self.exclude_patterns:
             self.settings.setValue("filter/exclude_patterns", json.dumps(self.exclude_patterns))
 
+        # Selection rules
+        try:
+            self.settings.setValue("rules/selection_json", json.dumps(self.selection_rules_json or []))
+        except Exception:
+            pass
+
+        # Quarantine / advanced settings
+        try:
+            if hasattr(self, "chk_quarantine_enabled"):
+                self.settings.setValue("quarantine/enabled", bool(self.chk_quarantine_enabled.isChecked()))
+            if hasattr(self, "spin_quarantine_days"):
+                self.settings.setValue("quarantine/max_days", int(self.spin_quarantine_days.value()))
+            if hasattr(self, "spin_quarantine_gb"):
+                gb = int(self.spin_quarantine_gb.value())
+                self.settings.setValue("quarantine/max_bytes", int(gb) * 1024 * 1024 * 1024)
+            if hasattr(self, "txt_quarantine_path"):
+                self.settings.setValue("quarantine/path_override", str(self.txt_quarantine_path.text() or "").strip())
+            if hasattr(self, "chk_enable_hardlink"):
+                self.settings.setValue("ops/enable_hardlink", bool(self.chk_enable_hardlink.isChecked()))
+        except Exception:
+            pass
+
     def load_settings(self):
         geo = self.settings.value("app/geometry")
         if geo: self.restoreGeometry(geo)
@@ -2200,6 +1610,53 @@ class DuplicateFinderApp(QMainWindow):
             except:
                 self.exclude_patterns = []
 
+        # Selection rules load
+        try:
+            rules_json = self.settings.value("rules/selection_json", "[]")
+            self.selection_rules_json = json.loads(rules_json) if rules_json else []
+        except Exception:
+            self.selection_rules_json = []
+        try:
+            self.selection_rules = parse_rules(self.selection_rules_json)
+        except Exception:
+            self.selection_rules = []
+
+        # Quarantine / advanced settings load
+        try:
+            q_enabled = str(self.settings.value("quarantine/enabled", True)).lower() == "true"
+            q_days = self.settings.value("quarantine/max_days", 30)
+            q_bytes = self.settings.value("quarantine/max_bytes", 10 * 1024 * 1024 * 1024)
+            q_path = str(self.settings.value("quarantine/path_override", "") or "").strip()
+
+            if hasattr(self, "chk_quarantine_enabled"):
+                self.chk_quarantine_enabled.setChecked(bool(q_enabled))
+            if hasattr(self, "spin_quarantine_days"):
+                self.spin_quarantine_days.setValue(int(q_days) if q_days else 30)
+            if hasattr(self, "spin_quarantine_gb"):
+                try:
+                    gb = max(1, int(int(q_bytes) / (1024 * 1024 * 1024)))
+                except Exception:
+                    gb = 10
+                self.spin_quarantine_gb.setValue(gb)
+            if hasattr(self, "txt_quarantine_path"):
+                self.txt_quarantine_path.setText(q_path)
+            if q_path:
+                self.quarantine_manager._quarantine_dir = q_path
+
+            hl_enabled = str(self.settings.value("ops/enable_hardlink", False)).lower() == "true"
+            if hasattr(self, "chk_enable_hardlink"):
+                self.chk_enable_hardlink.setChecked(bool(hl_enabled))
+
+            self._sync_advanced_visibility()
+
+            # Apply retention at startup (best-effort).
+            try:
+                self._apply_quarantine_retention()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     def _restore_cached_session(self):
         self.cache_manager.cleanup_old_sessions()
         session = self.cache_manager.get_latest_session()
@@ -2231,6 +1688,11 @@ class DuplicateFinderApp(QMainWindow):
                 self._set_results_view(bool(results))
                 self._update_results_summary(len(selected_paths))
                 self.status_label.setText(strings.tr("msg_results_loaded").format(len(results)))
+                # Restore UX: bring the user to the focused results page when data is available.
+                try:
+                    self._navigate_to("results")
+                except Exception:
+                    pass
                 if pruned and self.current_session_id:
                     self.cache_manager.save_scan_results(self.current_session_id, results)
                     self.cache_manager.save_selected_paths(self.current_session_id, selected_paths)
@@ -2336,17 +1798,14 @@ class DuplicateFinderApp(QMainWindow):
         files = sum(len(paths) for paths in self.scan_results.values()) if self.scan_results else 0
         if selected_count is None:
             selected_count = len(self.tree_widget.get_checked_files()) if groups else 0
-        self.lbl_results_meta.setText(
-            strings.tr("msg_results_summary").format(
-                groups=groups, files=files, selected=selected_count
-            )
-        )
-        if hasattr(self, "lbl_results_page_summary"):
-            self.lbl_results_page_summary.setText(
-                strings.tr("msg_results_summary").format(
-                    groups=groups, files=files, selected=selected_count
-                )
-            )
+        summary = strings.tr("msg_results_summary").format(groups=groups, files=files, selected=selected_count)
+        self.lbl_results_meta.setText(summary)
+
+        # Scan page: show last summary + enable CTA when results exist.
+        if hasattr(self, "lbl_scan_summary"):
+            self.lbl_scan_summary.setText(summary if groups else "")
+        if hasattr(self, "btn_go_results"):
+            self.btn_go_results.setEnabled(bool(groups))
 
     def _update_action_buttons_state(self, selected_count: int = None):
         """Enable/disable actions/buttons based on current state for better UX."""
@@ -2368,6 +1827,8 @@ class DuplicateFinderApp(QMainWindow):
             self.btn_export.setEnabled(is_interactive and has_results)
         if hasattr(self, "btn_select_smart"):
             self.btn_select_smart.setEnabled(is_interactive and has_results)
+        if hasattr(self, "btn_select_rules"):
+            self.btn_select_rules.setEnabled(is_interactive and has_results and bool(self.selection_rules))
 
         if hasattr(self, "lbl_action_meta"):
             parts = [strings.tr("msg_selected_count").format(count=selected_count)]
@@ -2380,25 +1841,94 @@ class DuplicateFinderApp(QMainWindow):
         if not item: return
         
         path = item.data(0, Qt.UserRole)
-        # Check if it's a valid file path
-        if not path or not os.path.exists(path): return
-
         menu = QMenu()
-        
-        # Style the menu with icons
-        action_open = QAction(self.style().standardIcon(QStyle.SP_FileIcon), strings.tr("ctx_open"), self)
-        action_open.triggered.connect(lambda: self.open_file(item, 0))
-        menu.addAction(action_open)
 
-        action_folder = QAction(self.style().standardIcon(QStyle.SP_DirIcon), strings.tr("ctx_open_folder"), self)
-        action_folder.triggered.connect(lambda: self.open_containing_folder(path))
-        menu.addAction(action_folder)
-        
-        menu.addSeparator()
-        
-        action_copy = QAction(strings.tr("ctx_copy_path"), self)
-        action_copy.triggered.connect(lambda: self.copy_to_clipboard(path))
-        menu.addAction(action_copy)
+        # File item context
+        if path and os.path.exists(path):
+            action_open = QAction(self.style().standardIcon(QStyle.SP_FileIcon), strings.tr("ctx_open"), self)
+            action_open.triggered.connect(lambda: self.open_file(item, 0))
+            menu.addAction(action_open)
+
+            action_folder = QAction(self.style().standardIcon(QStyle.SP_DirIcon), strings.tr("ctx_open_folder"), self)
+            action_folder.triggered.connect(lambda: self.open_containing_folder(path))
+            menu.addAction(action_folder)
+
+            menu.addSeparator()
+
+            action_copy = QAction(strings.tr("ctx_copy_path"), self)
+            action_copy.triggered.connect(lambda: self.copy_to_clipboard(path))
+            menu.addAction(action_copy)
+        else:
+            # Group item context
+            if item.childCount() <= 0:
+                return
+            key = item.data(0, Qt.UserRole + 1)
+
+            act_check_all = QAction(strings.tr("ctx_group_check_all"), self)
+            act_check_all.triggered.connect(lambda: self.tree_widget.set_group_checked(item, True))
+            menu.addAction(act_check_all)
+
+            act_uncheck_all = QAction(strings.tr("ctx_group_uncheck_all"), self)
+            act_uncheck_all.triggered.connect(lambda: self.tree_widget.set_group_checked(item, False))
+            menu.addAction(act_uncheck_all)
+
+            if self.selection_rules:
+                act_apply_rules = QAction(strings.tr("ctx_group_apply_rules"), self)
+
+                def apply_rules():
+                    paths = self.tree_widget.get_group_paths(item)
+                    keep_set, delete_set = decide_keep_delete_for_group(paths, self.selection_rules)
+                    self.tree_widget.begin_bulk_check_update()
+                    try:
+                        for j in range(item.childCount()):
+                            child = item.child(j)
+                            p = child.data(0, Qt.UserRole)
+                            if not p:
+                                continue
+                            child.setCheckState(0, Qt.Unchecked if p in keep_set else Qt.Checked)
+                    finally:
+                        self.tree_widget.end_bulk_check_update()
+
+                act_apply_rules.triggered.connect(apply_rules)
+                menu.addAction(act_apply_rules)
+
+            # Hardlink group (advanced)
+            try:
+                enabled = bool(self.chk_enable_hardlink.isChecked()) and self._is_group_key_hardlink_eligible(key)
+            except Exception:
+                enabled = False
+            if enabled:
+                act_hardlink = QAction(strings.tr("ctx_group_hardlink"), self)
+
+                def hardlink_group():
+                    checked = []
+                    unchecked = []
+                    for j in range(item.childCount()):
+                        child = item.child(j)
+                        p = child.data(0, Qt.UserRole)
+                        if not p:
+                            continue
+                        if child.checkState(0) == Qt.Checked:
+                            checked.append(p)
+                        else:
+                            unchecked.append(p)
+                    paths = self.tree_widget.get_group_paths(item)
+                    if len(paths) < 2:
+                        return
+                    # Prefer canonical from unchecked; fallback to oldest.
+                    canonical = unchecked[0] if unchecked else None
+                    if not canonical:
+                        try:
+                            canonical = min(paths, key=lambda p: os.path.getmtime(p) if os.path.exists(p) else 0)
+                        except Exception:
+                            canonical = paths[0]
+                    targets = checked if checked else [p for p in paths if p != canonical]
+                    if not targets:
+                        return
+                    self._start_operation(Operation("hardlink_consolidate", options={"canonical": canonical, "targets": targets}))
+
+                act_hardlink.triggered.connect(hardlink_group)
+                menu.addAction(act_hardlink)
 
         menu.exec_(self.tree_widget.viewport().mapToGlobal(position))
 
@@ -2415,6 +1945,34 @@ class DuplicateFinderApp(QMainWindow):
     def copy_to_clipboard(self, text):
         from PySide6.QtWidgets import QApplication
         QApplication.clipboard().setText(text)
+
+    def open_cache_db_folder(self):
+        """Open the folder containing the cache DB."""
+        try:
+            db_path = str(getattr(self.cache_manager, "db_path", "") or "")
+        except Exception:
+            db_path = ""
+        folder = os.path.dirname(db_path) if db_path else ""
+        if not folder:
+            return
+        try:
+            if platform.system() == "Windows":
+                os.startfile(folder)
+            elif platform.system() == "Darwin":
+                subprocess.call(("open", folder))
+            else:
+                subprocess.call(("xdg-open", folder))
+        except Exception:
+            pass
+
+    def copy_cache_db_path(self):
+        """Copy cache DB path to clipboard."""
+        try:
+            db_path = str(getattr(self.cache_manager, "db_path", "") or "")
+        except Exception:
+            db_path = ""
+        if db_path:
+            self.copy_to_clipboard(db_path)
 
     # === 새 기능 메서드들 ===
     
@@ -2469,6 +2027,10 @@ class DuplicateFinderApp(QMainWindow):
             self._set_results_view(bool(self.scan_results))
             self._update_results_summary(0)
             self.status_label.setText(strings.tr("msg_results_loaded").format(len(self.scan_results)))
+            try:
+                self._navigate_to("results")
+            except Exception:
+                pass
         except Exception as e:
             QMessageBox.critical(self, strings.tr("app_title"), strings.tr("err_load").format(e))
     
@@ -2577,6 +2139,561 @@ class DuplicateFinderApp(QMainWindow):
         for action_id, shortcut in shortcuts.items():
             if action_id in shortcut_map and shortcut:
                 shortcut_map[action_id].setShortcut(QKeySequence(shortcut))
+
+    # === Quarantine / Rules / Operations ===
+
+    def _sync_advanced_visibility(self, *_):
+        """Show/hide advanced actions based on settings."""
+        try:
+            enabled = bool(getattr(self, "chk_enable_hardlink", None) and self.chk_enable_hardlink.isChecked())
+        except Exception:
+            enabled = False
+        if hasattr(self, "btn_hardlink_checked"):
+            self.btn_hardlink_checked.setVisible(enabled)
+
+    def _apply_quarantine_retention(self):
+        """Best-effort retention policy application."""
+        try:
+            if hasattr(self, "chk_quarantine_enabled") and not self.chk_quarantine_enabled.isChecked():
+                return
+            days = int(self.settings.value("quarantine/max_days", 30))
+            max_bytes = int(self.settings.value("quarantine/max_bytes", 10 * 1024 * 1024 * 1024))
+            purged = self.quarantine_manager.apply_retention(max_days=days, max_bytes=max_bytes)
+            # Log retention purges as a purge operation (additive; no-op if DB insert fails).
+            if purged:
+                try:
+                    op_id = self.cache_manager.create_operation("purge", {"retention": True, "count": len(purged)}, status="completed")
+                    batch = []
+                    for item_id in purged:
+                        it = self.cache_manager.get_quarantine_item(int(item_id)) or {}
+                        batch.append((it.get("orig_path") or "", "purged", "ok", "retention", it.get("size"), it.get("mtime"), it.get("quarantine_path") or ""))
+                    if op_id and batch:
+                        self.cache_manager.append_operation_items(op_id, batch)
+                        self.cache_manager.finish_operation(op_id, "completed", f"Retention purged {len(purged)}", 0, 0)
+                except Exception:
+                    pass
+            if purged and hasattr(self, "toast_manager") and self.toast_manager:
+                self.toast_manager.info(strings.tr("msg_quarantine_purged").format(len(purged)), duration=2500)
+        except Exception:
+            pass
+
+    def choose_quarantine_folder(self):
+        path = QFileDialog.getExistingDirectory(self, strings.tr("btn_choose_folder"), "")
+        if not path:
+            return
+        self.txt_quarantine_path.setText(path)
+
+    def apply_quarantine_settings(self):
+        try:
+            enabled = bool(self.chk_quarantine_enabled.isChecked())
+            days = int(self.spin_quarantine_days.value())
+            gb = int(self.spin_quarantine_gb.value())
+            override = str(self.txt_quarantine_path.text() or "").strip()
+
+            self.settings.setValue("quarantine/enabled", enabled)
+            self.settings.setValue("quarantine/max_days", days)
+            self.settings.setValue("quarantine/max_bytes", gb * 1024 * 1024 * 1024)
+            self.settings.setValue("quarantine/path_override", override)
+
+            self.quarantine_manager._quarantine_dir = override or None
+            self._apply_quarantine_retention()
+            self.refresh_quarantine_list()
+            if hasattr(self, "toast_manager") and self.toast_manager:
+                self.toast_manager.info(strings.tr("msg_settings_applied"), duration=2000)
+        except Exception as e:
+            QMessageBox.warning(self, strings.tr("app_title"), str(e))
+
+    def open_selection_rules_dialog(self):
+        dlg = SelectionRulesDialog(self.selection_rules_json, self)
+        if dlg.exec():
+            self.selection_rules_json = dlg.get_rules()
+            self.selection_rules = parse_rules(self.selection_rules_json)
+            try:
+                self.settings.setValue("rules/selection_json", json.dumps(self.selection_rules_json))
+            except Exception:
+                pass
+            if hasattr(self, "toast_manager") and self.toast_manager:
+                self.toast_manager.info(strings.tr("msg_rules_saved"), duration=2000)
+
+    def refresh_quarantine_list(self):
+        if not hasattr(self, "tbl_quarantine"):
+            return
+        search = ""
+        try:
+            search = str(self.txt_quarantine_search.text() or "").strip()
+        except Exception:
+            search = ""
+        items = self.cache_manager.list_quarantine_items(limit=200, offset=0, status_filter="quarantined", search=search)
+        self.tbl_quarantine.setRowCount(len(items))
+        from datetime import datetime
+
+        for r, it in enumerate(items):
+            item_id = int(it.get("id") or 0)
+            created = it.get("created_at") or 0
+            dt = datetime.fromtimestamp(float(created)).strftime("%Y-%m-%d %H:%M") if created else "—"
+
+            i0 = QTableWidgetItem(it.get("orig_path") or "")
+            i0.setData(Qt.UserRole, item_id)
+            self.tbl_quarantine.setItem(r, 0, i0)
+
+            i1 = QTableWidgetItem(self.format_size(int(it.get("size") or 0)))
+            self.tbl_quarantine.setItem(r, 1, i1)
+
+            i2 = QTableWidgetItem(dt)
+            self.tbl_quarantine.setItem(r, 2, i2)
+
+            i3 = QTableWidgetItem(it.get("status") or "")
+            self.tbl_quarantine.setItem(r, 3, i3)
+
+    def _selected_quarantine_item_ids(self) -> list:
+        ids = []
+        try:
+            rows = {i.row() for i in self.tbl_quarantine.selectedIndexes()}
+            for r in sorted(rows):
+                it = self.tbl_quarantine.item(r, 0)
+                if not it:
+                    continue
+                item_id = it.data(Qt.UserRole)
+                if item_id:
+                    ids.append(int(item_id))
+        except Exception:
+            pass
+        return ids
+
+    def restore_selected_quarantine(self):
+        item_ids = self._selected_quarantine_item_ids()
+        if not item_ids:
+            return
+        items = [self.cache_manager.get_quarantine_item(i) for i in item_ids]
+        items = [i for i in items if i]
+        rep = self.preflight_analyzer.analyze_restore(items)
+        dlg = PreflightDialog(rep, self)
+        if not dlg.exec():
+            return
+        if not dlg.can_proceed:
+            return
+        self._start_operation(Operation("restore", options={"item_ids": item_ids}))
+
+    def purge_selected_quarantine(self):
+        item_ids = self._selected_quarantine_item_ids()
+        if not item_ids:
+            return
+        items = [self.cache_manager.get_quarantine_item(i) for i in item_ids]
+        items = [i for i in items if i]
+        rep = self.preflight_analyzer.analyze_purge(items)
+        dlg = PreflightDialog(rep, self)
+        if not dlg.exec():
+            return
+        if not dlg.can_proceed:
+            return
+        res = QMessageBox.warning(
+            self,
+            strings.tr("confirm_delete_title"),
+            strings.tr("confirm_purge_items").format(len(item_ids)),
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if res != QMessageBox.Yes:
+            return
+        self._start_operation(Operation("purge", options={"item_ids": item_ids}))
+
+    def purge_all_quarantine(self):
+        items = self.cache_manager.list_quarantine_items(limit=5000, offset=0, status_filter="quarantined")
+        item_ids = [int(i.get("id") or 0) for i in items if i]
+        if not item_ids:
+            return
+        rep = self.preflight_analyzer.analyze_purge(items)
+        dlg_pf = PreflightDialog(rep, self)
+        if not dlg_pf.exec():
+            return
+        if not dlg_pf.can_proceed:
+            return
+        res = QMessageBox.warning(
+            self,
+            strings.tr("confirm_delete_title"),
+            strings.tr("confirm_purge_all").format(len(item_ids)),
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if res != QMessageBox.Yes:
+            return
+        self._start_operation(Operation("purge", options={"item_ids": item_ids}))
+
+    def refresh_operations_list(self):
+        if not hasattr(self, "tbl_ops"):
+            return
+        ops = self.cache_manager.list_operations(limit=200, offset=0)
+        from datetime import datetime
+
+        self.tbl_ops.setRowCount(len(ops))
+        for r, op in enumerate(ops):
+            op_id = int(op.get("id") or 0)
+            created = op.get("created_at") or 0
+            dt = datetime.fromtimestamp(float(created)).strftime("%Y-%m-%d %H:%M") if created else "—"
+
+            i0 = QTableWidgetItem(str(op_id))
+            i0.setData(Qt.UserRole, op)
+            self.tbl_ops.setItem(r, 0, i0)
+            self.tbl_ops.setItem(r, 1, QTableWidgetItem(dt))
+            self.tbl_ops.setItem(r, 2, QTableWidgetItem(str(op.get("op_type") or "")))
+            self.tbl_ops.setItem(r, 3, QTableWidgetItem(str(op.get("status") or "")))
+            self.tbl_ops.setItem(r, 4, QTableWidgetItem(str(op.get("message") or "")))
+
+    def _selected_operation_row(self) -> dict:
+        try:
+            row = self.tbl_ops.currentRow()
+            if row < 0:
+                return {}
+            it = self.tbl_ops.item(row, 0)
+            if not it:
+                return {}
+            data = it.data(Qt.UserRole)
+            return data or {}
+        except Exception:
+            return {}
+
+    def view_selected_operation(self):
+        op = self._selected_operation_row()
+        if not op:
+            return
+        dlg = OperationLogDialog(self.cache_manager, op, self)
+        if str(op.get("op_type") or "") == "hardlink_consolidate":
+            dlg.btn_undo_hardlink.clicked.connect(lambda: self._undo_hardlink_from_operation(op, dlg))
+        dlg.exec()
+
+    def _undo_hardlink_from_operation(self, op: dict, dlg: OperationLogDialog):
+        # Collect quarantine item ids created by the operation.
+        op_id = int(op.get("id") or 0)
+        items = self.cache_manager.get_operation_items(op_id)
+        item_ids = []
+        canonical = None
+        for it in items:
+            if it.get("action") != "hardlinked" or it.get("result") != "ok":
+                continue
+            canonical = canonical or (it.get("detail") or None)
+            qpath = it.get("quarantine_path") or ""
+            if not qpath:
+                continue
+            qitem = self.cache_manager.get_quarantine_item_by_path(qpath)
+            if qitem and qitem.get("status") == "quarantined":
+                item_ids.append(int(qitem.get("id") or 0))
+        item_ids = [i for i in item_ids if i]
+        if not item_ids or not canonical:
+            QMessageBox.information(self, strings.tr("app_title"), strings.tr("msg_no_items"))
+            return
+
+        qitems = [self.cache_manager.get_quarantine_item(i) for i in item_ids]
+        qitems = [i for i in qitems if i]
+        rep = self.preflight_analyzer.analyze_restore(qitems)
+        # We'll replace existing hardlinks to canonical when restoring.
+        rep.meta["allow_replace_hardlink_to"] = canonical
+        dlg_pf = PreflightDialog(rep, self)
+        if not dlg_pf.exec():
+            return
+        if not dlg_pf.can_proceed:
+            return
+        self._start_operation(Operation("restore", options={"item_ids": item_ids, "allow_replace_hardlink_to": canonical}))
+        try:
+            dlg.close()
+        except Exception:
+            pass
+
+    def select_duplicates_by_rules(self):
+        if not self.scan_results:
+            return
+        rules = self.selection_rules or []
+        if not rules:
+            QMessageBox.information(self, strings.tr("app_title"), strings.tr("msg_no_rules"))
+            return
+
+        root = self.tree_widget.invisibleRootItem()
+        self.tree_widget.begin_bulk_check_update()
+        try:
+            for i in range(root.childCount()):
+                group = root.child(i)
+                paths = self.tree_widget.get_group_paths(group)
+                keep_set, delete_set = decide_keep_delete_for_group(paths, rules)
+                for j in range(group.childCount()):
+                    child = group.child(j)
+                    p = child.data(0, Qt.UserRole)
+                    if not p:
+                        continue
+                    child.setCheckState(0, Qt.Unchecked if p in keep_set else Qt.Checked)
+        finally:
+            self.tree_widget.end_bulk_check_update()
+
+    def _is_group_key_hardlink_eligible(self, key) -> bool:
+        try:
+            if isinstance(key, (tuple, list)) and key:
+                if key[0] == "NAME_ONLY":
+                    return False
+                for part in key:
+                    if isinstance(part, str) and part.startswith("similar_"):
+                        return False
+            return True
+        except Exception:
+            return False
+
+    def hardlink_consolidate_checked(self):
+        # Build per-group operations based on checked files (targets) and unchecked (canonical).
+        try:
+            enabled = bool(self.chk_enable_hardlink.isChecked())
+        except Exception:
+            enabled = False
+        if not enabled:
+            QMessageBox.information(self, strings.tr("app_title"), strings.tr("msg_hardlink_disabled"))
+            return
+
+        root = self.tree_widget.invisibleRootItem()
+        ops = []
+        issues = []
+        total_targets = 0
+        for i in range(root.childCount()):
+            group = root.child(i)
+            key = group.data(0, Qt.UserRole + 1)
+            if not self._is_group_key_hardlink_eligible(key):
+                continue
+
+            checked = []
+            unchecked = []
+            for j in range(group.childCount()):
+                child = group.child(j)
+                p = child.data(0, Qt.UserRole)
+                if not p:
+                    continue
+                if child.checkState(0) == Qt.Checked:
+                    checked.append(p)
+                else:
+                    unchecked.append(p)
+            if not checked or not unchecked:
+                continue
+
+            canonical = unchecked[0]
+            targets = list(checked)
+            total_targets += len(targets)
+            rep = self.preflight_analyzer.analyze_hardlink(canonical, targets)
+            issues.extend(list(rep.issues or []))
+            if rep.has_blockers:
+                dlg = PreflightDialog(rep, self)
+                dlg.exec()
+                return
+            ops.append(Operation("hardlink_consolidate", options={"canonical": canonical, "targets": targets}))
+
+        if not ops:
+            QMessageBox.information(self, strings.tr("app_title"), strings.tr("msg_no_items"))
+            return
+
+        # Show an aggregate preflight dialog if there are warnings.
+        try:
+            from src.core.preflight import PreflightReport
+
+            agg = PreflightReport(op_type="hardlink_consolidate", issues=issues)
+            agg.meta["eligible_count"] = int(total_targets)
+            dlg = PreflightDialog(agg, self)
+            if not dlg.exec():
+                return
+            if not dlg.can_proceed:
+                return
+        except Exception:
+            pass
+
+        self._enqueue_operations(ops)
+
+    def _enqueue_operations(self, ops: list):
+        self._op_queue = list(ops or [])
+        self._start_next_operation()
+
+    def _start_next_operation(self):
+        if not self._op_queue:
+            return
+        op = self._op_queue.pop(0)
+        self._start_operation(op, allow_queue_continue=True)
+
+    def _start_operation(self, op: Operation, allow_queue_continue: bool = False):
+        if self._op_worker and self._op_worker.isRunning():
+            return
+
+        # Mandatory preflight for destructive operations.
+        rep = None
+        if op.op_type in ("delete_quarantine", "delete_trash"):
+            if op.op_type == "delete_quarantine":
+                qdir = None
+                try:
+                    qdir = self.quarantine_manager.get_quarantine_dir()
+                except Exception:
+                    qdir = None
+                rep = self.preflight_analyzer.analyze_delete(op.paths, quarantine_dir=qdir)
+            else:
+                rep = self.preflight_analyzer.analyze_delete_trash(op.paths)
+            dlg = PreflightDialog(rep, self)
+            if not dlg.exec():
+                self._op_queue.clear()
+                return
+            if not dlg.can_proceed:
+                self._op_queue.clear()
+                return
+
+            # Final confirmation (includes filter/hidden warning + size).
+            try:
+                eligible = list(getattr(rep, "eligible_paths", []) or [])
+                count = len(eligible)
+                opt = getattr(op, "options", {}) or {}
+                filter_active = bool(opt.get("filter_active"))
+                try:
+                    visible_checked = int(opt.get("visible_checked") or 0)
+                except Exception:
+                    visible_checked = 0
+                visible_checked = min(visible_checked, count) if count else visible_checked
+
+                size_str = self.format_size(int(getattr(rep, "bytes_total", 0) or 0))
+                info_lines = [
+                    strings.tr("confirm_delete_selected_counts").format(total=count, visible=visible_checked),
+                    strings.tr("msg_total_size").format(size=size_str),
+                ]
+                if filter_active:
+                    info_lines.append(strings.tr("msg_delete_includes_hidden"))
+
+                if op.op_type == "delete_trash":
+                    msg = strings.tr("confirm_trash_delete").format(count)
+                else:
+                    msg = strings.tr("confirm_delete_quarantine").format(count=count)
+                if info_lines:
+                    msg = msg + "\n\n" + "\n".join(info_lines)
+
+                res = QMessageBox.question(
+                    self,
+                    strings.tr("confirm_delete_title"),
+                    msg,
+                    QMessageBox.Yes | QMessageBox.No,
+                )
+                if res != QMessageBox.Yes:
+                    self._op_queue.clear()
+                    return
+
+                # Only proceed with eligible paths (preflight filtered).
+                op.paths = eligible
+            except Exception:
+                pass
+        elif op.op_type == "hardlink_consolidate":
+            rep = self.preflight_analyzer.analyze_hardlink(
+                str(op.options.get("canonical") or ""),
+                list(op.options.get("targets") or []),
+            )
+            dlg = PreflightDialog(rep, self)
+            if not dlg.exec():
+                self._op_queue.clear()
+                return
+            if not dlg.can_proceed:
+                self._op_queue.clear()
+                return
+
+        # Progress dialog (unified)
+        self._op_progress = QProgressDialog(strings.tr("status_working"), strings.tr("btn_cancel"), 0, 100, self)
+        self._op_progress.setWindowTitle(strings.tr("app_title"))
+        self._op_progress.setAutoClose(False)
+        self._op_progress.setAutoReset(False)
+        self._op_progress.canceled.connect(self._cancel_operation)
+        self._op_progress.show()
+
+        self._op_worker = OperationWorker(
+            cache_manager=self.cache_manager,
+            quarantine_manager=self.quarantine_manager,
+            history_manager=self.history_manager,
+            op=op,
+        )
+        self._op_worker.progress_updated.connect(self._on_op_progress)
+        self._op_worker.operation_result.connect(lambda result: self._on_op_finished(result, allow_queue_continue))
+        self._op_worker.start()
+
+    def _cancel_operation(self):
+        try:
+            if self._op_worker:
+                self._op_worker.stop()
+        except Exception:
+            pass
+
+    def _on_op_progress(self, val: int, msg: str):
+        try:
+            if self._op_progress:
+                self._op_progress.setValue(int(val))
+                self._op_progress.setLabelText(str(msg or ""))
+        except Exception:
+            pass
+
+    def _on_op_finished(self, result, allow_queue_continue: bool):
+        try:
+            if self._op_progress:
+                self._op_progress.setValue(100)
+                self._op_progress.close()
+        except Exception:
+            pass
+        self._op_progress = None
+
+        try:
+            self._op_worker = None
+        except Exception:
+            pass
+
+        # Refresh tools lists after any op.
+        try:
+            if result and getattr(result, "op_type", "") in ("delete_quarantine", "hardlink_consolidate", "purge"):
+                self._apply_quarantine_retention()
+            self.refresh_quarantine_list()
+            self.refresh_operations_list()
+        except Exception:
+            pass
+
+        # Sync scan results for destructive operations.
+        try:
+            if result and getattr(result, "op_type", "") in ("delete_quarantine", "delete_trash", "hardlink_consolidate"):
+                removed = list(getattr(result, "succeeded", []) or [])
+                if removed:
+                    self._remove_paths_from_results(removed)
+                    self.tree_widget.populate(self.scan_results, selected_paths=self.cache_manager.load_selected_paths(self.current_session_id) if self.current_session_id else [])
+                    self.filter_results_tree(self.txt_result_filter.text())
+                    self._set_results_view(bool(self.scan_results))
+                    self._update_results_summary()
+                    self._update_action_buttons_state()
+                    if self.current_session_id:
+                        self.cache_manager.save_scan_results(self.current_session_id, self.scan_results)
+        except Exception:
+            pass
+
+        # Show message
+        try:
+            msg = getattr(result, "message", "") or strings.tr("status_done")
+            self.status_label.setText(msg)
+            if hasattr(self, "toast_manager") and self.toast_manager:
+                if getattr(result, "status", "") == "failed":
+                    self.toast_manager.error(msg, duration=3500)
+                elif getattr(result, "status", "") == "partial":
+                    self.toast_manager.warning(msg, duration=3500)
+                else:
+                    self.toast_manager.success(msg, duration=2500)
+        except Exception:
+            pass
+
+        # Offer retry for failures when not queued.
+        try:
+            failed = list(getattr(result, "failed", []) or [])
+            if failed and not allow_queue_continue:
+                res = QMessageBox.question(
+                    self,
+                    strings.tr("app_title"),
+                    strings.tr("msg_retry_failed").format(len(failed)),
+                    QMessageBox.Yes | QMessageBox.No,
+                )
+                if res == QMessageBox.Yes:
+                    paths = [p for p, _r in failed if p]
+                    if getattr(result, "op_type", "") in ("delete_quarantine", "delete_trash"):
+                        self._start_operation(Operation(getattr(result, "op_type", ""), paths=paths))
+                        return
+        except Exception:
+            pass
+
+        # Continue queued operations if requested and not cancelled.
+        if allow_queue_continue and self._op_queue and getattr(result, "status", "") not in ("cancelled", "failed"):
+            self._start_next_operation()
+        else:
+            self._op_queue.clear()
     
     def _on_page_changed(self, page_name: str):
         """Handle sidebar navigation - switch pages and show toast"""
@@ -2584,8 +2701,7 @@ class DuplicateFinderApp(QMainWindow):
             # Page index mapping
             page_indices = {
                 "scan": 0,
-                # "results" is a focused view of the Scan page (same results tree/preview).
-                "results": 0,
+                "results": 1,
                 "tools": 2,
                 "settings": 3,
             }
@@ -2600,12 +2716,12 @@ class DuplicateFinderApp(QMainWindow):
             if page_name in page_indices:
                 # Switch to the selected page
                 self.page_stack.setCurrentIndex(page_indices[page_name])
-
-                # Toggle scan page layout mode
-                if page_name == "scan":
-                    self._set_scan_page_mode("scan")
-                elif page_name == "results":
-                    self._set_scan_page_mode("results")
+                if page_name == "tools":
+                    try:
+                        self.refresh_quarantine_list()
+                        self.refresh_operations_list()
+                    except Exception:
+                        pass
                 
                 # Update status label
                 if page_name in page_names:

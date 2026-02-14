@@ -194,6 +194,11 @@ class ResultsTreeWidget(QTreeWidget):
         
         # Create group item
         group_item = QTreeWidgetItem(self)
+        # Store group key for group-level actions (separate from file item path stored in Qt.UserRole).
+        try:
+            group_item.setData(0, Qt.UserRole + 1, key)
+        except Exception:
+            pass
         
         # Localized labels
         label_group = strings.tr("term_name_group") if is_name_only else strings.tr("term_duplicate_group") 
@@ -266,6 +271,41 @@ class ResultsTreeWidget(QTreeWidget):
             else:
                 child.setCheckState(0, Qt.Unchecked)
             child.setData(0, Qt.UserRole, p)
+
+    def begin_bulk_check_update(self):
+        self._suppress_item_changed = True
+
+    def end_bulk_check_update(self):
+        self._suppress_item_changed = False
+        # Emit a single update for the UI to refresh counts.
+        try:
+            self.files_checked.emit(self.get_checked_files())
+        except Exception:
+            pass
+
+    def get_group_paths(self, group_item) -> list:
+        """Return file paths for a group (top-level) item."""
+        paths = []
+        try:
+            for i in range(group_item.childCount()):
+                child = group_item.child(i)
+                p = child.data(0, Qt.UserRole)
+                if p:
+                    paths.append(p)
+        except Exception:
+            pass
+        return paths
+
+    def set_group_checked(self, group_item, checked: bool):
+        """Check/uncheck all children in a group efficiently."""
+        state = Qt.Checked if checked else Qt.Unchecked
+        self.begin_bulk_check_update()
+        try:
+            for i in range(group_item.childCount()):
+                child = group_item.child(i)
+                child.setCheckState(0, state)
+        finally:
+            self.end_bulk_check_update()
 
     def _format_size(self, size):
         """Format file size with appropriate units."""

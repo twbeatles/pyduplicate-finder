@@ -1,9 +1,6 @@
-import shutil
-import tempfile
 import os
-import atexit
-from datetime import datetime
-import uuid
+import shutil
+from typing import List, Tuple, Optional, Dict, Any
 
 # send2trash 라이브러리 (선택적)
 try:
@@ -28,13 +25,20 @@ def get_disk_free_space(path):
 
 
 class HistoryManager:
-    def __init__(self):
+    def __init__(self, cache_manager=None, quarantine_manager=None):
         self.undo_stack = []
         self.redo_stack = []
-        # 임시 보관소 생성 (OS 임시 폴더 내)
-        self.temp_dir = tempfile.mkdtemp(prefix="pydup_trash_")
-        # 프로그램 종료 시 자동 정리 등록
-        atexit.register(self.cleanup)
+
+        # Persistent quarantine backend (does NOT get deleted on exit).
+        if quarantine_manager is not None:
+            self.quarantine_manager = quarantine_manager
+            self.cache_manager = cache_manager
+        else:
+            # Lazy import to avoid cycles.
+            from src.core.cache_manager import CacheManager
+            from src.core.quarantine_manager import QuarantineManager
+            self.cache_manager = cache_manager or CacheManager()
+            self.quarantine_manager = QuarantineManager(self.cache_manager)
 
     def execute_delete(self, file_paths, progress_callback=None, use_trash=False, check_cancel=None):
         """
@@ -52,7 +56,7 @@ class HistoryManager:
         if use_trash and TRASH_AVAILABLE:
             return self._delete_to_system_trash(file_paths, progress_callback, check_cancel=check_cancel)
         else:
-            return self._delete_to_temp(file_paths, progress_callback, check_cancel=check_cancel)
+            return self._delete_to_quarantine(file_paths, progress_callback, check_cancel=check_cancel)
     
     def check_disk_space(self, file_paths):
         """
@@ -72,8 +76,12 @@ class HistoryManager:
             except:
                 pass
         
-        # 임시 디렉토리의 여유 공간 확인
-        available = get_disk_free_space(self.temp_dir)
+        # Quarantine 디렉토리의 여유 공간 확인
+        try:
+            qdir = self.quarantine_manager.get_quarantine_dir()
+        except Exception:
+            qdir = os.getcwd()
+        available = get_disk_free_space(qdir)
         
         # 10% 여유 마진 추가
         required_with_margin = int(total_size * 1.1)
@@ -121,9 +129,9 @@ class HistoryManager:
             msg += f" ({success_count}/{total_files}, Cancelled)"
         return (True, msg)
     
-    def _delete_to_temp(self, file_paths, progress_callback=None, check_cancel=None):
+    def _delete_to_quarantine(self, file_paths, progress_callback=None, check_cancel=None):
         """
-        임시 폴더로 파일 이동 (Undo 가능)
+        Quarantine 폴더로 파일 이동 (Undo 가능, persistent)
         
         Returns:
             tuple: (success: bool, message: str)
@@ -136,44 +144,45 @@ class HistoryManager:
             available_mb = available / (1024 * 1024)
             return (False, f"Insufficient disk space. Required: {required_mb:.1f}MB, Available: {available_mb:.1f}MB")
         
-        transaction = []
+        transaction: Dict[str, Any] = {"paths": [], "item_ids": []}
         failed_files = []
         total_files = len(file_paths)
         cancelled = False
+
+        moved, failures = self.quarantine_manager.move_to_quarantine(
+            list(file_paths or []),
+            progress_callback=(
+                (lambda cur, tot, _msg: progress_callback(cur, tot)) if progress_callback else None
+            ),
+            check_cancel=check_cancel,
+        )
+
+        for m in moved:
+            transaction["paths"].append(m.orig_path)
+            transaction["item_ids"].append(m.item_id)
+
+        for p, reason in failures:
+            try:
+                failed_files.append(os.path.basename(p))
+            except Exception:
+                failed_files.append(str(p))
+            if reason == "missing":
+                continue
+            # Keep noisy logs minimal in packaged apps.
+            # print(f"Error moving file: {p}: {reason}")
         
-        for idx, original_path in enumerate(file_paths):
-            if check_cancel and check_cancel():
-                cancelled = True
-                break
-            if os.path.exists(original_path):
-                try:
-                    # 파일명 충돌 방지를 위한 타임스탬프 + UUID 추가
-                    filename = os.path.basename(original_path)
-                    unique_id = uuid.uuid4().hex[:8]
-                    unique_name = f"{int(datetime.now().timestamp())}_{unique_id}_{filename}"
-                    backup_path = os.path.join(self.temp_dir, unique_name)
-                    
-                    shutil.move(original_path, backup_path)
-                    transaction.append({'orig': original_path, 'backup': backup_path})
-                except Exception as e:
-                    failed_files.append(os.path.basename(original_path))
-                    print(f"Error moving file: {e}")
-            
-            if progress_callback:
-                progress_callback(idx + 1, total_files)
-        
-        if transaction:
+        if transaction["item_ids"]:
             self.undo_stack.append(transaction)
             self.redo_stack.clear()  # 새로운 동작이 발생하면 Redo 스택 초기화
             
             if failed_files:
-                msg = f"Deleted {len(transaction)}/{total_files} files. Failed: {len(failed_files)}"
+                msg = f"Deleted {len(transaction['item_ids'])}/{total_files} files. Failed: {len(failed_files)}"
                 if cancelled:
                     msg += " (Cancelled)"
                 return (True, msg)
-            msg = f"Successfully deleted {len(transaction)} files"
+            msg = f"Successfully deleted {len(transaction['item_ids'])} files"
             if cancelled:
-                msg += f" ({len(transaction)}/{total_files}, Cancelled)"
+                msg += f" ({len(transaction['item_ids'])}/{total_files}, Cancelled)"
             return (True, msg)
         
         if cancelled:
@@ -198,30 +207,23 @@ class HistoryManager:
         if not self.undo_stack:
             return None
         
-        transaction = self.undo_stack.pop()
+        transaction = self.undo_stack.pop() or {}
         restored_paths = []
         failed_count = 0
-        
-        for record in transaction:
-            try:
-                # 백업 파일이 존재하는지 확인
-                if not os.path.exists(record['backup']):
-                    print(f"Undo Failed: Backup file missing for {record['orig']}")
-                    failed_count += 1
-                    continue
 
-                # 원본 폴더가 없어졌을 수도 있으므로 생성 시도
-                parent_dir = os.path.dirname(record['orig'])
-                if not os.path.exists(parent_dir):
-                    os.makedirs(parent_dir, exist_ok=True)
-                
-                shutil.move(record['backup'], record['orig'])
-                restored_paths.append(record['orig'])
-            except Exception as e:
-                print(f"Undo Error: {e}")
+        item_ids = list(transaction.get("item_ids") or [])
+        for item_id in item_ids:
+            try:
+                ok, msg, restored_path = self.quarantine_manager.restore_item(int(item_id))
+                if ok:
+                    restored_paths.append(restored_path or "")
+                else:
+                    failed_count += 1
+            except Exception:
                 failed_count += 1
-        
-        self.redo_stack.append(transaction)
+
+        # Redo will re-quarantine the restored paths.
+        self.redo_stack.append({"paths": list(transaction.get("paths") or []), "item_ids": [], "redo_from_restore": True})
         return (restored_paths, failed_count)
 
     def redo(self):
@@ -235,30 +237,29 @@ class HistoryManager:
         """
         if not self.redo_stack:
             return None
-            
-        transaction = self.redo_stack.pop()
+
+        transaction = self.redo_stack.pop() or {}
         deleted_paths = []
         failed_count = 0
 
-        for record in transaction:
-            try:
-                # 원본 파일이 존재하지 않으면 스킵
-                if not os.path.exists(record['orig']):
-                    print(f"Redo Skip: File not found - {record['orig']}")
-                    failed_count += 1
-                    continue
-                shutil.move(record['orig'], record['backup'])
-                deleted_paths.append(record['orig'])
-            except Exception as e:
-                print(f"Redo Error: {e}")
-                failed_count += 1
-                
-        self.undo_stack.append(transaction)
+        paths = list(transaction.get("paths") or [])
+        moved, failures = self.quarantine_manager.move_to_quarantine(paths)
+        for m in moved:
+            deleted_paths.append(m.orig_path)
+        failed_count += len([f for f in failures if f and f[0]])
+
+        # Push a new undo transaction based on the new quarantine item ids.
+        if moved:
+            self.undo_stack.append({"paths": [m.orig_path for m in moved], "item_ids": [m.item_id for m in moved]})
+
         return (deleted_paths, failed_count)
 
-    def cleanup(self):
-        """프로그램 종료 시 임시 폴더 정리"""
+    # Internal hook: allow OperationWorker to record delete transactions for Ctrl+Z.
+    def _record_quarantine_transaction(self, moved_results) -> None:
         try:
-            shutil.rmtree(self.temp_dir)
-        except:
+            self.undo_stack.append(
+                {"paths": [m.orig_path for m in moved_results], "item_ids": [m.item_id for m in moved_results]}
+            )
+            self.redo_stack.clear()
+        except Exception:
             pass

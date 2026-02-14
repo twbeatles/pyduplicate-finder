@@ -5,6 +5,7 @@ Clean, modern toast notifications with proper cleanup and positioning
 from PySide6.QtWidgets import QWidget, QLabel, QHBoxLayout, QFrame
 from PySide6.QtCore import Qt, QTimer, QPoint
 from PySide6.QtGui import QFont, QColor, QPalette, QPainter, QBrush, QPen, QPainterPath
+from src.ui.theme import ModernTheme
 
 
 class ToastNotification(QFrame):
@@ -13,40 +14,41 @@ class ToastNotification(QFrame):
     Inherits from QFrame for proper background painting
     """
     
-    TOAST_STYLES = {
-        "info": {
-            "icon": "ℹ️",
-            "bg": "#dbeafe",
-            "fg": "#1e40af", 
-            "border": "#93c5fd",
-        },
-        "success": {
-            "icon": "✓",
-            "bg": "#dcfce7",
-            "fg": "#166534",
-            "border": "#86efac",
-        },
-        "warning": {
-            "icon": "⚠",
-            "bg": "#fef3c7",
-            "fg": "#92400e",
-            "border": "#fcd34d",
-        },
-        "error": {
-            "icon": "✕",
-            "bg": "#fee2e2",
-            "fg": "#991b1b",
-            "border": "#fca5a5",
-        },
+    ICONS = {
+        "info": "ℹ️",
+        "success": "✓",
+        "warning": "⚠",
+        "error": "✕",
     }
+
+    @staticmethod
+    def _style_for(toast_type: str, mode: str):
+        c = ModernTheme.get_palette(mode)
+        t = toast_type or "info"
+        if t == "success":
+            return {"bg": c["success_light"], "fg": c["success_hover"], "border": c["success"]}
+        if t == "warning":
+            return {"bg": c["warning_light"], "fg": c["warning"], "border": c["warning"]}
+        if t == "error":
+            return {"bg": c["danger_light"], "fg": c["danger_hover"], "border": c["danger"]}
+        # info/default
+        return {"bg": c["primary_light"], "fg": c["primary_hover"], "border": c["primary"]}
     
-    def __init__(self, message: str, toast_type: str = "info", 
-                 duration: int = 2500, parent=None):
+    def __init__(
+        self,
+        message: str,
+        toast_type: str = "info",
+        duration: int = 2500,
+        parent=None,
+        theme_mode: str = "light",
+    ):
         super().__init__(parent)
         
         self.duration = duration
         self.toast_type = toast_type
-        self.style_config = self.TOAST_STYLES.get(toast_type, self.TOAST_STYLES["info"])
+        self.theme_mode = theme_mode or "light"
+        self.style_config = self._style_for(self.toast_type, self.theme_mode)
+        self.icon = self.ICONS.get(self.toast_type, self.ICONS["info"])
         
         # Window setup for floating notification
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Tool | Qt.WindowStaysOnTopHint)
@@ -62,7 +64,7 @@ class ToastNotification(QFrame):
         layout.setSpacing(10)
         
         # Icon
-        icon_label = QLabel(self.style_config["icon"])
+        icon_label = QLabel(self.icon)
         icon_label.setFont(QFont("Segoe UI Symbol", 12))
         icon_label.setStyleSheet(f"color: {self.style_config['fg']}; background: transparent;")
         layout.addWidget(icon_label)
@@ -119,6 +121,10 @@ class ToastManager:
         self.current_toast = None
         self.margin_bottom = 80
         self.margin_right = 24
+        self.theme_mode = "light"
+
+    def set_theme_mode(self, mode: str):
+        self.theme_mode = mode or "light"
     
     def show_toast(self, message: str, toast_type: str = "info", 
                    duration: int = 2500):
@@ -137,7 +143,7 @@ class ToastManager:
             self.current_toast = None
         
         # Create new toast
-        toast = ToastNotification(message, toast_type, duration)
+        toast = ToastNotification(message, toast_type, duration, theme_mode=self.theme_mode)
         self.current_toast = toast
         
         # Position

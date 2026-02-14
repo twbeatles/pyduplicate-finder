@@ -2,7 +2,7 @@ import sqlite3
 import os
 import platform
 import threading
-import weakref
+
 import json
 import hashlib
 import time
@@ -30,7 +30,9 @@ class CacheManager:
         self._local = threading.local()
         # Track all connections for proper cleanup
         self._connections_lock = threading.Lock()
-        self._connections = weakref.WeakSet()
+        # NOTE: sqlite3.Connection is not weakref-able on some Python versions (e.g. 3.14).
+        # Track strong refs and close them explicitly.
+        self._connections = []
         # Initialize immediately (creation/migration)
         self._init_db()
 
@@ -83,7 +85,10 @@ class CacheManager:
             self._local.conn = conn
             # Track this connection
             with self._connections_lock:
-                self._connections.add(conn)
+                try:
+                    self._connections.append(conn)
+                except Exception:
+                    pass
         return self._local.conn
 
 
@@ -202,6 +207,53 @@ class CacheManager:
                     )
                 """)
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_selected_session ON scan_selected(session_id)")
+
+                # === File operations / audit log (additive, backward compatible) ===
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS file_operations (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        created_at REAL NOT NULL,
+                        op_type TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        options_json TEXT,
+                        message TEXT,
+                        bytes_total INTEGER DEFAULT 0,
+                        bytes_saved_est INTEGER DEFAULT 0
+                    )
+                """)
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_file_operations_created ON file_operations(created_at)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_file_operations_status ON file_operations(status)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_file_operations_type ON file_operations(op_type)")
+
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS file_operation_items (
+                        op_id INTEGER NOT NULL,
+                        path TEXT,
+                        action TEXT,
+                        result TEXT,
+                        detail TEXT,
+                        size INTEGER,
+                        mtime REAL,
+                        quarantine_path TEXT,
+                        created_at REAL NOT NULL,
+                        PRIMARY KEY (op_id, created_at, path)
+                    )
+                """)
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_file_operation_items_op ON file_operation_items(op_id)")
+
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS quarantine_items (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        created_at REAL NOT NULL,
+                        orig_path TEXT NOT NULL,
+                        quarantine_path TEXT NOT NULL,
+                        size INTEGER,
+                        mtime REAL,
+                        status TEXT NOT NULL
+                    )
+                """)
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_quarantine_items_status ON quarantine_items(status)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_quarantine_items_created ON quarantine_items(created_at)")
                 # Primary Key automatically indexes path, so no separate index is purely needed,
                 # but explicit index doesn't hurt. We removed it as per plan.
         except Exception as e:
@@ -601,6 +653,279 @@ class CacheManager:
         except Exception as e:
             print(f"Clear selected paths error: {e}")
 
+    # === Operations / Quarantine APIs ===
+
+    def create_operation(self, op_type: str, options: dict = None, status: str = "running") -> int:
+        """Create an operation log row and return op_id."""
+        try:
+            now = time.time()
+            options_json = self._normalize_config(options or {})
+            conn = self._get_conn()
+            with conn:
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    INSERT INTO file_operations (created_at, op_type, status, options_json, message, bytes_total, bytes_saved_est)
+                    VALUES (?, ?, ?, ?, ?, 0, 0)
+                    """,
+                    (now, op_type, status, options_json, ""),
+                )
+                return int(cur.lastrowid or 0)
+        except Exception as e:
+            print(f"Create operation error: {e}")
+            return 0
+
+    def append_operation_items(self, op_id: int, items_batch):
+        """
+        Append item rows.
+        items_batch: iterable of tuples (path, action, result, detail, size, mtime, quarantine_path)
+        """
+        if not op_id or not items_batch:
+            return
+        try:
+            now = time.time()
+            rows = []
+            for (path, action, result, detail, size, mtime, quarantine_path) in items_batch:
+                rows.append((op_id, path, action, result, detail, size, mtime, quarantine_path, now))
+            conn = self._get_conn()
+            with conn:
+                conn.executemany(
+                    """
+                    INSERT OR REPLACE INTO file_operation_items
+                    (op_id, path, action, result, detail, size, mtime, quarantine_path, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    rows,
+                )
+        except Exception as e:
+            print(f"Append operation items error: {e}")
+
+    def finish_operation(
+        self,
+        op_id: int,
+        status: str,
+        message: str = "",
+        bytes_total: int = 0,
+        bytes_saved_est: int = 0,
+    ) -> None:
+        if not op_id:
+            return
+        try:
+            conn = self._get_conn()
+            with conn:
+                conn.execute(
+                    """
+                    UPDATE file_operations
+                    SET status=?, message=?, bytes_total=?, bytes_saved_est=?
+                    WHERE id=?
+                    """,
+                    (status, message or "", int(bytes_total or 0), int(bytes_saved_est or 0), op_id),
+                )
+        except Exception as e:
+            print(f"Finish operation error: {e}")
+
+    def list_operations(self, limit: int = 50, offset: int = 0):
+        try:
+            conn = self._get_conn()
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT id, created_at, op_type, status, options_json, message, bytes_total, bytes_saved_est
+                FROM file_operations
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                (int(limit), int(offset)),
+            )
+            out = []
+            for row in cur.fetchall():
+                out.append(
+                    {
+                        "id": row[0],
+                        "created_at": row[1],
+                        "op_type": row[2],
+                        "status": row[3],
+                        "options_json": row[4] or "",
+                        "message": row[5] or "",
+                        "bytes_total": row[6] or 0,
+                        "bytes_saved_est": row[7] or 0,
+                    }
+                )
+            return out
+        except Exception as e:
+            print(f"List operations error: {e}")
+            return []
+
+    def get_operation_items(self, op_id: int):
+        if not op_id:
+            return []
+        try:
+            conn = self._get_conn()
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT path, action, result, detail, size, mtime, quarantine_path, created_at
+                FROM file_operation_items
+                WHERE op_id=?
+                ORDER BY created_at ASC
+                """,
+                (int(op_id),),
+            )
+            out = []
+            for row in cur.fetchall():
+                out.append(
+                    {
+                        "path": row[0] or "",
+                        "action": row[1] or "",
+                        "result": row[2] or "",
+                        "detail": row[3] or "",
+                        "size": row[4],
+                        "mtime": row[5],
+                        "quarantine_path": row[6] or "",
+                        "created_at": row[7],
+                    }
+                )
+            return out
+        except Exception as e:
+            print(f"Get operation items error: {e}")
+            return []
+
+    def insert_quarantine_item(
+        self,
+        orig_path: str,
+        quarantine_path: str,
+        size: int = None,
+        mtime: float = None,
+        status: str = "quarantined",
+    ) -> int:
+        try:
+            now = time.time()
+            conn = self._get_conn()
+            with conn:
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    INSERT INTO quarantine_items (created_at, orig_path, quarantine_path, size, mtime, status)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (now, orig_path, quarantine_path, size, mtime, status),
+                )
+                return int(cur.lastrowid or 0)
+        except Exception as e:
+            print(f"Insert quarantine item error: {e}")
+            return 0
+
+    def list_quarantine_items(self, limit: int = 200, offset: int = 0, status_filter: str = None, search: str = None):
+        try:
+            conn = self._get_conn()
+            cur = conn.cursor()
+            where = []
+            params = []
+            if status_filter:
+                where.append("status=?")
+                params.append(status_filter)
+            if search:
+                where.append("orig_path LIKE ?")
+                params.append(f"%{search}%")
+            where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+            cur.execute(
+                f"""
+                SELECT id, created_at, orig_path, quarantine_path, size, mtime, status
+                FROM quarantine_items
+                {where_sql}
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                (*params, int(limit), int(offset)),
+            )
+            out = []
+            for row in cur.fetchall():
+                out.append(
+                    {
+                        "id": row[0],
+                        "created_at": row[1],
+                        "orig_path": row[2],
+                        "quarantine_path": row[3],
+                        "size": row[4] or 0,
+                        "mtime": row[5] or 0.0,
+                        "status": row[6],
+                    }
+                )
+            return out
+        except Exception as e:
+            print(f"List quarantine items error: {e}")
+            return []
+
+    def update_quarantine_item_status(self, item_id: int, status: str) -> None:
+        if not item_id:
+            return
+        try:
+            conn = self._get_conn()
+            with conn:
+                conn.execute("UPDATE quarantine_items SET status=? WHERE id=?", (status, int(item_id)))
+        except Exception as e:
+            print(f"Update quarantine status error: {e}")
+
+    def get_quarantine_item(self, item_id: int):
+        if not item_id:
+            return None
+        try:
+            conn = self._get_conn()
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT id, created_at, orig_path, quarantine_path, size, mtime, status
+                FROM quarantine_items
+                WHERE id=?
+                """,
+                (int(item_id),),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            return {
+                "id": row[0],
+                "created_at": row[1],
+                "orig_path": row[2],
+                "quarantine_path": row[3],
+                "size": row[4] or 0,
+                "mtime": row[5] or 0.0,
+                "status": row[6],
+            }
+        except Exception as e:
+            print(f"Get quarantine item error: {e}")
+            return None
+
+    def get_quarantine_item_by_path(self, quarantine_path: str):
+        if not quarantine_path:
+            return None
+        try:
+            conn = self._get_conn()
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT id, created_at, orig_path, quarantine_path, size, mtime, status
+                FROM quarantine_items
+                WHERE quarantine_path=?
+                """,
+                (str(quarantine_path),),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            return {
+                "id": row[0],
+                "created_at": row[1],
+                "orig_path": row[2],
+                "quarantine_path": row[3],
+                "size": row[4] or 0,
+                "mtime": row[5] or 0.0,
+                "status": row[6],
+            }
+        except Exception as e:
+            print(f"Get quarantine item by path error: {e}")
+            return None
+
     def get_cached_hash(self, path, size, mtime):
         """
         Returns (partial, full) hash if path match AND size match AND mtime match.
@@ -753,13 +1078,12 @@ class CacheManager:
         
         # Close all tracked connections
         with self._connections_lock:
-            for conn in list(self._connections):
+            for conn in list(self._connections or []):
                 try:
                     conn.close()
                 except:
                     pass
-            # WeakSet will auto-clean, but clear explicitly
-            self._connections = weakref.WeakSet()
+            self._connections = []
     
     def __del__(self):
         """Destructor to clean up all connections on garbage collection."""

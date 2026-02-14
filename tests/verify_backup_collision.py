@@ -9,16 +9,21 @@ import time
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.core.history import HistoryManager
+from src.core.cache_manager import CacheManager
+from src.core.quarantine_manager import QuarantineManager
 
 class TestBackupCollision(unittest.TestCase):
     def setUp(self):
         self.test_dir = tempfile.mkdtemp()
-        self.manager = HistoryManager()
+        self.db_path = os.path.join(self.test_dir, "test_scan_cache.db")
+        self.quarantine_dir = os.path.join(self.test_dir, "quarantine")
+        self.cache = CacheManager(db_path=self.db_path)
+        self.qm = QuarantineManager(self.cache, quarantine_dir=self.quarantine_dir)
+        self.manager = HistoryManager(cache_manager=self.cache, quarantine_manager=self.qm)
         
     def tearDown(self):
         try:
             shutil.rmtree(self.test_dir)
-            self.manager.cleanup()
         except:
             pass
 
@@ -47,8 +52,8 @@ class TestBackupCollision(unittest.TestCase):
             success = bool(res)
         self.assertTrue(success)
         
-        # Check temp dir count
-        backup_files = os.listdir(self.manager.temp_dir)
+        # Check quarantine dir count
+        backup_files = os.listdir(self.quarantine_dir)
         print(f"Backup files found: {len(backup_files)}")
         
         self.assertEqual(len(backup_files), 20, "All files should be backed up uniquely")
