@@ -90,6 +90,7 @@ class ScanWorker(QThread):
         self._image_files = []
         self._current_scan_dirs = {}  # normalized dir path -> mtime
         self._base_scan_dirs = {}
+        self.latest_file_meta = {}
         
         # 유사 이미지 탐지기
         if self.use_similar_image and _ImageHasher is not None:
@@ -638,150 +639,152 @@ class ScanWorker(QThread):
         return size_map
 
     def _calculate_hashes_parallel(self, candidates, is_quick_scan=True, seed_session_id=None):
-        """Helper to calculate hashes in parallel with batch DB updates and Bounded Processing."""
-        QUICK_SCAN_THRESHOLD = 10 * 1024 * 1024 
-        hash_map = defaultdict(list)
-        
-        total = len(candidates)
-        processed = 0
-        
-        # Batching for DB updates
-        db_batch = []
+        """Hash candidates using pre-collected (path, size, mtime) tuples."""
+        QUICK_SCAN_THRESHOLD = 10 * 1024 * 1024
+        HASH_CHUNK_SIZE = 800
         BATCH_SIZE = 100
-        session_hash_batch = []
         SESSION_BATCH_SIZE = 200
-
-        session_hashes = {}
-        if self.session_id:
-            if is_quick_scan:
-                session_hashes = self.cache_manager.load_scan_hashes_for_paths(self.session_id, candidates)
-            else:
-                session_hashes = self.cache_manager.load_scan_hashes_for_paths(self.session_id, candidates, hash_type="FULL")
-
-        seed_hashes = {}
-        if seed_session_id and int(seed_session_id) != int(self.session_id or 0):
-            try:
-                if is_quick_scan:
-                    seed_hashes = self.cache_manager.load_scan_hashes_for_paths(seed_session_id, candidates)
-                else:
-                    seed_hashes = self.cache_manager.load_scan_hashes_for_paths(seed_session_id, candidates, hash_type="FULL")
-            except Exception:
-                seed_hashes = {}
-        
-        # Bound the number of active futures to prevent OOM
         MAX_PENDING_TASKS = self.max_workers * 4
 
+        hash_map = defaultdict(list)
+        total = len(candidates or [])
+        processed = 0
+        if total <= 0:
+            return hash_map
+
+        progress_step = max(10, min(500, total // 200 if total >= 200 else 10))
+        db_batch = []
+        session_hash_batch = []
+
+        def _emit_hash_progress(force=False):
+            if force or (processed % progress_step == 0) or processed == total:
+                percent = int((processed / total) * 40) + (0 if is_quick_scan else 50)
+                self._emit_progress(percent, strings.tr("status_hashing_progress").format(processed, total))
+
+        def task_wrapper(fp, s, m, p):
+            return fp, s, m, p, self.get_file_hash(fp, s, m, block_size=BUFFER_SIZE, partial=p)
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            future_to_info = {}
-            candidate_iter = iter(candidates)
-            active_futures = set()
-            
-            # Helper to process done futures
-            def process_done_futures(done_subset):
-                nonlocal processed, db_batch, future_to_info, session_hash_batch
-                for future in done_subset:
-                    active_futures.remove(future)
-                    # future_to_info might not have the future if we didn't store it or already removed it
-                    if future in future_to_info:
-                        del future_to_info[future]
-                    
-                    try:
-                        filepath, size, mtime, partial, result_tuple = future.result()
-                        digest, is_newly_calculated = result_tuple
-                        
-                        if digest:
-                            type_str = "PARTIAL" if partial else "FULL"
-                            key = (size, digest, type_str)
-                            hash_map[key].append(filepath)
-                            
-                            if self.session_id:
-                                session_hash_batch.append((filepath, size, mtime, type_str, digest))
-
-                            if is_newly_calculated:
-                                entry_partial = digest if partial else None
-                                entry_full = digest if not partial else None
-                                db_batch.append((filepath, size, mtime, entry_partial, entry_full))
-                    except Exception as e:
-                        # Log error if needed
-                        pass
-                    
-                    # Process Batch
-                    if len(db_batch) >= BATCH_SIZE:
-                        self.cache_manager.update_cache_batch(db_batch)
-                        db_batch.clear()
-                    if self.session_id and len(session_hash_batch) >= SESSION_BATCH_SIZE:
-                        self.cache_manager.save_scan_hashes_batch(self.session_id, session_hash_batch)
-                        session_hash_batch.clear()
-
-                    processed += 1
-                    if processed % 10 == 0:
-                        percent = int((processed / total) * 40) + (0 if is_quick_scan else 50)
-                        msg = f"{strings.tr('status_hashing_progress').format(processed, total)}"
-                        self._emit_progress(percent, msg)
-
-            while True:
-                # 1. Fill queue up to limit
-                while len(active_futures) < MAX_PENDING_TASKS:
-                    if self._stop_event.is_set(): break
-                    try:
-                        filepath = next(candidate_iter)
-                        
-                        try:
-                            # We might need stat again
-                            stat = os.stat(filepath)
-                            size = stat.st_size
-                            mtime = stat.st_mtime
-                            partial = is_quick_scan and (size >= QUICK_SCAN_THRESHOLD)
-                            type_str = "PARTIAL" if partial else "FULL"
-
-                            if self.session_id:
-                                cached = session_hashes.get((filepath, type_str))
-                                if not cached and seed_hashes:
-                                    cached = seed_hashes.get((filepath, type_str))
-                                if cached and cached[1] == size and cached[2] == mtime:
-                                    digest = cached[0]
-                                    key = (size, digest, type_str)
-                                    hash_map[key].append(filepath)
-                                    session_hash_batch.append((filepath, size, mtime, type_str, digest))
-                                    processed += 1
-                                    if processed % 10 == 0:
-                                        percent = int((processed / total) * 40) + (0 if is_quick_scan else 50)
-                                        msg = f"{strings.tr('status_hashing_progress').format(processed, total)}"
-                                        self._emit_progress(percent, msg)
-                                    continue
-                            
-                            # Wrapper to return context with result
-                            def task_wrapper(fp, s, m, p):
-                                return fp, s, m, p, self.get_file_hash(fp, s, m, block_size=BUFFER_SIZE, partial=p)
-
-                            future = executor.submit(task_wrapper, filepath, size, mtime, partial)
-                            future_to_info[future] = filepath 
-                            active_futures.add(future)
-                        except OSError:
-                            processed += 1 # Count skipped files as processed
-                            continue
-                            
-                    except StopIteration:
-                        break
-                
-                # Check stop or done
+            for chunk_start in range(0, total, HASH_CHUNK_SIZE):
                 if self._stop_event.is_set():
                     executor.shutdown(wait=False, cancel_futures=True)
                     break
-                
-                if not active_futures:
-                    break
-                
-                # 2. Wait for at least one task to complete
-                done, _ = concurrent.futures.wait(active_futures, return_when=concurrent.futures.FIRST_COMPLETED)
-                process_done_futures(done)
 
-        # Flush remaining batch
+                chunk = candidates[chunk_start:chunk_start + HASH_CHUNK_SIZE]
+                chunk_paths = [p for p, _s, _m in chunk]
+
+                session_hashes = {}
+                if self.session_id:
+                    if is_quick_scan:
+                        session_hashes = self.cache_manager.load_scan_hashes_for_paths(self.session_id, chunk_paths)
+                    else:
+                        session_hashes = self.cache_manager.load_scan_hashes_for_paths(
+                            self.session_id,
+                            chunk_paths,
+                            hash_type="FULL",
+                        )
+
+                seed_hashes = {}
+                if seed_session_id and int(seed_session_id) != int(self.session_id or 0):
+                    try:
+                        if is_quick_scan:
+                            seed_hashes = self.cache_manager.load_scan_hashes_for_paths(seed_session_id, chunk_paths)
+                        else:
+                            seed_hashes = self.cache_manager.load_scan_hashes_for_paths(
+                                seed_session_id,
+                                chunk_paths,
+                                hash_type="FULL",
+                            )
+                    except Exception:
+                        seed_hashes = {}
+
+                candidate_iter = iter(chunk)
+                active_futures = set()
+
+                def submit_task() -> bool:
+                    nonlocal processed
+                    if self._stop_event.is_set():
+                        return False
+                    try:
+                        filepath, size, mtime = next(candidate_iter)
+                    except StopIteration:
+                        return False
+
+                    partial = bool(is_quick_scan and int(size) >= QUICK_SCAN_THRESHOLD)
+                    type_str = "PARTIAL" if partial else "FULL"
+
+                    cached = None
+                    if self.session_id:
+                        cached = session_hashes.get((filepath, type_str))
+                    if not cached and seed_hashes:
+                        cached = seed_hashes.get((filepath, type_str))
+
+                    if cached and cached[1] == size and cached[2] == mtime:
+                        digest = cached[0]
+                        if digest:
+                            hash_map[(size, digest, type_str)].append(filepath)
+                            if self.session_id:
+                                session_hash_batch.append((filepath, size, mtime, type_str, digest))
+                        processed += 1
+                        _emit_hash_progress()
+                        return True
+
+                    future = executor.submit(task_wrapper, filepath, size, mtime, partial)
+                    active_futures.add(future)
+                    return True
+
+                for _ in range(min(MAX_PENDING_TASKS, len(chunk))):
+                    if not submit_task():
+                        break
+
+                while active_futures:
+                    if self._stop_event.is_set():
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        break
+
+                    done, _ = concurrent.futures.wait(
+                        active_futures,
+                        return_when=concurrent.futures.FIRST_COMPLETED,
+                    )
+                    for future in done:
+                        active_futures.remove(future)
+                        try:
+                            filepath, size, mtime, partial, result_tuple = future.result()
+                            digest, is_newly_calculated = result_tuple
+                            if digest:
+                                type_str = "PARTIAL" if partial else "FULL"
+                                hash_map[(size, digest, type_str)].append(filepath)
+                                if self.session_id:
+                                    session_hash_batch.append((filepath, size, mtime, type_str, digest))
+                                if is_newly_calculated:
+                                    db_batch.append(
+                                        (
+                                            filepath,
+                                            size,
+                                            mtime,
+                                            digest if partial else None,
+                                            digest if not partial else None,
+                                        )
+                                    )
+                        except Exception:
+                            pass
+
+                        if len(db_batch) >= BATCH_SIZE:
+                            self.cache_manager.update_cache_batch(db_batch)
+                            db_batch.clear()
+                        if self.session_id and len(session_hash_batch) >= SESSION_BATCH_SIZE:
+                            self.cache_manager.save_scan_hashes_batch(self.session_id, session_hash_batch)
+                            session_hash_batch.clear()
+
+                        processed += 1
+                        _emit_hash_progress()
+                        submit_task()
+
         if db_batch:
             self.cache_manager.update_cache_batch(db_batch)
         if self.session_id and session_hash_batch:
             self.cache_manager.save_scan_hashes_batch(self.session_id, session_hash_batch)
-
+        _emit_hash_progress(force=True)
         return hash_map
 
     def run(self):
@@ -850,7 +853,11 @@ class ScanWorker(QThread):
                 candidates = []
                 for size, paths in size_map.items():
                     if len(paths) > 1:
-                        candidates.extend(paths)
+                        for path in paths:
+                            meta = self._file_meta.get(path)
+                            if not meta:
+                                continue
+                            candidates.append((path, int(meta[0]), float(meta[1])))
 
                 total_candidates = len(candidates)
                 if total_candidates > 0:
@@ -889,8 +896,15 @@ class ScanWorker(QThread):
                             self._process_final_group(key[1], size, paths, final_duplicates)
 
                     if groups_needing_full_hash:
+                        full_candidates = []
+                        for path in groups_needing_full_hash:
+                            meta = self._file_meta.get(path)
+                            if not meta:
+                                continue
+                            full_candidates.append((path, int(meta[0]), float(meta[1])))
+
                         full_hash_results = self._calculate_hashes_parallel(
-                            groups_needing_full_hash,
+                            full_candidates,
                             is_quick_scan=False,
                             seed_session_id=self.base_session_id if self.incremental_rescan else None,
                         )
@@ -917,6 +931,7 @@ class ScanWorker(QThread):
                     final_duplicates.update(similar_groups)
 
             self._emit_progress(100, f"{strings.tr('status_done')}! ({time.time() - start_time:.2f}s)", force=True)
+            self.latest_file_meta = dict(self._file_meta or {})
             if self.session_id:
                 self.cache_manager.update_scan_session(
                     self.session_id,
@@ -1136,6 +1151,7 @@ class ScanWorker(QThread):
 
             if emit_result:
                 self._emit_progress(100, f"{strings.tr('status_done')}! ({time.time() - start_time:.2f}s)", force=True)
+                self.latest_file_meta = dict(self._file_meta or {})
                 if self.session_id:
                     self.cache_manager.update_scan_session(
                         self.session_id,

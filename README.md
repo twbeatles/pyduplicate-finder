@@ -217,3 +217,11 @@ pyinstaller PyDuplicateFinder.spec
 
 ## 📝 라이선스
 MIT License
+
+## Performance Refactor Notes (2026-02)
+
+- Hashing hot path now consumes pre-collected `(path, size, mtime)` tuples to avoid repeated `os.stat` calls.
+- Hash/session cache lookup is processed in chunks to reduce memory spikes on large scans.
+- Results tree rendering accepts injected metadata and applies filtering inside the widget for faster UI response.
+- Selection persistence now uses delta upsert/delete instead of full-table rewrite on each change.
+- Operation restore/purge flows now use batch quarantine item fetch with throttled progress updates.

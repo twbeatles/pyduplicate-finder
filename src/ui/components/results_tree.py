@@ -13,6 +13,7 @@ _ROLE_GROUP_KEY = _ROLE_BASE + 1
 _ROLE_EXISTS = _ROLE_BASE + 2
 _ROLE_GROUP_BASE_LABEL = _ROLE_BASE + 3
 _ROLE_SIZE_BYTES = _ROLE_BASE
+_ROLE_LOWER_PATH = _ROLE_BASE + 4
 
 class ResultsTreeWidget(QTreeWidget):
     """
@@ -60,7 +61,10 @@ class ResultsTreeWidget(QTreeWidget):
         self._rendered_count = 0
         self._total_results = 0
         self._selected_paths = set()
+        self._checked_paths = set()
         self._suppress_item_changed = False
+        self._file_meta_map = {}
+        self._existence_map = {}
         
         self.current_theme_mode = "light"
         
@@ -108,7 +112,7 @@ class ResultsTreeWidget(QTreeWidget):
                 item.setBackground(col, QBrush(bg_color))
                 item.setForeground(col, QBrush(fg_color))
 
-    def populate(self, results, selected_paths=None):
+    def populate(self, results, selected_paths=None, file_meta=None, existence_map=None):
         """
         Populate the tree with scan results (batched).
         results: dict { (hash, size, type): [paths] }
@@ -121,6 +125,9 @@ class ResultsTreeWidget(QTreeWidget):
             return
 
         self._selected_paths = set(selected_paths or [])
+        self._checked_paths = set(self._selected_paths)
+        self._file_meta_map = dict(file_meta or {})
+        self._existence_map = dict(existence_map or {})
         self._suppress_item_changed = True
         self._result_iterator = iter(results.items())
         self._rendered_count = 0
@@ -257,9 +264,13 @@ class ResultsTreeWidget(QTreeWidget):
             size_str = self._format_size(size_from_key)
         else:
             for p in paths:
-                try:
-                    sizes.append(os.path.getsize(p))
-                except Exception:
+                meta = self._file_meta_map.get(p)
+                if meta and len(meta) >= 1:
+                    try:
+                        sizes.append(int(meta[0]))
+                    except Exception:
+                        sizes.append(None)
+                else:
                     sizes.append(None)
 
             valid_sizes = [s for s in sizes if s is not None]
@@ -334,7 +345,12 @@ class ResultsTreeWidget(QTreeWidget):
             
             # Display full path with type-specific icon
             icon = self._get_file_icon(p)
-            exists = bool(p and os.path.exists(p))
+            if p in self._existence_map:
+                exists = bool(self._existence_map.get(p))
+            elif p in self._file_meta_map:
+                exists = True
+            else:
+                exists = True
             missing_badge = f" [{strings.tr('badge_missing')}]" if not exists else ""
             # User requested full path display
             child.setText(0, f"  {icon} {p}{missing_badge}")
@@ -349,11 +365,17 @@ class ResultsTreeWidget(QTreeWidget):
                 pass
             child.setText(3, os.path.splitext(p)[1].upper())
             
-            try:
-                mtime = os.path.getmtime(p)
-                dt = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M')
-                child.setText(2, dt)
-            except:
+            mtime = None
+            meta = self._file_meta_map.get(p)
+            if meta and len(meta) >= 2:
+                mtime = meta[1]
+            if mtime is not None:
+                try:
+                    dt = datetime.fromtimestamp(float(mtime)).strftime('%Y-%m-%d %H:%M')
+                    child.setText(2, dt)
+                except Exception:
+                    child.setText(2, "—")
+            else:
                 child.setText(2, "—")
 
             # Mark missing files with a muted color.
@@ -370,10 +392,15 @@ class ResultsTreeWidget(QTreeWidget):
             else:
                 child.setCheckState(0, Qt.CheckState.Unchecked)
             child.setData(0, _ROLE_PATH, p)
+            child.setData(0, _ROLE_LOWER_PATH, str(p or "").lower())
             try:
                 child.setData(0, _ROLE_EXISTS, 1 if exists else 0)
             except Exception:
                 pass
+            if p in self._selected_paths:
+                self._checked_paths.add(str(p))
+            else:
+                self._checked_paths.discard(str(p))
 
         # Initial group summary (keep/reclaim/missing).
         self._update_group_summary(group_item)
@@ -383,9 +410,18 @@ class ResultsTreeWidget(QTreeWidget):
 
     def end_bulk_check_update(self):
         self._suppress_item_changed = False
+        checked = set()
+        iterator = QTreeWidgetItemIterator(self, QTreeWidgetItemIterator.IteratorFlag.Checked)
+        while iterator.value():
+            item = iterator.value()
+            path = item.data(0, _ROLE_PATH)
+            if path:
+                checked.add(str(path))
+            iterator += 1
+        self._checked_paths = checked
         # Emit a single update for the UI to refresh counts.
         try:
-            self.files_checked.emit(self.get_checked_files())
+            self.files_checked.emit(list(self._checked_paths))
         except Exception:
             pass
 
@@ -432,21 +468,43 @@ class ResultsTreeWidget(QTreeWidget):
         if column != 0:
             return
         try:
+            path = item.data(0, _ROLE_PATH)
+            if path:
+                path = str(path)
+                if item.checkState(0) == Qt.CheckState.Checked:
+                    self._checked_paths.add(path)
+                else:
+                    self._checked_paths.discard(path)
+        except Exception:
+            pass
+        try:
             parent = item.parent()
             if parent is not None:
                 self._update_group_summary(parent)
         except Exception:
             pass
-        self.files_checked.emit(self.get_checked_files())
+        self.files_checked.emit(list(self._checked_paths))
 
     def get_checked_files(self):
         """Returns list of paths checked by user."""
-        checked = []
-        iterator = QTreeWidgetItemIterator(self, QTreeWidgetItemIterator.IteratorFlag.Checked)
-        while iterator.value():
-            item = iterator.value()
-            path = item.data(0, _ROLE_PATH)
-            if path:
-                checked.append(str(path))
-            iterator += 1
-        return checked
+        return list(self._checked_paths)
+
+    def apply_filter(self, text: str) -> tuple[int, int]:
+        query = str(text or "").strip().lower()
+        root = self.invisibleRootItem()
+        total_files = 0
+        visible_files = 0
+        for i in range(root.childCount()):
+            group = root.child(i)
+            group_visible = False
+            for j in range(group.childCount()):
+                item = group.child(j)
+                total_files += 1
+                lower_path = item.data(0, _ROLE_LOWER_PATH) or ""
+                matched = (not query) or (query in str(lower_path))
+                item.setHidden(not matched)
+                if matched:
+                    group_visible = True
+                    visible_files += 1
+            group.setHidden(not group_visible)
+        return visible_files, total_files

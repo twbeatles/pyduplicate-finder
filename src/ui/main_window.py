@@ -51,9 +51,16 @@ class DuplicateFinderApp(QMainWindow):
         self.history_manager = HistoryManager(cache_manager=self.cache_manager, quarantine_manager=self.quarantine_manager)
         self.current_session_id = None
         self._pending_selected_paths = []
+        self._pending_selected_add = set()
+        self._pending_selected_remove = set()
+        self._saved_selected_paths = set()
         self._selection_save_timer = QTimer(self)
         self._selection_save_timer.setSingleShot(True)
         self._selection_save_timer.timeout.connect(self._flush_selected_paths)
+        self._result_filter_timer = QTimer(self)
+        self._result_filter_timer.setSingleShot(True)
+        self._result_filter_timer.timeout.connect(self._apply_result_filter)
+        self._pending_filter_text = ""
         
         # 새 기능 관련 인스턴스 변수
         self.preset_manager = PresetManager()
@@ -869,6 +876,9 @@ class DuplicateFinderApp(QMainWindow):
 
         self.current_session_id = session_id
         self._pending_selected_paths = []
+        self._pending_selected_add.clear()
+        self._pending_selected_remove.clear()
+        self._saved_selected_paths = set()
 
         self._previous_results = self.scan_results
         self._previous_selected_paths = self.tree_widget.get_checked_files()
@@ -959,11 +969,13 @@ class DuplicateFinderApp(QMainWindow):
         self.progress_bar.setValue(100)
         self.status_label.setText(strings.tr("msg_scan_complete").format(len(results)))
         self._set_scan_stage_code("completed")
-        self.tree_widget.populate(results)
-        self.filter_results_tree(self.txt_result_filter.text())
-        self._set_results_view(bool(results))
-        self._update_results_summary(0)
-        self._update_action_buttons_state(selected_count=0)
+        file_meta = {}
+        try:
+            file_meta = dict(getattr(self.worker, "latest_file_meta", {}) or {})
+        except Exception:
+            file_meta = {}
+        existence_map = {p: True for p in file_meta.keys()} if file_meta else None
+        self._render_results(results, selected_paths=[], file_meta=file_meta, existence_map=existence_map, selected_count=0)
         # UX: bring user to focused results page after scan completes.
         try:
             self._navigate_to("results")
@@ -971,7 +983,7 @@ class DuplicateFinderApp(QMainWindow):
             pass
         if self.current_session_id:
             self.cache_manager.save_scan_results(self.current_session_id, results)
-            self.cache_manager.save_selected_paths(self.current_session_id, [])
+            self.cache_manager.clear_selected_paths(self.current_session_id)
 
     @Slot()
     def on_scan_cancelled(self):
@@ -983,11 +995,11 @@ class DuplicateFinderApp(QMainWindow):
         self.status_label.setText(strings.tr("status_stopped"))
         if getattr(self, "_previous_results", None):
             self.scan_results = self._previous_results
-            self.tree_widget.populate(self.scan_results, selected_paths=self._previous_selected_paths)
-            self.filter_results_tree(self.txt_result_filter.text())
-            self._set_results_view(True)
-            self._update_results_summary(len(self._previous_selected_paths))
-            self._update_action_buttons_state(selected_count=len(self._previous_selected_paths))
+            self._render_results(
+                self.scan_results,
+                selected_paths=self._previous_selected_paths,
+                selected_count=len(self._previous_selected_paths),
+            )
         else:
             self._set_results_view(False)
             self._update_results_summary(0)
@@ -1003,11 +1015,11 @@ class DuplicateFinderApp(QMainWindow):
         self.status_label.setText(err_msg)
         if getattr(self, "_previous_results", None):
             self.scan_results = self._previous_results
-            self.tree_widget.populate(self.scan_results, selected_paths=self._previous_selected_paths)
-            self.filter_results_tree(self.txt_result_filter.text())
-            self._set_results_view(True)
-            self._update_results_summary(len(self._previous_selected_paths))
-            self._update_action_buttons_state(selected_count=len(self._previous_selected_paths))
+            self._render_results(
+                self.scan_results,
+                selected_paths=self._previous_selected_paths,
+                selected_count=len(self._previous_selected_paths),
+            )
         else:
             self._set_results_view(False)
             self._update_results_summary(0)
@@ -1015,7 +1027,7 @@ class DuplicateFinderApp(QMainWindow):
         QMessageBox.critical(self, strings.tr("app_title"), err_msg)
 
     def populate_tree(self, results):
-        self.tree_widget.populate(results)
+        self._render_results(results, selected_paths=[])
 
 
     def format_size(self, size):
@@ -1166,49 +1178,54 @@ class DuplicateFinderApp(QMainWindow):
             strings.tr("msg_selected_pattern").format(count=count, pattern=text)
         )
 
+    def on_result_filter_text_changed(self, text):
+        self._pending_filter_text = str(text or "")
+        self._result_filter_timer.start(120)
+
+    def _apply_result_filter(self):
+        self.filter_results_tree(self._pending_filter_text)
+
     def filter_results_tree(self, text):
-        """Filter the result tree by filename/path"""
-        text = text.lower()
-        root = self.tree_widget.invisibleRootItem()
-
-        total_files = 0
-        visible_files = 0
-        for i in range(root.childCount()):
-            group = root.child(i)
-            group_visible = False
-            
-            for j in range(group.childCount()):
-                item = group.child(j)
-                path = item.data(0, Qt.UserRole) or ""
-                path = path.lower()
-                total_files += 1
-                
-                # Simple containment check
-                if not text or text in path:
-                    item.setHidden(False)
-                    group_visible = True
-                    visible_files += 1
-                else:
-                    item.setHidden(True)
-            
-            # Hide group if no children visible
-            group.setHidden(not group_visible)
-
+        """Filter the result tree by filename/path."""
+        visible_files, total_files = self.tree_widget.apply_filter(text)
         if hasattr(self, "lbl_filter_count"):
             if total_files == 0:
                 self.lbl_filter_count.setText("")
             else:
                 self.lbl_filter_count.setText(
-                    strings.tr("msg_filter_count").format(
-                        visible=visible_files, total=total_files
-                    )
+                    strings.tr("msg_filter_count").format(visible=visible_files, total=total_files)
                 )
-
-        # Keep action meta ("filter active") and button states in sync.
         try:
             self._update_action_buttons_state()
         except Exception:
             pass
+
+    def _render_results(
+        self,
+        results,
+        *,
+        selected_paths=None,
+        file_meta=None,
+        existence_map=None,
+        selected_count: int = None,
+    ):
+        selected = list(selected_paths or [])
+        self.tree_widget.populate(
+            results,
+            selected_paths=selected,
+            file_meta=file_meta,
+            existence_map=existence_map,
+        )
+        self._saved_selected_paths = set(selected)
+        self._pending_selected_add.clear()
+        self._pending_selected_remove.clear()
+        self._pending_filter_text = self.txt_result_filter.text() if hasattr(self, "txt_result_filter") else ""
+        self.filter_results_tree(self._pending_filter_text)
+        self._set_results_view(bool(results))
+        if selected_count is None:
+            selected_count = len(selected)
+        self._update_results_summary(selected_count)
+        self._update_action_buttons_state(selected_count=selected_count)
 
     def delete_selected_files(self):
         targets = []
@@ -1346,9 +1363,7 @@ class DuplicateFinderApp(QMainWindow):
             if op_type == 'undo':
                 # Issue #23: Recommend rescan after undo since restored files may not be in scan_results
                 if self.scan_results:
-                    self.tree_widget.populate(self.scan_results)
-                    self._set_results_view(True)
-                    self._update_results_summary()
+                    self._render_results(self.scan_results, selected_paths=self.tree_widget.get_checked_files())
                 # Inform user that rescan may be needed for accurate results
                 undo_msg = message + "\n\n" + strings.tr("msg_rescan_recommended")
                 QMessageBox.information(self, strings.tr("app_title"), undo_msg)
@@ -1398,6 +1413,16 @@ class DuplicateFinderApp(QMainWindow):
             return False
         self._remove_paths_from_results(missing_paths)
         return True
+
+    def _prune_missing_results_after_restore(self):
+        if not self.current_session_id or not self.scan_results:
+            return
+        if not self._prune_missing_results():
+            return
+        selected_paths = [p for p in self._saved_selected_paths if os.path.exists(p)]
+        self._render_results(self.scan_results, selected_paths=selected_paths, selected_count=len(selected_paths))
+        self.cache_manager.save_scan_results(self.current_session_id, self.scan_results)
+        self.cache_manager.save_selected_paths(self.current_session_id, selected_paths)
 
     def update_undo_redo_buttons(self):
         self.action_undo.setEnabled(bool(self.history_manager.undo_stack))
@@ -1721,23 +1746,14 @@ class DuplicateFinderApp(QMainWindow):
             if results:
                 selected_paths = self.cache_manager.load_selected_paths(self.current_session_id)
                 self.scan_results = results
-                pruned = self._prune_missing_results()
-                if pruned:
-                    results = self.scan_results
-                    selected_paths = [p for p in selected_paths if os.path.exists(p)]
-                self.tree_widget.populate(results, selected_paths=selected_paths)
-                self.filter_results_tree(self.txt_result_filter.text())
-                self._set_results_view(bool(results))
-                self._update_results_summary(len(selected_paths))
+                self._render_results(results, selected_paths=list(selected_paths), selected_count=len(selected_paths))
                 self.status_label.setText(strings.tr("msg_results_loaded").format(len(results)))
                 # Restore UX: bring the user to the focused results page when data is available.
                 try:
                     self._navigate_to("results")
                 except Exception:
                     pass
-                if pruned and self.current_session_id:
-                    self.cache_manager.save_scan_results(self.current_session_id, results)
-                    self.cache_manager.save_selected_paths(self.current_session_id, selected_paths)
+                QTimer.singleShot(0, self._prune_missing_results_after_restore)
         else:
             if session.get("progress_message"):
                 self.status_label.setText(session.get("progress_message"))
@@ -1820,13 +1836,30 @@ class DuplicateFinderApp(QMainWindow):
         self._update_action_buttons_state(selected_count=len(paths))
         if not self.current_session_id:
             return
-        self._pending_selected_paths = paths
-        self._selection_save_timer.start(400)
+        new_set = set(paths or [])
+        added = new_set - self._saved_selected_paths
+        removed = self._saved_selected_paths - new_set
+        if added:
+            self._pending_selected_add.update(added)
+            self._pending_selected_remove.difference_update(added)
+        if removed:
+            self._pending_selected_remove.update(removed)
+            self._pending_selected_add.difference_update(removed)
+        self._saved_selected_paths = new_set
+        self._selection_save_timer.start(220)
 
     def _flush_selected_paths(self):
         if not self.current_session_id:
             return
-        self.cache_manager.save_selected_paths(self.current_session_id, self._pending_selected_paths)
+        if not self._pending_selected_add and not self._pending_selected_remove:
+            return
+        self.cache_manager.save_selected_paths_delta(
+            self.current_session_id,
+            add_paths=list(self._pending_selected_add),
+            remove_paths=list(self._pending_selected_remove),
+        )
+        self._pending_selected_add.clear()
+        self._pending_selected_remove.clear()
 
     def _set_results_view(self, has_results: bool):
         if not hasattr(self, "results_stack"):
@@ -2069,10 +2102,7 @@ class DuplicateFinderApp(QMainWindow):
                 key = tuple(json.loads(str_key))
                 self.scan_results[key] = paths
             
-            self.tree_widget.populate(self.scan_results)
-            self.filter_results_tree(self.txt_result_filter.text())
-            self._set_results_view(bool(self.scan_results))
-            self._update_results_summary(0)
+            self._render_results(self.scan_results, selected_paths=[], selected_count=0)
             self.status_label.setText(strings.tr("msg_results_loaded").format(len(self.scan_results)))
             try:
                 self._navigate_to("results")
@@ -2741,11 +2771,8 @@ class DuplicateFinderApp(QMainWindow):
                 removed = list(getattr(result, "succeeded", []) or [])
                 if removed:
                     self._remove_paths_from_results(removed)
-                    self.tree_widget.populate(self.scan_results, selected_paths=self.cache_manager.load_selected_paths(self.current_session_id) if self.current_session_id else [])
-                    self.filter_results_tree(self.txt_result_filter.text())
-                    self._set_results_view(bool(self.scan_results))
-                    self._update_results_summary()
-                    self._update_action_buttons_state()
+                    selected = self.cache_manager.load_selected_paths(self.current_session_id) if self.current_session_id else []
+                    self._render_results(self.scan_results, selected_paths=list(selected))
                     if self.current_session_id:
                         self.cache_manager.save_scan_results(self.current_session_id, self.scan_results)
         except Exception:

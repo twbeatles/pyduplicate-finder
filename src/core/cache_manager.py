@@ -144,7 +144,7 @@ class CacheManager:
                     )
                 """)
                 conn.execute(
-                    "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '2')"
+                    "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '3')"
                 )
 
                 conn.execute("""
@@ -281,6 +281,17 @@ class CacheManager:
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_quarantine_items_created ON quarantine_items(created_at)")
                 # Primary Key automatically indexes path, so no separate index is purely needed,
                 # but explicit index doesn't hurt. We removed it as per plan.
+                try:
+                    cur = conn.cursor()
+                    cur.execute("SELECT value FROM meta WHERE key='schema_version'")
+                    row = cur.fetchone()
+                    current_version = int(row[0]) if row and str(row[0]).isdigit() else 0
+                except Exception:
+                    current_version = 0
+                if current_version < 3:
+                    conn.execute(
+                        "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '3')"
+                    )
         except Exception as e:
             print(f"DB Init Error: {e}")
 
@@ -757,6 +768,32 @@ class CacheManager:
         except Exception as e:
             print(f"Save selected paths error: {e}")
 
+    def save_selected_paths_delta(self, session_id: int, add_paths=None, remove_paths=None):
+        if not session_id:
+            return
+        add_values = [p for p in (add_paths or []) if p]
+        remove_values = [p for p in (remove_paths or []) if p]
+        if not add_values and not remove_values:
+            return
+        try:
+            conn = self._get_conn()
+            with conn:
+                if add_values:
+                    conn.executemany(
+                        """
+                        INSERT OR REPLACE INTO scan_selected (session_id, path, selected)
+                        VALUES (?, ?, 1)
+                        """,
+                        [(session_id, p) for p in add_values],
+                    )
+                if remove_values:
+                    conn.executemany(
+                        "DELETE FROM scan_selected WHERE session_id=? AND path=?",
+                        [(session_id, p) for p in remove_values],
+                    )
+        except Exception as e:
+            print(f"Save selected delta error: {e}")
+
     def load_selected_paths(self, session_id: int):
         if not session_id:
             return set()
@@ -1061,6 +1098,40 @@ class CacheManager:
             print(f"Get quarantine item by path error: {e}")
             return None
 
+    def get_quarantine_items_by_ids(self, item_ids: list[int]):
+        out = {}
+        ids = [int(i) for i in (item_ids or []) if i]
+        if not ids:
+            return out
+        CHUNK_SIZE = 300
+        try:
+            conn = self._get_conn()
+            cur = conn.cursor()
+            for i in range(0, len(ids), CHUNK_SIZE):
+                chunk = ids[i:i + CHUNK_SIZE]
+                placeholders = ",".join(["?"] * len(chunk))
+                cur.execute(
+                    f"""
+                    SELECT id, created_at, orig_path, quarantine_path, size, mtime, status
+                    FROM quarantine_items
+                    WHERE id IN ({placeholders})
+                    """,
+                    chunk,
+                )
+                for row in cur.fetchall():
+                    out[int(row[0])] = {
+                        "id": row[0],
+                        "created_at": row[1],
+                        "orig_path": row[2],
+                        "quarantine_path": row[3],
+                        "size": row[4] or 0,
+                        "mtime": row[5] or 0.0,
+                        "status": row[6],
+                    }
+        except Exception as e:
+            print(f"Get quarantine items by ids error: {e}")
+        return out
+
     def get_cached_hash(self, path, size, mtime):
         """
         Returns (partial, full) hash if path match AND size match AND mtime match.
@@ -1124,46 +1195,33 @@ class CacheManager:
         
         try:
             conn = self._get_conn()
+            now = time.time()
+            rows = [(p, s, m, par, ful, now) for p, s, m, par, ful in entries]
             with conn: # Transaction
                 cursor = conn.cursor()
-                
-                # For batching, we might still have the "preserve existing" issue.
-                # If we assume batch updates are coming from fresh calculations where we know what we have,
-                # we can try to optimize. 
-                # However, generic upsert logic for a batch of mixed updates is complex in SQL without Upsert syntax.
-                # Given this is "PyDuplicate Finder", we usually add NEW entries or COMPLETE existing entries.
-                
-                # To be safe and fast:
-                # Issue #4: SQLite has a limit of ~999 variables. Chunk queries.
-                paths = [e[0] for e in entries]
-                CHUNK_SIZE = 500
-                existing_map = {}  # path -> (partial, full)
-                
-                for i in range(0, len(paths), CHUNK_SIZE):
-                    chunk = paths[i:i + CHUNK_SIZE]
-                    placeholders = ','.join(['?'] * len(chunk))
-                    query = f"SELECT path, hash_partial, hash_full FROM file_hashes WHERE path IN ({placeholders})"
-                    try:
-                        cursor.execute(query, chunk)
-                        for row in cursor.fetchall():
-                            existing_map[row[0]] = (row[1], row[2])
-                    except Exception as e:
-                        print(f"Chunk query error: {e}")
-
-                final_values = []
-                for p, s, m, par, ful in entries:
-                     curr_par, curr_ful = par, ful
-                     if p in existing_map:
-                         old_par, old_ful = existing_map[p]
-                         if curr_par is None: curr_par = old_par
-                         if curr_ful is None: curr_ful = old_ful
-                     final_values.append((p, s, m, curr_par, curr_ful, time.time()))
-
-                cursor.executemany("""
-                    INSERT OR REPLACE INTO file_hashes (path, size, mtime, hash_partial, hash_full, last_seen)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, final_values)
-                
+                try:
+                    cursor.executemany(
+                        """
+                        INSERT INTO file_hashes (path, size, mtime, hash_partial, hash_full, last_seen)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(path) DO UPDATE SET
+                            size=excluded.size,
+                            mtime=excluded.mtime,
+                            hash_partial=COALESCE(excluded.hash_partial, file_hashes.hash_partial),
+                            hash_full=COALESCE(excluded.hash_full, file_hashes.hash_full),
+                            last_seen=excluded.last_seen
+                        """,
+                        rows,
+                    )
+                except sqlite3.OperationalError:
+                    # Conservative fallback for older SQLite builds.
+                    cursor.executemany(
+                        """
+                        INSERT OR REPLACE INTO file_hashes (path, size, mtime, hash_partial, hash_full, last_seen)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        rows,
+                    )
         except Exception as e:
             print(f"Batch Update Error: {e}")
 

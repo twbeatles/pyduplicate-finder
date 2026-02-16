@@ -41,3 +41,11 @@ class TestOperationLogging(unittest.TestCase):
         items = self.cache.get_operation_items(op_id)
         self.assertEqual(len(items), 2)
 
+    def test_get_quarantine_items_by_ids(self):
+        id1 = self.cache.insert_quarantine_item("o1", "q1", size=1, mtime=1.0, status="quarantined")
+        id2 = self.cache.insert_quarantine_item("o2", "q2", size=2, mtime=2.0, status="quarantined")
+        out = self.cache.get_quarantine_items_by_ids([id1, id2, 999999])
+        self.assertIn(id1, out)
+        self.assertIn(id2, out)
+        self.assertEqual(out[id1]["orig_path"], "o1")
+        self.assertEqual(out[id2]["quarantine_path"], "q2")

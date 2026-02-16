@@ -69,6 +69,14 @@ class OperationWorker(QThread):
     def _check_cancel(self) -> bool:
         return not self._running
 
+    def _emit_progress_throttled(self, idx: int, total: int, msg: str, *, step: int = 1):
+        if total <= 0:
+            self.progress_updated.emit(0, msg)
+            return
+        if idx == 1 or idx == total or (step > 0 and (idx % step == 0)):
+            pct = int((idx / total) * 100)
+            self.progress_updated.emit(pct, msg)
+
     def run(self):
         op = self.op
         res = OperationResult(op_type=op.op_type)
@@ -230,22 +238,29 @@ class OperationWorker(QThread):
         allow_replace = op.options.get("allow_replace_hardlink_to")
         total = len(item_ids)
         items_batch = []
+        preloaded = {}
+        try:
+            preloaded = self.cache_manager.get_quarantine_items_by_ids(item_ids)
+        except Exception:
+            preloaded = {}
+        progress_step = max(1, total // 100) if total else 1
 
         for idx, item_id in enumerate(item_ids):
             if self._check_cancel():
                 break
-            pct = int(((idx + 1) / total) * 100) if total else 0
-            self.progress_updated.emit(pct, f"{idx + 1}/{total}")
+            self._emit_progress_throttled(idx + 1, total, f"{idx + 1}/{total}", step=progress_step)
             try:
-                ok, msg, restored_path = self.quarantine_manager.restore_item(
-                    int(item_id),
-                    allow_replace_hardlink_to=allow_replace,
-                )
-                item = self.cache_manager.get_quarantine_item(int(item_id)) or {}
+                item = preloaded.get(int(item_id), {}) or {}
+                if not item:
+                    item = self.cache_manager.get_quarantine_item(int(item_id)) or {}
                 orig = item.get("orig_path") or ""
                 qpath = item.get("quarantine_path") or ""
                 size = item.get("size")
                 mtime = item.get("mtime")
+                ok, msg, restored_path = self.quarantine_manager.restore_item(
+                    int(item_id),
+                    allow_replace_hardlink_to=allow_replace,
+                )
                 if ok:
                     res.succeeded.append(restored_path or orig)
                     items_batch.append((orig, "restored", "ok", restored_path or "", size, mtime, qpath))
@@ -280,12 +295,19 @@ class OperationWorker(QThread):
         total = len(item_ids)
         items_batch = []
         bytes_total = 0
+        preloaded = {}
+        try:
+            preloaded = self.cache_manager.get_quarantine_items_by_ids(item_ids)
+        except Exception:
+            preloaded = {}
+        progress_step = max(1, total // 100) if total else 1
         for idx, item_id in enumerate(item_ids):
             if self._check_cancel():
                 break
-            pct = int(((idx + 1) / total) * 100) if total else 0
-            self.progress_updated.emit(pct, f"{idx + 1}/{total}")
-            item = self.cache_manager.get_quarantine_item(int(item_id)) or {}
+            self._emit_progress_throttled(idx + 1, total, f"{idx + 1}/{total}", step=progress_step)
+            item = preloaded.get(int(item_id), {}) or {}
+            if not item:
+                item = self.cache_manager.get_quarantine_item(int(item_id)) or {}
             orig = item.get("orig_path") or ""
             qpath = item.get("quarantine_path") or ""
             size = int(item.get("size") or 0)
@@ -331,6 +353,7 @@ class OperationWorker(QThread):
         total = len(targets)
         items_batch = []
         saved = 0
+        progress_step = max(1, total // 100) if total else 1
 
         if not canonical or not os.path.exists(canonical):
             res.status = "failed"
@@ -340,8 +363,7 @@ class OperationWorker(QThread):
         for idx, t in enumerate(targets):
             if self._check_cancel():
                 break
-            pct = int(((idx + 1) / total) * 100) if total else 0
-            self.progress_updated.emit(pct, f"{idx + 1}/{total}")
+            self._emit_progress_throttled(idx + 1, total, f"{idx + 1}/{total}", step=progress_step)
 
             if not t or not os.path.exists(t) or os.path.isdir(t):
                 res.skipped.append((t, "missing_or_dir"))

@@ -65,7 +65,10 @@ def build_results_page(window) -> QWidget:
     window.txt_result_filter = QLineEdit()
     window.txt_result_filter.setPlaceholderText("🔍 " + strings.tr("ph_filter_results"))
     window.txt_result_filter.setClearButtonEnabled(True)
-    window.txt_result_filter.textChanged.connect(window.filter_results_tree)
+    if hasattr(window, "on_result_filter_text_changed"):
+        window.txt_result_filter.textChanged.connect(window.on_result_filter_text_changed)
+    else:
+        window.txt_result_filter.textChanged.connect(window.filter_results_tree)
     filter_row.addWidget(window.txt_result_filter)
     filter_row.addStretch()
     window.lbl_filter_count = QLabel("")
