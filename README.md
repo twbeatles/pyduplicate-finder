@@ -37,6 +37,13 @@
 - **커스텀 단축키**: 사용자 편의에 맞춰 모든 기능의 단축키를 설정할 수 있습니다.
 - **다국어 지원**: 한국어/영어 인터페이스를 지원합니다.
 
+### 🧰 도구 (Tools)
+- **격리함(Quarantine) 관리**: Undo 가능한 삭제 모드로 삭제된 파일을 격리함에서 복구/영구삭제할 수 있습니다.
+- **자동 선택 규칙(Selection Rules)**: 경로/파일명 패턴(fnmatch) 기반으로 KEEP/DELETE 규칙을 정의하고 그룹/전체 결과에 자동 적용할 수 있습니다.
+- **작업 기록(Operations Log)**: 삭제/복구/영구삭제/하드링크 등 수행된 작업을 기록하고, 항목별 상세/CSV/JSON 내보내기를 지원합니다.
+- **사전 점검(Preflight)**: 하드링크 통합 등 위험도가 있는 작업 전, 잠금/권한/볼륨 조건 등을 사전 점검하여 차단/경고를 표시합니다.
+- **하드링크 통합(Hardlink Consolidation, 고급)**: 동일 내용의 중복 파일을 하드링크로 통합해 디스크 사용량을 절감할 수 있습니다(옵션).
+
 ---
 
 ## 📁 프로젝트 구조 (Project Structure)
@@ -66,9 +73,17 @@ duplicate_finder/
 │   │   │   ├── results_tree.py  # 결과 트리 위젯
 │   │   │   ├── sidebar.py       # 사이드바 네비게이션
 │   │   │   └── toast.py         # 토스트 알림
+│   │   ├── pages/
+│   │   │   ├── scan_page.py      # 스캔 페이지(UI)
+│   │   │   ├── results_page.py   # 결과 페이지(UI)
+│   │   │   ├── tools_page.py     # 도구 페이지(UI)
+│   │   │   └── settings_page.py  # 설정 페이지(UI)
 │   │   └── dialogs/
 │   │       ├── preset_dialog.py
 │   │       ├── exclude_patterns_dialog.py
+│   │       ├── selection_rules_dialog.py
+│   │       ├── preflight_dialog.py
+│   │       └── operation_log_dialog.py
 │   │       └── shortcut_settings_dialog.py
 │   └── utils/
 │       └── i18n.py              # 다국어 문자열 관리
@@ -123,6 +138,11 @@ duplicate_finder/
 python main.py
 ```
 
+### (선택) CLI로 스캔 실행
+```bash
+python cli.py "D:/Data" "E:/Photos" --extensions jpg,png --output-json result.json --output-csv result.csv
+```
+
 ### 2. 검색 설정
 - **파일 위치 추가**: '폴더 추가' 혹은 드래그 앤 드롭으로 검색할 위치를 등록합니다.
 - **필터 옵션**:
@@ -133,6 +153,9 @@ python main.py
     | 바이트 단위 정밀 비교 | 해시가 같은 후보를 바이트 단위로 재검증 |
     | 유사 이미지 탐지 | 시각적 유사성 분석 (0.1~1.0 임계값) |
     | 휴지통 사용 | 영구 삭제 대신 휴지통으로 이동 |
+    | 숨김/시스템 파일 제외 | .으로 시작하는 파일/폴더 및 OS 메타데이터를 제외 |
+    | 심볼릭 링크 따라가기 | 심볼릭 링크를 따라 스캔 (루프 감지 포함) |
+    | 포함 패턴 | 설정 시, 해당 패턴과 매칭되는 파일만 스캔 |
     | 제외 패턴 | 스캔에서 제외할 패턴(*, ?) 설정 (파일명/전체 경로 매칭) |
 
 ### 3. 스캔 및 중복 확인
@@ -157,6 +180,11 @@ python main.py
 | 프리셋 관리 | 자주 사용하는 설정 저장/로드 |
 | 단축키 설정 | 모든 기능의 단축키 커스터마이징 |
 | 빈 폴더 찾기 | 빈 폴더 탐색 및 일괄 삭제 |
+| 격리함 관리 | Undo 가능한 삭제로 이동된 파일 복구/영구삭제 |
+| 자동 선택 규칙 | 패턴 기반 KEEP/DELETE 규칙으로 자동 선택 |
+| 작업 기록 | 삭제/복구/정리/하드링크 작업 기록 및 내보내기 |
+| 하드링크 통합 | (고급) 중복 파일을 하드링크로 통합하여 공간 절감 |
+| 헤드리스 CLI 스캔 | GUI 없이 폴더 스캔 후 JSON/CSV 결과 출력 |
 
 ---
 

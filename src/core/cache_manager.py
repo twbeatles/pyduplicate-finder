@@ -6,6 +6,7 @@ import threading
 import json
 import hashlib
 import time
+from typing import Any, Optional
 
 class CacheManager:
     def __init__(self, db_path=None):
@@ -189,6 +190,30 @@ class CacheManager:
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_hashes_session_type ON scan_hashes(session_id, hash_type)")
 
                 conn.execute("""
+                    CREATE TABLE IF NOT EXISTS scan_dirs (
+                        session_id INTEGER NOT NULL,
+                        path TEXT NOT NULL,
+                        mtime REAL,
+                        PRIMARY KEY (session_id, path)
+                    )
+                """)
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_dirs_session ON scan_dirs(session_id)")
+
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS scan_folder_sigs (
+                        session_id INTEGER NOT NULL,
+                        dir_path TEXT NOT NULL,
+                        sig_quick TEXT,
+                        sig_full TEXT,
+                        bytes_total INTEGER DEFAULT 0,
+                        file_count INTEGER DEFAULT 0,
+                        PRIMARY KEY (session_id, dir_path)
+                    )
+                """)
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_folder_sigs_session ON scan_folder_sigs(session_id)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_folder_sigs_full ON scan_folder_sigs(session_id, sig_full)")
+
+                conn.execute("""
                     CREATE TABLE IF NOT EXISTS scan_results (
                         session_id INTEGER NOT NULL,
                         group_key TEXT NOT NULL,
@@ -259,7 +284,7 @@ class CacheManager:
         except Exception as e:
             print(f"DB Init Error: {e}")
 
-    def _normalize_config(self, config: dict) -> str:
+    def _normalize_config(self, config: dict[str, Any]) -> str:
         try:
             return json.dumps(config, ensure_ascii=False, sort_keys=True)
         except TypeError:
@@ -268,10 +293,16 @@ class CacheManager:
     def _config_hash(self, config_json: str) -> str:
         return hashlib.sha256(config_json.encode("utf-8")).hexdigest()
 
-    def get_config_hash(self, config: dict) -> str:
+    def get_config_hash(self, config: dict[str, Any]) -> str:
         return self._config_hash(self._normalize_config(config))
 
-    def create_scan_session(self, config: dict, status: str = "running", stage: str = "collecting", config_hash: str = None) -> int:
+    def create_scan_session(
+        self,
+        config: dict[str, Any],
+        status: str = "running",
+        stage: str = "collecting",
+        config_hash: Optional[str] = None,
+    ) -> int:
         config_json = self._normalize_config(config)
         if not config_hash:
             config_hash = self._config_hash(config_json)
@@ -284,12 +315,12 @@ class CacheManager:
                     INSERT INTO scan_sessions (status, stage, config_json, config_hash, created_at, updated_at, progress, progress_message)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, (status, stage, config_json, config_hash, now, now, 0, ""))
-                return cursor.lastrowid
+                return int(cursor.lastrowid or 0)
         except Exception as e:
             print(f"Create session error: {e}")
             return 0
 
-    def find_resumable_session(self, config: dict):
+    def find_resumable_session(self, config: dict[str, Any]):
         config_hash = self.get_config_hash(config)
         return self.find_resumable_session_by_hash(config_hash)
 
@@ -318,6 +349,38 @@ class CacheManager:
                 }
         except Exception as e:
             print(f"Find session error: {e}")
+        return None
+
+    def get_latest_completed_session_by_hash(self, config_hash: str):
+        if not config_hash:
+            return None
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT id, status, stage, config_json, config_hash, updated_at, progress, progress_message
+                FROM scan_sessions
+                WHERE config_hash = ? AND status = 'completed'
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                (config_hash,),
+            )
+            row = cursor.fetchone()
+            if row:
+                return {
+                    "id": row[0],
+                    "status": row[1],
+                    "stage": row[2],
+                    "config_json": row[3],
+                    "config_hash": row[4],
+                    "updated_at": row[5],
+                    "progress": row[6],
+                    "progress_message": row[7],
+                }
+        except Exception as e:
+            print(f"Get latest completed session error: {e}")
         return None
 
     def get_latest_session(self):
@@ -365,6 +428,8 @@ class CacheManager:
             with conn:
                 conn.execute(f"DELETE FROM scan_files WHERE session_id NOT IN ({placeholders})", keep_ids)
                 conn.execute(f"DELETE FROM scan_hashes WHERE session_id NOT IN ({placeholders})", keep_ids)
+                conn.execute(f"DELETE FROM scan_dirs WHERE session_id NOT IN ({placeholders})", keep_ids)
+                conn.execute(f"DELETE FROM scan_folder_sigs WHERE session_id NOT IN ({placeholders})", keep_ids)
                 conn.execute(f"DELETE FROM scan_results WHERE session_id NOT IN ({placeholders})", keep_ids)
                 conn.execute(f"DELETE FROM scan_selected WHERE session_id NOT IN ({placeholders})", keep_ids)
                 conn.execute(f"DELETE FROM scan_sessions WHERE id NOT IN ({placeholders})", keep_ids)
@@ -406,6 +471,70 @@ class CacheManager:
         except Exception as e:
             print(f"Save scan files error: {e}")
 
+    def save_scan_dirs_batch(self, session_id: int, entries):
+        if not session_id or not entries:
+            return
+        try:
+            conn = self._get_conn()
+            with conn:
+                conn.executemany(
+                    """
+                    INSERT OR REPLACE INTO scan_dirs (session_id, path, mtime)
+                    VALUES (?, ?, ?)
+                    """,
+                    [(session_id, p, m) for p, m in entries if p],
+                )
+        except Exception as e:
+            print(f"Save scan dirs error: {e}")
+
+    def load_scan_dirs(self, session_id: int):
+        out = {}
+        if not session_id:
+            return out
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+            cursor.execute("SELECT path, mtime FROM scan_dirs WHERE session_id=?", (session_id,))
+            for p, m in cursor.fetchall():
+                out[p] = m
+        except Exception as e:
+            print(f"Load scan dirs error: {e}")
+        return out
+
+    def clear_scan_dirs(self, session_id: int):
+        if not session_id:
+            return
+        try:
+            conn = self._get_conn()
+            with conn:
+                conn.execute("DELETE FROM scan_dirs WHERE session_id=?", (session_id,))
+        except Exception as e:
+            print(f"Clear scan dirs error: {e}")
+
+    def save_scan_folder_sigs_batch(self, session_id: int, entries):
+        """
+        entries: iterable of (dir_path, sig_quick, sig_full, bytes_total, file_count)
+        """
+        if not session_id or not entries:
+            return
+        try:
+            conn = self._get_conn()
+            with conn:
+                conn.executemany(
+                    """
+                    INSERT OR REPLACE INTO scan_folder_sigs
+                    (session_id, dir_path, sig_quick, sig_full, bytes_total, file_count)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        (session_id, d, sq, sf, bt, fc)
+                        for d, sq, sf, bt, fc in entries
+                        if d
+                    ],
+                )
+        except Exception as e:
+            print(f"Save scan folder sigs error: {e}")
+
     def load_scan_files(self, session_id: int):
         try:
             conn = self._get_conn()
@@ -446,7 +575,7 @@ class CacheManager:
         except Exception as e:
             print(f"Iter scan files error: {e}")
 
-    def load_scan_hashes_for_paths(self, session_id: int, paths, hash_type: str = None):
+    def load_scan_hashes_for_paths(self, session_id: int, paths, hash_type: Optional[str] = None):
         """
         Load scan_hashes only for the provided paths (chunked IN queries).
         Returns {(path, htype): (hash_value, size, mtime)}
@@ -528,7 +657,7 @@ class CacheManager:
         except Exception as e:
             print(f"Save scan hashes error: {e}")
 
-    def load_scan_hashes(self, session_id: int, hash_type: str = None):
+    def load_scan_hashes(self, session_id: int, hash_type: Optional[str] = None):
         result = {}
         if not session_id:
             return result
@@ -571,7 +700,7 @@ class CacheManager:
         except Exception as e:
             print(f"Clear scan results error: {e}")
 
-    def save_scan_results(self, session_id: int, results: dict):
+    def save_scan_results(self, session_id: int, results: dict[Any, list[str]]):
         if not session_id:
             return
         try:
@@ -655,7 +784,7 @@ class CacheManager:
 
     # === Operations / Quarantine APIs ===
 
-    def create_operation(self, op_type: str, options: dict = None, status: str = "running") -> int:
+    def create_operation(self, op_type: str, options: Optional[dict[str, Any]] = None, status: str = "running") -> int:
         """Create an operation log row and return op_id."""
         try:
             now = time.time()
@@ -794,8 +923,8 @@ class CacheManager:
         self,
         orig_path: str,
         quarantine_path: str,
-        size: int = None,
-        mtime: float = None,
+        size: Optional[int] = None,
+        mtime: Optional[float] = None,
         status: str = "quarantined",
     ) -> int:
         try:
@@ -815,7 +944,13 @@ class CacheManager:
             print(f"Insert quarantine item error: {e}")
             return 0
 
-    def list_quarantine_items(self, limit: int = 200, offset: int = 0, status_filter: str = None, search: str = None):
+    def list_quarantine_items(
+        self,
+        limit: int = 200,
+        offset: int = 0,
+        status_filter: Optional[str] = None,
+        search: Optional[str] = None,
+    ):
         try:
             conn = self._get_conn()
             cur = conn.cursor()

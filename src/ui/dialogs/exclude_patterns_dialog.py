@@ -5,15 +5,17 @@
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
-    QPushButton, QLineEdit, QLabel, QGroupBox, QMessageBox, QComboBox
+    QPushButton, QLineEdit, QLabel, QGroupBox, QMessageBox, QComboBox, QAbstractItemView
 )
 from PySide6.QtCore import Qt
+
+from typing import Optional
 
 from src.utils.i18n import strings
 
 
 class ExcludePatternsDialog(QDialog):
-    """제외 패턴 설정 다이얼로그"""
+    """패턴 설정 다이얼로그 (Exclude/Include 공용으로 사용 가능)."""
     
     # 일반적인 제외 패턴 프리셋
     COMMON_PATTERNS = [
@@ -31,11 +33,33 @@ class ExcludePatternsDialog(QDialog):
         ("build", "Build folder"),
     ]
     
-    def __init__(self, patterns: list, parent=None):
+    COMMON_INCLUDE_PATTERNS = [
+        ("*.jpg", "JPEG images"),
+        ("*.png", "PNG images"),
+        ("*.gif", "GIF images"),
+        ("*.mp4", "MP4 videos"),
+        ("*.pdf", "PDF documents"),
+        ("*.zip", "ZIP archives"),
+    ]
+
+    def __init__(
+        self,
+        patterns: list[str],
+        parent=None,
+        *,
+        title: Optional[str] = None,
+        desc: Optional[str] = None,
+        placeholder: Optional[str] = None,
+        common_patterns=None,
+    ):
         super().__init__(parent)
         self.patterns = patterns.copy() if patterns else []
+        self._title = title
+        self._desc = desc
+        self._placeholder = placeholder
+        self._common_patterns = list(common_patterns) if common_patterns is not None else list(self.COMMON_PATTERNS)
         
-        self.setWindowTitle(strings.tr("dlg_exclude_title"))
+        self.setWindowTitle(self._title or strings.tr("dlg_exclude_title"))
         self.setMinimumSize(500, 450)
         
         # Apply parent theme
@@ -52,7 +76,7 @@ class ExcludePatternsDialog(QDialog):
         layout.setSpacing(12)
         
         # === 설명 ===
-        desc = QLabel(strings.tr("lbl_exclude_desc"))
+        desc = QLabel(self._desc or strings.tr("lbl_exclude_desc"))
         desc.setWordWrap(True)
         desc.setObjectName("card_desc")
         layout.addWidget(desc)
@@ -62,7 +86,7 @@ class ExcludePatternsDialog(QDialog):
         list_layout = QVBoxLayout(list_group)
         
         self.pattern_list = QListWidget()
-        self.pattern_list.setSelectionMode(QListWidget.ExtendedSelection)
+        self.pattern_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         list_layout.addWidget(self.pattern_list)
         
         layout.addWidget(list_group)
@@ -74,7 +98,7 @@ class ExcludePatternsDialog(QDialog):
         # 직접 입력
         input_layout = QHBoxLayout()
         self.txt_pattern = QLineEdit()
-        self.txt_pattern.setPlaceholderText(strings.tr("ph_exclude_pattern"))
+        self.txt_pattern.setPlaceholderText(self._placeholder or strings.tr("ph_exclude_pattern"))
         self.txt_pattern.returnPressed.connect(self.add_pattern)
         input_layout.addWidget(self.txt_pattern, 1)
         
@@ -92,7 +116,7 @@ class ExcludePatternsDialog(QDialog):
         
         self.combo_presets = QComboBox()
         self.combo_presets.addItem(strings.tr("opt_select"), None)
-        for pattern, desc in self.COMMON_PATTERNS:
+        for pattern, desc in self._common_patterns:
             self.combo_presets.addItem(f"{pattern} ({desc})", pattern)
         preset_layout.addWidget(self.combo_presets, 1)
         
@@ -132,7 +156,7 @@ class ExcludePatternsDialog(QDialog):
         self.pattern_list.clear()
         for pattern in self.patterns:
             item = QListWidgetItem(pattern)
-            item.setData(Qt.UserRole, pattern)
+            item.setData(Qt.ItemDataRole.UserRole, pattern)
             self.pattern_list.addItem(item)
     
     def add_pattern(self):
@@ -154,7 +178,7 @@ class ExcludePatternsDialog(QDialog):
         """선택된 패턴 삭제"""
         selected_items = self.pattern_list.selectedItems()
         for item in selected_items:
-            pattern = item.data(Qt.UserRole)
+            pattern = item.data(Qt.ItemDataRole.UserRole)
             if pattern in self.patterns:
                 self.patterns.remove(pattern)
         self.refresh_list()
@@ -163,14 +187,15 @@ class ExcludePatternsDialog(QDialog):
         """모든 패턴 삭제"""
         if self.patterns:
             res = QMessageBox.question(
-                self, strings.tr("app_title"),
+                self,
+                strings.tr("app_title"),
                 strings.tr("confirm_clear_patterns"),
-                QMessageBox.Yes | QMessageBox.No
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
-            if res == QMessageBox.Yes:
+            if res == QMessageBox.StandardButton.Yes:
                 self.patterns.clear()
                 self.refresh_list()
     
-    def get_patterns(self) -> list:
+    def get_patterns(self) -> list[str]:
         """현재 패턴 목록 반환"""
         return self.patterns.copy()

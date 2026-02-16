@@ -1,10 +1,18 @@
-from PySide6.QtWidgets import QTreeWidget, QTreeWidgetItem, QTreeWidgetItemIterator, QHeaderView
+from PySide6.QtWidgets import QTreeWidget, QTreeWidgetItem, QTreeWidgetItemIterator, QHeaderView, QAbstractItemView
 from PySide6.QtCore import Qt, Signal, QTimer, Slot
 from PySide6.QtGui import QAction, QCursor, QBrush, QColor, QFont
 from src.utils.i18n import strings
 from src.ui.theme import ModernTheme
 from datetime import datetime
 import os
+
+
+_ROLE_BASE = int(Qt.ItemDataRole.UserRole)
+_ROLE_PATH = _ROLE_BASE
+_ROLE_GROUP_KEY = _ROLE_BASE + 1
+_ROLE_EXISTS = _ROLE_BASE + 2
+_ROLE_GROUP_BASE_LABEL = _ROLE_BASE + 3
+_ROLE_SIZE_BYTES = _ROLE_BASE
 
 class ResultsTreeWidget(QTreeWidget):
     """
@@ -32,18 +40,18 @@ class ResultsTreeWidget(QTreeWidget):
         # Enable column resizing
         header = self.header()
         header.setStretchLastSection(False)
-        header.setSectionResizeMode(0, QHeaderView.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.Fixed)
-        header.setSectionResizeMode(2, QHeaderView.Fixed)
-        header.setSectionResizeMode(3, QHeaderView.Fixed)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
         
-        self.setSelectionMode(QTreeWidget.ExtendedSelection)
-        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.setAlternatingRowColors(True)
         self.setIndentation(24)
         self.setAnimated(True)
         self.setUniformRowHeights(True)
-        self.setTextElideMode(Qt.ElideMiddle)
+        self.setTextElideMode(Qt.TextElideMode.ElideMiddle)
         
         # Batch processing state
         self._populate_timer = QTimer(self)
@@ -121,9 +129,73 @@ class ResultsTreeWidget(QTreeWidget):
         # Start batch processing
         self._populate_timer.start(0)
 
+    def _format_reclaim(self, bytes_total: int) -> str:
+        try:
+            b = int(bytes_total or 0)
+        except Exception:
+            b = 0
+        return self._format_size(b)
+
+    def _update_group_summary(self, group_item: QTreeWidgetItem) -> None:
+        """Update group header text based on current check states."""
+        if not group_item:
+            return
+
+        total = int(group_item.childCount() or 0)
+        if total <= 0:
+            return
+
+        checked = 0
+        reclaim = 0
+        keep_name = ""
+        missing = 0
+
+        for j in range(total):
+            child = group_item.child(j)
+            if not child:
+                continue
+            p = child.data(0, _ROLE_PATH)
+            exists = bool(child.data(0, _ROLE_EXISTS))
+            if not exists:
+                missing += 1
+            if child.checkState(0) == Qt.CheckState.Checked:
+                checked += 1
+                try:
+                    reclaim += int(child.data(1, _ROLE_SIZE_BYTES) or 0)
+                except Exception:
+                    pass
+            else:
+                if not keep_name and p:
+                    try:
+                        keep_name = os.path.basename(str(p))
+                    except Exception:
+                        keep_name = ""
+
+        unchecked = total - checked
+
+        # Preserve the base label stored on the group item.
+        base = group_item.data(0, _ROLE_GROUP_BASE_LABEL) or group_item.text(0)
+        base = str(base)
+
+        suffix_parts = []
+        if keep_name and unchecked == 1 and checked > 0:
+            suffix_parts.append(strings.tr("label_keep").format(name=keep_name))
+        if checked > 0 and reclaim > 0:
+            suffix_parts.append(strings.tr("label_reclaim").format(size=self._format_reclaim(reclaim)))
+        if missing > 0:
+            suffix_parts.append(strings.tr("badge_missing_count").format(count=missing))
+
+        suffix = "" if not suffix_parts else "  •  " + "  |  ".join(suffix_parts)
+        group_item.setText(0, base + suffix)
+
     def _process_batch(self):
         BATCH_SIZE = 50
         count = 0
+
+        if self._result_iterator is None:
+            self._populate_timer.stop()
+            self._suppress_item_changed = False
+            return
         
         try:
             while count < BATCH_SIZE:
@@ -135,6 +207,13 @@ class ResultsTreeWidget(QTreeWidget):
         except StopIteration:
             self._populate_timer.stop()
             self._suppress_item_changed = False
+            # Ensure group headers reflect initial selection state.
+            try:
+                root = self.invisibleRootItem()
+                for i in range(root.childCount()):
+                    self._update_group_summary(root.child(i))
+            except Exception:
+                pass
             
     def _add_group_item(self, key, paths):
         """Add a duplicate group to the tree."""
@@ -196,7 +275,7 @@ class ResultsTreeWidget(QTreeWidget):
         group_item = QTreeWidgetItem(self)
         # Store group key for group-level actions (separate from file item path stored in Qt.UserRole).
         try:
-            group_item.setData(0, Qt.UserRole + 1, key)
+            group_item.setData(0, _ROLE_GROUP_KEY, key)
         except Exception:
             pass
         
@@ -225,6 +304,12 @@ class ResultsTreeWidget(QTreeWidget):
             f"📁 {label_group} ({len(paths)} {label_files}) • {hash_disp}{suffix}{badge_text}"
         )
         group_item.setText(1, size_str)
+
+        # Store base group label for later suffix updates (keep/reclaim/missing).
+        try:
+            group_item.setData(0, _ROLE_GROUP_BASE_LABEL, group_item.text(0))
+        except Exception:
+            pass
         
         # Apply theme styling to group
         colors = ModernTheme.get_palette(self.current_theme_mode)
@@ -248,14 +333,20 @@ class ResultsTreeWidget(QTreeWidget):
             child = QTreeWidgetItem(group_item)
             
             # Display full path with type-specific icon
-            filename = os.path.basename(p)
             icon = self._get_file_icon(p)
+            exists = bool(p and os.path.exists(p))
+            missing_badge = f" [{strings.tr('badge_missing')}]" if not exists else ""
             # User requested full path display
-            child.setText(0, f"  {icon} {p}")
+            child.setText(0, f"  {icon} {p}{missing_badge}")
             child.setToolTip(0, p)  # Full path in tooltip
             
             file_size = sizes[idx] if idx < len(sizes) else None
             child.setText(1, self._format_size(file_size) if file_size is not None else "—")
+            # Cache raw size for reclaim calculations.
+            try:
+                child.setData(1, _ROLE_SIZE_BYTES, int(file_size or 0))
+            except Exception:
+                pass
             child.setText(3, os.path.splitext(p)[1].upper())
             
             try:
@@ -265,12 +356,27 @@ class ResultsTreeWidget(QTreeWidget):
             except:
                 child.setText(2, "—")
 
-            child.setFlags(child.flags() | Qt.ItemIsUserCheckable)
+            # Mark missing files with a muted color.
+            if not exists:
+                try:
+                    for col in range(4):
+                        child.setForeground(col, QBrush(QColor("#999999")))
+                except Exception:
+                    pass
+
+            child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             if p in self._selected_paths:
-                child.setCheckState(0, Qt.Checked)
+                child.setCheckState(0, Qt.CheckState.Checked)
             else:
-                child.setCheckState(0, Qt.Unchecked)
-            child.setData(0, Qt.UserRole, p)
+                child.setCheckState(0, Qt.CheckState.Unchecked)
+            child.setData(0, _ROLE_PATH, p)
+            try:
+                child.setData(0, _ROLE_EXISTS, 1 if exists else 0)
+            except Exception:
+                pass
+
+        # Initial group summary (keep/reclaim/missing).
+        self._update_group_summary(group_item)
 
     def begin_bulk_check_update(self):
         self._suppress_item_changed = True
@@ -283,22 +389,22 @@ class ResultsTreeWidget(QTreeWidget):
         except Exception:
             pass
 
-    def get_group_paths(self, group_item) -> list:
+    def get_group_paths(self, group_item) -> list[str]:
         """Return file paths for a group (top-level) item."""
-        paths = []
+        paths: list[str] = []
         try:
             for i in range(group_item.childCount()):
                 child = group_item.child(i)
-                p = child.data(0, Qt.UserRole)
+                p = child.data(0, _ROLE_PATH)
                 if p:
-                    paths.append(p)
+                    paths.append(str(p))
         except Exception:
             pass
         return paths
 
     def set_group_checked(self, group_item, checked: bool):
         """Check/uncheck all children in a group efficiently."""
-        state = Qt.Checked if checked else Qt.Unchecked
+        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
         self.begin_bulk_check_update()
         try:
             for i in range(group_item.childCount()):
@@ -306,6 +412,10 @@ class ResultsTreeWidget(QTreeWidget):
                 child.setCheckState(0, state)
         finally:
             self.end_bulk_check_update()
+        try:
+            self._update_group_summary(group_item)
+        except Exception:
+            pass
 
     def _format_size(self, size):
         """Format file size with appropriate units."""
@@ -321,16 +431,22 @@ class ResultsTreeWidget(QTreeWidget):
             return
         if column != 0:
             return
+        try:
+            parent = item.parent()
+            if parent is not None:
+                self._update_group_summary(parent)
+        except Exception:
+            pass
         self.files_checked.emit(self.get_checked_files())
 
     def get_checked_files(self):
         """Returns list of paths checked by user."""
         checked = []
-        iterator = QTreeWidgetItemIterator(self, QTreeWidgetItemIterator.Checked)
+        iterator = QTreeWidgetItemIterator(self, QTreeWidgetItemIterator.IteratorFlag.Checked)
         while iterator.value():
             item = iterator.value()
-            path = item.data(0, Qt.UserRole)
+            path = item.data(0, _ROLE_PATH)
             if path:
-                checked.append(path)
+                checked.append(str(path))
             iterator += 1
         return checked

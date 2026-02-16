@@ -19,8 +19,8 @@ from src.utils.i18n import strings
 
 def _create_separator() -> QFrame:
     sep = QFrame()
-    sep.setFrameShape(QFrame.VLine)
-    sep.setFrameShadow(QFrame.Sunken)
+    sep.setFrameShape(QFrame.Shape.VLine)
+    sep.setFrameShadow(QFrame.Shadow.Sunken)
     return sep
 
 
@@ -57,23 +57,23 @@ def build_scan_page(window) -> QWidget:
 
     window.btn_add_folder = QPushButton(strings.tr("btn_add_folder"))
     window.btn_add_folder.setMinimumHeight(32)
-    window.btn_add_folder.setCursor(Qt.PointingHandCursor)
+    window.btn_add_folder.setCursor(Qt.CursorShape.PointingHandCursor)
     window.btn_add_folder.clicked.connect(window.add_folder)
 
     window.btn_add_drive = QPushButton(strings.tr("btn_add_drive"))
     window.btn_add_drive.setMinimumHeight(32)
-    window.btn_add_drive.setCursor(Qt.PointingHandCursor)
+    window.btn_add_drive.setCursor(Qt.CursorShape.PointingHandCursor)
     window.btn_add_drive.clicked.connect(window.add_drive_dialog)
 
     window.btn_remove_folder = QPushButton(strings.tr("btn_remove_folder"))
     window.btn_remove_folder.setMinimumHeight(32)
-    window.btn_remove_folder.setCursor(Qt.PointingHandCursor)
+    window.btn_remove_folder.setCursor(Qt.CursorShape.PointingHandCursor)
     window.btn_remove_folder.setToolTip(strings.tr("btn_remove_folder"))
     window.btn_remove_folder.clicked.connect(window.remove_selected_folder)
 
     window.btn_clear_folder = QPushButton(strings.tr("btn_clear"))
     window.btn_clear_folder.setMinimumHeight(32)
-    window.btn_clear_folder.setCursor(Qt.PointingHandCursor)
+    window.btn_clear_folder.setCursor(Qt.CursorShape.PointingHandCursor)
     window.btn_clear_folder.clicked.connect(window.clear_folders)
 
     folder_header.addStretch()
@@ -93,7 +93,7 @@ def build_scan_page(window) -> QWidget:
     window.btn_filter_toggle.setObjectName("filter_header")
     window.btn_filter_toggle.setCheckable(True)
     window.btn_filter_toggle.setChecked(True)
-    window.btn_filter_toggle.setCursor(Qt.PointingHandCursor)
+    window.btn_filter_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
     window.btn_filter_toggle.clicked.connect(window._toggle_filter_panel)
     top_main_layout.addWidget(window.btn_filter_toggle)
 
@@ -171,8 +171,14 @@ def build_scan_page(window) -> QWidget:
     window.chk_protect_system.setChecked(True)
     window.chk_use_trash = QCheckBox(strings.tr("chk_use_trash"))
     window.chk_use_trash.setToolTip(strings.tr("tip_use_trash"))
+    window.chk_skip_hidden = QCheckBox(strings.tr("chk_skip_hidden"))
+    window.chk_skip_hidden.setToolTip(strings.tr("tip_skip_hidden"))
+    window.chk_follow_symlinks = QCheckBox(strings.tr("chk_follow_symlinks"))
+    window.chk_follow_symlinks.setToolTip(strings.tr("tip_follow_symlinks"))
     row3_layout.addWidget(window.chk_protect_system)
     row3_layout.addWidget(window.chk_use_trash)
+    row3_layout.addWidget(window.chk_skip_hidden)
+    row3_layout.addWidget(window.chk_follow_symlinks)
     row3_layout.addWidget(_create_separator())
 
     window.chk_similar_image = QCheckBox(strings.tr("chk_similar_image"))
@@ -194,8 +200,16 @@ def build_scan_page(window) -> QWidget:
     window.btn_exclude_patterns = QPushButton(strings.tr("btn_exclude_patterns"))
     window.btn_exclude_patterns.setMinimumHeight(32)
     window.btn_exclude_patterns.setObjectName("btn_icon")
-    window.btn_exclude_patterns.setCursor(Qt.PointingHandCursor)
+    window.btn_exclude_patterns.setCursor(Qt.CursorShape.PointingHandCursor)
     window.btn_exclude_patterns.clicked.connect(window.open_exclude_patterns_dialog)
+
+    window.btn_include_patterns = QPushButton(strings.tr("btn_include_patterns"))
+    window.btn_include_patterns.setMinimumHeight(32)
+    window.btn_include_patterns.setObjectName("btn_icon")
+    window.btn_include_patterns.setCursor(Qt.CursorShape.PointingHandCursor)
+    window.btn_include_patterns.clicked.connect(window.open_include_patterns_dialog)
+
+    row3_layout.addWidget(window.btn_include_patterns)
     row3_layout.addWidget(window.btn_exclude_patterns)
 
     row3_layout.addStretch()
@@ -214,13 +228,13 @@ def build_scan_page(window) -> QWidget:
     window.btn_start_scan = QPushButton(strings.tr("btn_start_scan"))
     window.btn_start_scan.setMinimumHeight(40)
     window.btn_start_scan.setMinimumWidth(150)
-    window.btn_start_scan.setCursor(Qt.PointingHandCursor)
+    window.btn_start_scan.setCursor(Qt.CursorShape.PointingHandCursor)
     window.btn_start_scan.setObjectName("btn_primary")
     window.btn_start_scan.clicked.connect(window.start_scan)
 
     window.btn_stop_scan = QPushButton(strings.tr("scan_stop"))
     window.btn_stop_scan.setMinimumHeight(40)
-    window.btn_stop_scan.setCursor(Qt.PointingHandCursor)
+    window.btn_stop_scan.setCursor(Qt.CursorShape.PointingHandCursor)
     window.btn_stop_scan.clicked.connect(window.stop_scan)
     window.btn_stop_scan.setEnabled(False)
 
@@ -242,7 +256,7 @@ def build_scan_page(window) -> QWidget:
 
     window.btn_go_results = QPushButton(strings.tr("nav_results"))
     window.btn_go_results.setMinimumHeight(32)
-    window.btn_go_results.setCursor(Qt.PointingHandCursor)
+    window.btn_go_results.setCursor(Qt.CursorShape.PointingHandCursor)
     window.btn_go_results.setObjectName("btn_secondary")
     window.btn_go_results.setEnabled(False)
     window.btn_go_results.clicked.connect(lambda: window._navigate_to("results"))
@@ -258,4 +272,3 @@ def build_scan_page(window) -> QWidget:
         pass
 
     return page
-

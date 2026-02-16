@@ -1,18 +1,23 @@
 from PySide6.QtCore import QLocale
 import os
+from typing import ClassVar, Dict, Optional, Set
 
 # Debug mode: set via environment variable
 DEBUG_I18N = os.environ.get('DEBUG_I18N', '').lower() in ('1', 'true', 'yes')
 
 class I18n:
-    _instance = None
-    _missing_keys = set()  # Track reported missing keys
+    _instance: Optional["I18n"] = None
+    _missing_keys: Set[str] = set()  # Track reported missing keys
+
+    # Singleton state is effectively global; model as ClassVars for type checkers.
+    current_lang: ClassVar[str] = "ko"
+    translations: ClassVar[Dict[str, Dict[str, str]]] = {}
     
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(I18n, cls).__new__(cls)
-            cls._instance.current_lang = "ko" # Default
-            cls._instance.translations = {
+            cls.current_lang = "ko"  # Default
+            cls.translations = {
                 "en": {
                     "app_title": "PyDuplicate Finder Pro",
                     "scan_start": "Start Scan",
@@ -105,6 +110,7 @@ class I18n:
                     "chk_similar_image": "Find Similar Images (pHash)",
                     "chk_name_only": "Filename only (ignore content)",
                     "btn_exclude_patterns": "Exclude Patterns...",
+                    "btn_include_patterns": "Include Patterns...",
                     "action_save_results": "Save Results",
                     "action_load_results": "Load Results",
                     "action_expand_all": "Expand All",
@@ -177,6 +183,7 @@ class I18n:
                     "btn_clear_key": "Clear",
                     "btn_reset_defaults": "Reset to Defaults",
                     "lbl_exclude_desc": "Add patterns to exclude during scanning.\nMatches against filename and full path (fnmatch wildcards like * and ?).",
+                    "lbl_include_desc": "Add patterns to include during scanning.\nIf set, only matching files are scanned (fnmatch wildcards like * and ?).",
                     "lbl_current_patterns": "Current Patterns",
                     "lbl_add_pattern": "Add Pattern",
                     "lbl_common_patterns": "Common:",
@@ -186,6 +193,20 @@ class I18n:
                     "col_default": "Default",
                     "lbl_press_key": "Press keys:",
                     "ph_exclude_pattern": "e.g., *.log, node_modules, */temp/*",
+                    "ph_include_pattern": "e.g., *.jpg, *.pdf, */Photos/*",
+
+                    "dlg_include_title": "Include Patterns",
+
+                    "chk_skip_hidden": "Skip hidden/system files",
+                    "tip_skip_hidden": "Skips dotfiles and OS metadata (e.g., Thumbs.db, .DS_Store, desktop.ini)",
+                    "chk_follow_symlinks": "Follow symlinks",
+                    "tip_follow_symlinks": "Follows symbolic links (loop detection enabled)",
+                    "chk_mixed_mode": "Mixed mode (duplicates + similar images)",
+                    "tip_mixed_mode": "Runs duplicate-file detection and similar-image grouping in one scan",
+                    "chk_detect_folder_dup": "Detect duplicate folders",
+                    "tip_detect_folder_dup": "Detects folders with identical relative file structures and contents",
+                    "chk_incremental_rescan": "Incremental rescan",
+                    "tip_incremental_rescan": "Reuses previous completed scan snapshot and scans changed directories first",
                     "opt_select": "-- Select --",
                     
                     # New Features (Live Filter & Adv Select)
@@ -214,7 +235,13 @@ class I18n:
                     "badge_name_only": "Name-only",
                     "badge_similar": "Similar",
                     "badge_byte_compare": "Byte-compare",
+                    "badge_folder_dup": "Folder duplicate",
+                    "badge_missing": "Missing",
+                    "badge_missing_count": "Missing: {count}",
+                    "label_keep": "Keep: {name}",
+                    "label_reclaim": "Reclaim: {size}",
                     "label_similar_group": "Similar #{id}",
+                    "label_folder_dup_group": "Folder duplicate",
                     
                     # Navigation (Sidebar)
                     "nav_scan": "Scan",
@@ -256,6 +283,21 @@ class I18n:
                     "msg_quarantine_disabled_fallback": "Quarantine is disabled. Falling back to system trash.",
                     "msg_quarantine_purged": "Quarantine purged: {} items",
 
+                    # Operation result messages
+                    "op_cancelled": "Cancelled",
+                    "op_unknown_type": "Unknown op_type: {op_type}",
+                    "op_quarantine_unavailable": "Quarantine manager unavailable",
+                    "op_trash_unavailable": "System trash unavailable",
+                    "op_canonical_missing": "Canonical missing",
+                    "op_history_unavailable": "History manager unavailable",
+                    "op_nothing_undo": "Nothing to undo",
+                    "op_nothing_redo": "Nothing to redo",
+                    "op_moved_quarantine": "Moved {ok}/{total} to quarantine",
+                    "op_moved_trash": "Moved {ok}/{total} to system trash",
+                    "op_restored": "Restored {ok}/{total}",
+                    "op_purged": "Purged {ok}/{total}",
+                    "op_hardlinked": "Hardlinked {ok}/{total}",
+
                     # Preflight
                     "dlg_preflight_title": "Preflight Report",
                     "msg_preflight_summary": "Eligible: {eligible} • Block: {blocks} • Warn: {warns} • Info: {infos}",
@@ -265,6 +307,27 @@ class I18n:
                     "sev_warn": "WARN",
                     "sev_info": "INFO",
                     "status_working": "Working...",
+                    "status_incremental_index": "Building incremental index",
+                    "status_folder_dup": "Detecting duplicate folders",
+
+                    # Preflight issue messages
+                    "pf_missing": "Path does not exist",
+                    "pf_is_dir": "Directories are not supported",
+                    "pf_stat_failed": "Failed to read file metadata",
+                    "pf_locked": "File appears to be in use",
+                    "pf_no_eligible": "No eligible files to process",
+                    "pf_disk_space": "Insufficient disk space in quarantine location (need ~{required} bytes free).",
+                    "pf_not_quarantined": "Item is not quarantined",
+                    "pf_missing_quarantine_file": "Quarantine file missing",
+                    "pf_dest_exists": "Destination already exists (will restore with conflict name)",
+                    "pf_no_eligible_restore": "No eligible items to restore",
+                    "pf_missing_quarantine_file_purge": "Quarantine file missing (will mark purged)",
+                    "pf_no_eligible_purge": "No eligible items to purge",
+                    "pf_canonical_missing": "Canonical file missing",
+                    "pf_target_missing": "Target missing",
+                    "pf_cross_volume": "Hardlink requires same volume",
+                    "pf_already_linked": "Already the same physical file",
+                    "pf_no_eligible_hardlink": "No eligible targets to hardlink",
 
                     # Context (group)
                     "ctx_group_check_all": "Check All in Group",
@@ -415,6 +478,7 @@ class I18n:
                     "chk_similar_image": "유사 이미지 찾기 (pHash)",
                     "chk_name_only": "파일명만 비교 (내용 무시)",
                     "btn_exclude_patterns": "제외 패턴 설정...",
+                    "btn_include_patterns": "포함 패턴 설정...",
                     "action_save_results": "결과 저장",
                     "action_load_results": "결과 불러오기",
                     "action_expand_all": "모두 펼치기",
@@ -451,6 +515,7 @@ class I18n:
                     "btn_manage_presets": "프리셋 관리...",
                     "btn_ok": "확인",
                     "lbl_exclude_desc": "스캔 시 제외할 패턴을 추가합니다.\\n파일명/전체 경로에 대해 fnmatch 와일드카드(*, ?)로 매칭합니다.",
+                    "lbl_include_desc": "스캔 시 포함할 패턴을 추가합니다.\\n설정 시, 해당 패턴과 매칭되는 파일만 스캔합니다 (fnmatch 와일드카드 * / ?).",
                     "lbl_current_patterns": "현재 패턴",
                     "lbl_add_pattern": "패턴 추가",
                     "lbl_common_patterns": "일반 패턴:",
@@ -459,6 +524,20 @@ class I18n:
                     "col_action": "기능",
                     "col_shortcut": "단축키",
                     "ph_exclude_pattern": "예: *.log, node_modules, */temp/*",
+                    "ph_include_pattern": "예: *.jpg, *.pdf, */Photos/*",
+
+                    "dlg_include_title": "포함 패턴",
+
+                    "chk_skip_hidden": "숨김/시스템 파일 제외",
+                    "tip_skip_hidden": "점(.)으로 시작하는 파일/폴더와 OS 메타데이터(Thumbs.db, .DS_Store, desktop.ini 등)를 제외합니다",
+                    "chk_follow_symlinks": "심볼릭 링크 따라가기",
+                    "tip_follow_symlinks": "심볼릭 링크를 따라 스캔합니다 (루프 감지 포함)",
+                    "chk_mixed_mode": "혼합 모드 (중복 + 유사 이미지)",
+                    "tip_mixed_mode": "한 번의 스캔에서 일반 중복 탐지와 유사 이미지 그룹핑을 함께 실행합니다",
+                    "chk_detect_folder_dup": "중복 폴더 탐지",
+                    "tip_detect_folder_dup": "상대 경로 구조와 파일 내용이 같은 폴더를 탐지합니다",
+                    "chk_incremental_rescan": "증분 재스캔",
+                    "tip_incremental_rescan": "이전 완료 세션 스냅샷을 활용해 변경된 디렉터리부터 우선 스캔합니다",
                     "opt_select": "-- 선택 --",
                     "btn_clear_key": "지우기",
                     "btn_reset_defaults": "기본값으로 복원",
@@ -524,7 +603,13 @@ class I18n:
                     "badge_name_only": "파일명",
                     "badge_similar": "유사 이미지",
                     "badge_byte_compare": "바이트 비교",
+                    "badge_folder_dup": "폴더 중복",
+                    "badge_missing": "누락",
+                    "badge_missing_count": "누락: {count}",
+                    "label_keep": "보존: {name}",
+                    "label_reclaim": "회수: {size}",
                     "label_similar_group": "유사 #{id}",
+                    "label_folder_dup_group": "폴더 중복",
                     
                     # Navigation (Sidebar)
                     "nav_scan": "스캔",
@@ -566,6 +651,21 @@ class I18n:
                     "msg_quarantine_disabled_fallback": "격리함이 비활성화되어 휴지통으로 대체합니다.",
                     "msg_quarantine_purged": "격리함 정리: {}개",
 
+                    # Operation result messages
+                    "op_cancelled": "취소됨",
+                    "op_unknown_type": "알 수 없는 작업 유형: {op_type}",
+                    "op_quarantine_unavailable": "격리함을 사용할 수 없습니다",
+                    "op_trash_unavailable": "시스템 휴지통을 사용할 수 없습니다",
+                    "op_canonical_missing": "기준 파일이 없습니다",
+                    "op_history_unavailable": "Undo/Redo를 사용할 수 없습니다",
+                    "op_nothing_undo": "되돌릴 작업이 없습니다",
+                    "op_nothing_redo": "다시 실행할 작업이 없습니다",
+                    "op_moved_quarantine": "격리함으로 이동: {ok}/{total}",
+                    "op_moved_trash": "휴지통으로 이동: {ok}/{total}",
+                    "op_restored": "복구: {ok}/{total}",
+                    "op_purged": "영구삭제: {ok}/{total}",
+                    "op_hardlinked": "하드링크 통합: {ok}/{total}",
+
                     # Preflight
                     "dlg_preflight_title": "사전 점검",
                     "msg_preflight_summary": "대상: {eligible} • 차단: {blocks} • 경고: {warns} • 정보: {infos}",
@@ -575,6 +675,27 @@ class I18n:
                     "sev_warn": "경고",
                     "sev_info": "정보",
                     "status_working": "작업 중...",
+                    "status_incremental_index": "증분 인덱스 구성 중",
+                    "status_folder_dup": "중복 폴더 탐지 중",
+
+                    # Preflight issue messages
+                    "pf_missing": "경로가 존재하지 않습니다",
+                    "pf_is_dir": "폴더는 지원하지 않습니다",
+                    "pf_stat_failed": "파일 정보를 읽을 수 없습니다",
+                    "pf_locked": "파일이 사용 중인 것으로 보입니다",
+                    "pf_no_eligible": "처리 가능한 파일이 없습니다",
+                    "pf_disk_space": "격리함 위치의 디스크 공간이 부족합니다 (약 {required} bytes 필요).",
+                    "pf_not_quarantined": "격리된 항목이 아닙니다",
+                    "pf_missing_quarantine_file": "격리 파일이 없습니다",
+                    "pf_dest_exists": "대상 경로에 파일이 이미 존재합니다 (충돌 이름으로 복구됩니다)",
+                    "pf_no_eligible_restore": "복구 가능한 항목이 없습니다",
+                    "pf_missing_quarantine_file_purge": "격리 파일이 없습니다 (정리됨으로 표시)",
+                    "pf_no_eligible_purge": "영구삭제 가능한 항목이 없습니다",
+                    "pf_canonical_missing": "기준 파일이 존재하지 않습니다",
+                    "pf_target_missing": "대상 파일이 없습니다",
+                    "pf_cross_volume": "하드링크는 같은 드라이브/볼륨에서만 가능합니다",
+                    "pf_already_linked": "이미 같은 물리 파일입니다",
+                    "pf_no_eligible_hardlink": "하드링크로 통합할 대상이 없습니다",
 
                     # Context (group)
                     "ctx_group_check_all": "그룹 전체 선택",
@@ -637,16 +758,16 @@ class I18n:
         return cls._instance
 
     def set_language(self, lang_code):
-        if lang_code in self.translations:
-            self.current_lang = lang_code
+        if lang_code in type(self).translations:
+            type(self).current_lang = lang_code
         else:
-            self.current_lang = "en" # Fallback
+            type(self).current_lang = "en"  # Fallback
 
     def tr(self, key):
-        result = self.translations.get(self.current_lang, {}).get(key)
+        result = type(self).translations.get(type(self).current_lang, {}).get(key)
         if result is None:
             # Fallback to English
-            result = self.translations.get("en", {}).get(key)
+            result = type(self).translations.get("en", {}).get(key)
             
         if result is None:
             # Log missing key in debug mode

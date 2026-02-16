@@ -3,6 +3,8 @@ import shutil
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Callable, Tuple
 
+from src.utils.i18n import strings
+
 
 SEVERITY_INFO = "info"
 SEVERITY_WARN = "warn"
@@ -24,7 +26,7 @@ class PreflightReport:
     eligible_paths: List[str] = field(default_factory=list)
     bytes_total: int = 0
     bytes_saved_est: int = 0
-    meta: Dict = field(default_factory=dict)
+    meta: Dict[str, object] = field(default_factory=dict)
 
     @property
     def has_blockers(self) -> bool:
@@ -72,23 +74,23 @@ class PreflightAnalyzer:
             if not p:
                 continue
             if not os.path.exists(p):
-                rep.issues.append(PreflightIssue(p, SEVERITY_WARN, "missing", "Path does not exist"))
+                rep.issues.append(PreflightIssue(p, SEVERITY_WARN, "missing", strings.tr("pf_missing")))
                 continue
             if os.path.isdir(p):
-                rep.issues.append(PreflightIssue(p, SEVERITY_BLOCK, "is_dir", "Directories are not supported"))
+                rep.issues.append(PreflightIssue(p, SEVERITY_BLOCK, "is_dir", strings.tr("pf_is_dir")))
                 continue
             try:
                 size = os.path.getsize(p)
                 total_bytes += int(size)
                 existing.append(p)
             except Exception:
-                rep.issues.append(PreflightIssue(p, SEVERITY_WARN, "stat_failed", "Failed to stat file"))
+                rep.issues.append(PreflightIssue(p, SEVERITY_WARN, "stat_failed", strings.tr("pf_stat_failed")))
                 continue
 
             if self.lock_checker:
                 try:
                     if self.lock_checker.is_file_locked(p):
-                        rep.issues.append(PreflightIssue(p, SEVERITY_WARN, "locked", "File appears to be in use"))
+                        rep.issues.append(PreflightIssue(p, SEVERITY_WARN, "locked", strings.tr("pf_locked")))
                 except Exception:
                     pass
 
@@ -96,7 +98,7 @@ class PreflightAnalyzer:
         rep.eligible_paths = existing
 
         if not existing:
-            rep.issues.append(PreflightIssue("", SEVERITY_BLOCK, "no_eligible", "No eligible files to process"))
+            rep.issues.append(PreflightIssue("", SEVERITY_BLOCK, "no_eligible", strings.tr("pf_no_eligible")))
             return rep
 
         # Best-effort disk space check for quarantine moves.
@@ -111,7 +113,7 @@ class PreflightAnalyzer:
                             quarantine_dir,
                             SEVERITY_BLOCK,
                             "disk_space",
-                            f"Insufficient disk space in quarantine location (need ~{required} bytes free).",
+                            strings.tr("pf_disk_space").format(required=required),
                         )
                     )
             except Exception:
@@ -126,64 +128,70 @@ class PreflightAnalyzer:
             if not p:
                 continue
             if not os.path.exists(p):
-                rep.issues.append(PreflightIssue(p, SEVERITY_WARN, "missing", "Path does not exist"))
+                rep.issues.append(PreflightIssue(p, SEVERITY_WARN, "missing", strings.tr("pf_missing")))
                 continue
             if os.path.isdir(p):
-                rep.issues.append(PreflightIssue(p, SEVERITY_BLOCK, "is_dir", "Directories are not supported"))
+                rep.issues.append(PreflightIssue(p, SEVERITY_BLOCK, "is_dir", strings.tr("pf_is_dir")))
                 continue
             existing.append(p)
             if self.lock_checker:
                 try:
                     if self.lock_checker.is_file_locked(p):
-                        rep.issues.append(PreflightIssue(p, SEVERITY_WARN, "locked", "File appears to be in use"))
+                        rep.issues.append(PreflightIssue(p, SEVERITY_WARN, "locked", strings.tr("pf_locked")))
                 except Exception:
                     pass
         rep.eligible_paths = existing
         if not existing:
-            rep.issues.append(PreflightIssue("", SEVERITY_BLOCK, "no_eligible", "No eligible files to process"))
+            rep.issues.append(PreflightIssue("", SEVERITY_BLOCK, "no_eligible", strings.tr("pf_no_eligible")))
         return rep
 
-    def analyze_restore(self, quarantine_items: List[Dict]) -> PreflightReport:
+    def analyze_restore(self, quarantine_items: List[Dict[str, object]]) -> PreflightReport:
         rep = PreflightReport(op_type="restore")
         eligible = []
         for it in quarantine_items or []:
-            orig = it.get("orig_path") or ""
-            qpath = it.get("quarantine_path") or ""
-            if it.get("status") != "quarantined":
-                rep.issues.append(PreflightIssue(orig, SEVERITY_WARN, "not_quarantined", "Item is not quarantined"))
+            orig = str(it.get("orig_path") or "")
+            qpath = str(it.get("quarantine_path") or "")
+            status = str(it.get("status") or "")
+            if status != "quarantined":
+                rep.issues.append(PreflightIssue(orig, SEVERITY_WARN, "not_quarantined", strings.tr("pf_not_quarantined")))
                 continue
             if not qpath or not os.path.exists(qpath):
-                rep.issues.append(PreflightIssue(orig, SEVERITY_BLOCK, "missing_quarantine_file", "Quarantine file missing"))
+                rep.issues.append(
+                    PreflightIssue(orig, SEVERITY_BLOCK, "missing_quarantine_file", strings.tr("pf_missing_quarantine_file"))
+                )
                 continue
             if os.path.exists(orig):
-                rep.issues.append(PreflightIssue(orig, SEVERITY_WARN, "dest_exists", "Destination already exists (will restore with conflict name)"))
+                rep.issues.append(PreflightIssue(orig, SEVERITY_WARN, "dest_exists", strings.tr("pf_dest_exists")))
             eligible.append(orig)
         rep.eligible_paths = eligible
         if not eligible:
-            rep.issues.append(PreflightIssue("", SEVERITY_BLOCK, "no_eligible", "No eligible items to restore"))
+            rep.issues.append(PreflightIssue("", SEVERITY_BLOCK, "no_eligible", strings.tr("pf_no_eligible_restore")))
         return rep
 
-    def analyze_purge(self, quarantine_items: List[Dict]) -> PreflightReport:
+    def analyze_purge(self, quarantine_items: List[Dict[str, object]]) -> PreflightReport:
         rep = PreflightReport(op_type="purge")
         eligible = []
         for it in quarantine_items or []:
-            orig = it.get("orig_path") or ""
-            qpath = it.get("quarantine_path") or ""
-            if it.get("status") != "quarantined":
-                rep.issues.append(PreflightIssue(orig, SEVERITY_WARN, "not_quarantined", "Item is not quarantined"))
+            orig = str(it.get("orig_path") or "")
+            qpath = str(it.get("quarantine_path") or "")
+            status = str(it.get("status") or "")
+            if status != "quarantined":
+                rep.issues.append(PreflightIssue(orig, SEVERITY_WARN, "not_quarantined", strings.tr("pf_not_quarantined")))
                 continue
             if not qpath or not os.path.exists(qpath):
-                rep.issues.append(PreflightIssue(orig, SEVERITY_WARN, "missing_quarantine_file", "Quarantine file missing (will mark purged)"))
+                rep.issues.append(
+                    PreflightIssue(orig, SEVERITY_WARN, "missing_quarantine_file", strings.tr("pf_missing_quarantine_file_purge"))
+                )
             eligible.append(orig)
         rep.eligible_paths = eligible
         if not eligible:
-            rep.issues.append(PreflightIssue("", SEVERITY_BLOCK, "no_eligible", "No eligible items to purge"))
+            rep.issues.append(PreflightIssue("", SEVERITY_BLOCK, "no_eligible", strings.tr("pf_no_eligible_purge")))
         return rep
 
     def analyze_hardlink(self, canonical: str, targets: List[str]) -> PreflightReport:
         rep = PreflightReport(op_type="hardlink_consolidate")
         if not canonical or not os.path.exists(canonical) or os.path.isdir(canonical):
-            rep.issues.append(PreflightIssue(canonical or "", SEVERITY_BLOCK, "canonical_missing", "Canonical file missing"))
+            rep.issues.append(PreflightIssue(canonical or "", SEVERITY_BLOCK, "canonical_missing", strings.tr("pf_canonical_missing")))
             return rep
 
         eligible = []
@@ -193,21 +201,21 @@ class PreflightAnalyzer:
             if not t:
                 continue
             if not os.path.exists(t):
-                rep.issues.append(PreflightIssue(t, SEVERITY_WARN, "missing", "Target missing"))
+                rep.issues.append(PreflightIssue(t, SEVERITY_WARN, "missing", strings.tr("pf_target_missing")))
                 continue
             if os.path.isdir(t):
-                rep.issues.append(PreflightIssue(t, SEVERITY_BLOCK, "is_dir", "Directories are not supported"))
+                rep.issues.append(PreflightIssue(t, SEVERITY_BLOCK, "is_dir", strings.tr("pf_is_dir")))
                 continue
             if not _same_volume(canonical, t):
-                rep.issues.append(PreflightIssue(t, SEVERITY_WARN, "cross_volume", "Hardlink requires same volume"))
+                rep.issues.append(PreflightIssue(t, SEVERITY_WARN, "cross_volume", strings.tr("pf_cross_volume")))
                 continue
             if _is_same_inode(canonical, t):
-                rep.issues.append(PreflightIssue(t, SEVERITY_INFO, "already_linked", "Already the same physical file"))
+                rep.issues.append(PreflightIssue(t, SEVERITY_INFO, "already_linked", strings.tr("pf_already_linked")))
                 continue
             if self.lock_checker:
                 try:
                     if self.lock_checker.is_file_locked(t):
-                        rep.issues.append(PreflightIssue(t, SEVERITY_WARN, "locked", "File appears to be in use"))
+                        rep.issues.append(PreflightIssue(t, SEVERITY_WARN, "locked", strings.tr("pf_locked")))
                 except Exception:
                     pass
             try:
@@ -220,6 +228,5 @@ class PreflightAnalyzer:
         rep.bytes_saved_est = bytes_saved
 
         if not eligible:
-            rep.issues.append(PreflightIssue("", SEVERITY_BLOCK, "no_eligible", "No eligible targets to hardlink"))
+            rep.issues.append(PreflightIssue("", SEVERITY_BLOCK, "no_eligible", strings.tr("pf_no_eligible_hardlink")))
         return rep
-

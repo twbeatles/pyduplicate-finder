@@ -1,22 +1,29 @@
 import os
 import time
+import importlib
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import QThread, Signal
 
+from src.utils.i18n import strings
+
+_send_to_trash = None
 try:
-    from send2trash import send2trash as _send_to_trash
-    _TRASH_AVAILABLE = True
+    _mod = importlib.import_module("send2trash")
+    _send_to_trash = getattr(_mod, "send2trash", None)
 except Exception:
-    _TRASH_AVAILABLE = False
+    _send_to_trash = None
+
+
+_TRASH_AVAILABLE = _send_to_trash is not None
 
 
 @dataclass
 class Operation:
     op_type: str
     paths: List[str] = field(default_factory=list)
-    options: Dict = field(default_factory=dict)
+    options: Dict[str, object] = field(default_factory=dict)
 
 
 @dataclass
@@ -30,7 +37,7 @@ class OperationResult:
     skipped: List[Tuple[str, str]] = field(default_factory=list)
     bytes_total: int = 0
     bytes_saved_est: int = 0
-    meta: Dict = field(default_factory=dict)
+    meta: Dict[str, object] = field(default_factory=dict)
 
     @property
     def success(self) -> bool:
@@ -89,7 +96,7 @@ class OperationWorker(QThread):
                 self._run_redo(res)
             else:
                 res.status = "failed"
-                res.message = f"Unknown op_type: {op.op_type}"
+                res.message = strings.tr("op_unknown_type").format(op_type=op.op_type)
         except Exception as e:
             res.status = "failed"
             res.message = str(e)
@@ -111,7 +118,7 @@ class OperationWorker(QThread):
     def _run_delete_quarantine(self, op: Operation, res: OperationResult):
         if not self.quarantine_manager:
             res.status = "failed"
-            res.message = "Quarantine manager unavailable"
+            res.message = strings.tr("op_quarantine_unavailable")
             return
         paths = list(op.paths or [])
         total = len(paths)
@@ -149,7 +156,7 @@ class OperationWorker(QThread):
         res.bytes_total = bytes_total
         if self._check_cancel():
             res.status = "cancelled"
-            res.message = "Cancelled"
+            res.message = strings.tr("op_cancelled")
         else:
             if res.failed and res.succeeded:
                 res.status = "partial"
@@ -157,7 +164,7 @@ class OperationWorker(QThread):
                 res.status = "failed"
             else:
                 res.status = "completed"
-            res.message = f"Moved {len(res.succeeded)}/{total} to quarantine"
+            res.message = strings.tr("op_moved_quarantine").format(ok=len(res.succeeded), total=total)
 
         if items_batch and res.op_id:
             self.cache_manager.append_operation_items(res.op_id, items_batch)
@@ -165,8 +172,10 @@ class OperationWorker(QThread):
     def _run_delete_trash(self, op: Operation, res: OperationResult):
         if not _TRASH_AVAILABLE:
             res.status = "failed"
-            res.message = "System trash unavailable"
+            res.message = strings.tr("op_trash_unavailable")
             return
+        # Help static type checkers understand the guard above.
+        assert _send_to_trash is not None
         paths = list(op.paths or [])
         total = len(paths)
         items_batch = []
@@ -198,7 +207,7 @@ class OperationWorker(QThread):
 
         if self._check_cancel():
             res.status = "cancelled"
-            res.message = "Cancelled"
+            res.message = strings.tr("op_cancelled")
         else:
             if res.failed and res.succeeded:
                 res.status = "partial"
@@ -206,7 +215,7 @@ class OperationWorker(QThread):
                 res.status = "failed"
             else:
                 res.status = "completed"
-            res.message = f"Moved {len(res.succeeded)}/{total} to system trash"
+            res.message = strings.tr("op_moved_trash").format(ok=len(res.succeeded), total=total)
 
         if items_batch and res.op_id:
             self.cache_manager.append_operation_items(res.op_id, items_batch)
@@ -214,9 +223,10 @@ class OperationWorker(QThread):
     def _run_restore(self, op: Operation, res: OperationResult):
         if not self.quarantine_manager:
             res.status = "failed"
-            res.message = "Quarantine manager unavailable"
+            res.message = strings.tr("op_quarantine_unavailable")
             return
-        item_ids = list(op.options.get("item_ids") or [])
+        raw_ids = op.options.get("item_ids")
+        item_ids = list(raw_ids) if isinstance(raw_ids, (list, tuple)) else []
         allow_replace = op.options.get("allow_replace_hardlink_to")
         total = len(item_ids)
         items_batch = []
@@ -247,7 +257,7 @@ class OperationWorker(QThread):
 
         if self._check_cancel():
             res.status = "cancelled"
-            res.message = "Cancelled"
+            res.message = strings.tr("op_cancelled")
         else:
             if res.failed and res.succeeded:
                 res.status = "partial"
@@ -255,7 +265,7 @@ class OperationWorker(QThread):
                 res.status = "failed"
             else:
                 res.status = "completed"
-            res.message = f"Restored {len(res.succeeded)}/{total}"
+            res.message = strings.tr("op_restored").format(ok=len(res.succeeded), total=total)
 
         if items_batch and res.op_id:
             self.cache_manager.append_operation_items(res.op_id, items_batch)
@@ -263,9 +273,10 @@ class OperationWorker(QThread):
     def _run_purge(self, op: Operation, res: OperationResult):
         if not self.quarantine_manager:
             res.status = "failed"
-            res.message = "Quarantine manager unavailable"
+            res.message = strings.tr("op_quarantine_unavailable")
             return
-        item_ids = list(op.options.get("item_ids") or [])
+        raw_ids = op.options.get("item_ids")
+        item_ids = list(raw_ids) if isinstance(raw_ids, (list, tuple)) else []
         total = len(item_ids)
         items_batch = []
         bytes_total = 0
@@ -296,7 +307,7 @@ class OperationWorker(QThread):
 
         if self._check_cancel():
             res.status = "cancelled"
-            res.message = "Cancelled"
+            res.message = strings.tr("op_cancelled")
         else:
             if res.failed and res.succeeded:
                 res.status = "partial"
@@ -304,7 +315,7 @@ class OperationWorker(QThread):
                 res.status = "failed"
             else:
                 res.status = "completed"
-            res.message = f"Purged {len(res.succeeded)}/{total}"
+            res.message = strings.tr("op_purged").format(ok=len(res.succeeded), total=total)
 
         if items_batch and res.op_id:
             self.cache_manager.append_operation_items(res.op_id, items_batch)
@@ -312,17 +323,18 @@ class OperationWorker(QThread):
     def _run_hardlink(self, op: Operation, res: OperationResult):
         if not self.quarantine_manager:
             res.status = "failed"
-            res.message = "Quarantine manager unavailable"
+            res.message = strings.tr("op_quarantine_unavailable")
             return
         canonical = str(op.options.get("canonical") or "")
-        targets = list(op.options.get("targets") or [])
+        raw_targets = op.options.get("targets")
+        targets = list(raw_targets) if isinstance(raw_targets, (list, tuple)) else []
         total = len(targets)
         items_batch = []
         saved = 0
 
         if not canonical or not os.path.exists(canonical):
             res.status = "failed"
-            res.message = "Canonical missing"
+            res.message = strings.tr("op_canonical_missing")
             return
 
         for idx, t in enumerate(targets):
@@ -383,7 +395,7 @@ class OperationWorker(QThread):
 
         if self._check_cancel():
             res.status = "cancelled"
-            res.message = "Cancelled"
+            res.message = strings.tr("op_cancelled")
         else:
             if res.failed and res.succeeded:
                 res.status = "partial"
@@ -391,7 +403,7 @@ class OperationWorker(QThread):
                 res.status = "failed"
             else:
                 res.status = "completed"
-            res.message = f"Hardlinked {len(res.succeeded)}/{total}"
+            res.message = strings.tr("op_hardlinked").format(ok=len(res.succeeded), total=total)
 
         if items_batch and res.op_id:
             self.cache_manager.append_operation_items(res.op_id, items_batch)
@@ -399,13 +411,13 @@ class OperationWorker(QThread):
     def _run_undo(self, res: OperationResult):
         if not self.history_manager:
             res.status = "failed"
-            res.message = "History manager unavailable"
+            res.message = strings.tr("op_history_unavailable")
             return
         self.progress_updated.emit(0, "undo")
         out = self.history_manager.undo()
         if not out:
             res.status = "failed"
-            res.message = "Nothing to undo"
+            res.message = strings.tr("op_nothing_undo")
             return
         restored_paths, failed_count = out if isinstance(out, tuple) else (out, 0)
         res.succeeded = list(restored_paths or [])
@@ -419,13 +431,13 @@ class OperationWorker(QThread):
     def _run_redo(self, res: OperationResult):
         if not self.history_manager:
             res.status = "failed"
-            res.message = "History manager unavailable"
+            res.message = strings.tr("op_history_unavailable")
             return
         self.progress_updated.emit(0, "redo")
         out = self.history_manager.redo()
         if not out:
             res.status = "failed"
-            res.message = "Nothing to redo"
+            res.message = strings.tr("op_nothing_redo")
             return
         deleted_paths, failed_count = out if isinstance(out, tuple) else (out, 0)
         res.succeeded = list(deleted_paths or [])
@@ -435,4 +447,3 @@ class OperationWorker(QThread):
         else:
             res.status = "completed"
             res.message = f"Redo deleted {len(res.succeeded)}"
-

@@ -59,6 +59,7 @@ class DuplicateFinderApp(QMainWindow):
         self.preset_manager = PresetManager()
         self.file_lock_checker = FileLockChecker()
         self.exclude_patterns = []
+        self.include_patterns = []
         self.custom_shortcuts = {}
 
         # Quarantine / operations / rules
@@ -312,9 +313,22 @@ class DuplicateFinderApp(QMainWindow):
         self.chk_protect_system.setText(strings.tr("chk_protect_system"))
         self.chk_use_trash.setText(strings.tr("chk_use_trash"))
         self.chk_use_trash.setToolTip(strings.tr("tip_use_trash"))
+        if hasattr(self, "chk_skip_hidden"):
+            self.chk_skip_hidden.setText(strings.tr("chk_skip_hidden"))
+            self.chk_skip_hidden.setToolTip(strings.tr("tip_skip_hidden"))
+        if hasattr(self, "chk_follow_symlinks"):
+            self.chk_follow_symlinks.setText(strings.tr("chk_follow_symlinks"))
+            self.chk_follow_symlinks.setToolTip(strings.tr("tip_follow_symlinks"))
         self.chk_similar_image.setText(strings.tr("chk_similar_image"))
         self.chk_similar_image.setToolTip(strings.tr("tip_similar_image"))
         self.lbl_similarity.setText(strings.tr("lbl_similarity_threshold"))
+        if hasattr(self, "btn_include_patterns"):
+            if self.include_patterns:
+                self.btn_include_patterns.setText(
+                    f"{strings.tr('btn_include_patterns')} ({len(self.include_patterns)})"
+                )
+            else:
+                self.btn_include_patterns.setText(strings.tr("btn_include_patterns"))
         if hasattr(self, 'btn_exclude_patterns'):
             if self.exclude_patterns:
                 self.btn_exclude_patterns.setText(
@@ -746,10 +760,12 @@ class DuplicateFinderApp(QMainWindow):
         stage_map = {
             "collecting": strings.tr("status_collecting_files"),
             "collected": strings.tr("status_collecting_files"),
+            "incremental_index": strings.tr("status_incremental_index"),
             "analyzing": strings.tr("status_analyzing"),
             "hashing": strings.tr("status_hashing"),
             "similar_image": strings.tr("status_similar_image_scan"),
             "grouping": strings.tr("status_grouping"),
+            "folder_dup": strings.tr("status_folder_dup"),
             "completed": strings.tr("status_done"),
             "error": "Error",
             "abandoned": "Abandoned",
@@ -871,7 +887,10 @@ class DuplicateFinderApp(QMainWindow):
             extensions=extensions,
             protect_system=self.chk_protect_system.isChecked(),
             byte_compare=self.chk_byte_compare.isChecked(),
+            include_patterns=self.include_patterns,
             exclude_patterns=self.exclude_patterns,
+            skip_hidden=self.chk_skip_hidden.isChecked() if hasattr(self, 'chk_skip_hidden') else False,
+            follow_symlinks=self.chk_follow_symlinks.isChecked() if hasattr(self, 'chk_follow_symlinks') else False,
             name_only=self.chk_name_only.isChecked(),
             use_similar_image=self.chk_similar_image.isChecked(),
             similarity_threshold=self.spin_similarity.value(),
@@ -1508,6 +1527,10 @@ class DuplicateFinderApp(QMainWindow):
         self.settings.setValue("filter/byte_compare", self.chk_byte_compare.isChecked())
         self.settings.setValue("filter/same_name", self.chk_same_name.isChecked())
         self.settings.setValue("filter/name_only", self.chk_name_only.isChecked())
+        if hasattr(self, "chk_skip_hidden"):
+            self.settings.setValue("filter/skip_hidden", self.chk_skip_hidden.isChecked())
+        if hasattr(self, "chk_follow_symlinks"):
+            self.settings.setValue("filter/follow_symlinks", self.chk_follow_symlinks.isChecked())
         self.settings.setValue("filter/use_trash", self.chk_use_trash.isChecked())
         self.settings.setValue("filter/use_similar_image", self.chk_similar_image.isChecked())
         self.settings.setValue("filter/similarity_threshold", self.spin_similarity.value())
@@ -1517,9 +1540,12 @@ class DuplicateFinderApp(QMainWindow):
         if self.custom_shortcuts:
             self.settings.setValue("app/shortcuts", json.dumps(self.custom_shortcuts))
         
-        # 제외 패턴 저장
-        if self.exclude_patterns:
-            self.settings.setValue("filter/exclude_patterns", json.dumps(self.exclude_patterns))
+        # 패턴 저장 (빈 목록도 저장해서 이전 값을 확실히 지움)
+        try:
+            self.settings.setValue("filter/exclude_patterns", json.dumps(self.exclude_patterns or []))
+            self.settings.setValue("filter/include_patterns", json.dumps(self.include_patterns or []))
+        except Exception:
+            pass
 
         # Selection rules
         try:
@@ -1559,6 +1585,10 @@ class DuplicateFinderApp(QMainWindow):
         self.chk_byte_compare.setChecked(str(self.settings.value("filter/byte_compare", False)).lower() == 'true')
         self.chk_same_name.setChecked(str(self.settings.value("filter/same_name", False)).lower() == 'true')
         self.chk_name_only.setChecked(str(self.settings.value("filter/name_only", False)).lower() == 'true')
+        if hasattr(self, "chk_skip_hidden"):
+            self.chk_skip_hidden.setChecked(str(self.settings.value("filter/skip_hidden", False)).lower() == 'true')
+        if hasattr(self, "chk_follow_symlinks"):
+            self.chk_follow_symlinks.setChecked(str(self.settings.value("filter/follow_symlinks", False)).lower() == 'true')
         self.chk_use_trash.setChecked(str(self.settings.value("filter/use_trash", False)).lower() == 'true')
         self.chk_similar_image.setChecked(str(self.settings.value("filter/use_similar_image", False)).lower() == 'true')
         similarity = self.settings.value("filter/similarity_threshold", 0.9)
@@ -1609,6 +1639,18 @@ class DuplicateFinderApp(QMainWindow):
                     )
             except:
                 self.exclude_patterns = []
+
+        # 포함 패턴 로드
+        include_json = self.settings.value("filter/include_patterns", "")
+        if include_json:
+            try:
+                self.include_patterns = json.loads(include_json)
+                if hasattr(self, "btn_include_patterns") and self.include_patterns:
+                    self.btn_include_patterns.setText(
+                        f"{strings.tr('btn_include_patterns')} ({len(self.include_patterns)})"
+                    )
+            except Exception:
+                self.include_patterns = []
 
         # Selection rules load
         try:
@@ -1843,13 +1885,17 @@ class DuplicateFinderApp(QMainWindow):
         path = item.data(0, Qt.UserRole)
         menu = QMenu()
 
-        # File item context
-        if path and os.path.exists(path):
+        # File item context (path is stored on leaf items).
+        if path:
+            path = str(path)
             action_open = QAction(self.style().standardIcon(QStyle.SP_FileIcon), strings.tr("ctx_open"), self)
+            action_open.setEnabled(os.path.exists(path) and os.path.isfile(path))
             action_open.triggered.connect(lambda: self.open_file(item, 0))
             menu.addAction(action_open)
 
+            folder = os.path.dirname(path)
             action_folder = QAction(self.style().standardIcon(QStyle.SP_DirIcon), strings.tr("ctx_open_folder"), self)
+            action_folder.setEnabled(bool(folder) and os.path.isdir(folder))
             action_folder.triggered.connect(lambda: self.open_containing_folder(path))
             menu.addAction(action_folder)
 
@@ -1858,6 +1904,7 @@ class DuplicateFinderApp(QMainWindow):
             action_copy = QAction(strings.tr("ctx_copy_path"), self)
             action_copy.triggered.connect(lambda: self.copy_to_clipboard(path))
             menu.addAction(action_copy)
+
         else:
             # Group item context
             if item.childCount() <= 0:
@@ -2043,7 +2090,14 @@ class DuplicateFinderApp(QMainWindow):
     
     def open_exclude_patterns_dialog(self):
         """제외 패턴 설정 다이얼로그 열기"""
-        dlg = ExcludePatternsDialog(self.exclude_patterns, self)
+        dlg = ExcludePatternsDialog(
+            self.exclude_patterns,
+            self,
+            title=strings.tr("dlg_exclude_title"),
+            desc=strings.tr("lbl_exclude_desc"),
+            placeholder=strings.tr("ph_exclude_pattern"),
+            common_patterns=ExcludePatternsDialog.COMMON_PATTERNS,
+        )
         if dlg.exec():
             self.exclude_patterns = dlg.get_patterns()
             # 제외 패턴 수 표시
@@ -2053,6 +2107,26 @@ class DuplicateFinderApp(QMainWindow):
                 )
             else:
                 self.btn_exclude_patterns.setText(strings.tr("btn_exclude_patterns"))
+
+    def open_include_patterns_dialog(self):
+        """포함 패턴 설정 다이얼로그 열기"""
+        dlg = ExcludePatternsDialog(
+            self.include_patterns,
+            self,
+            title=strings.tr("dlg_include_title"),
+            desc=strings.tr("lbl_include_desc"),
+            placeholder=strings.tr("ph_include_pattern"),
+            common_patterns=ExcludePatternsDialog.COMMON_INCLUDE_PATTERNS,
+        )
+        if dlg.exec():
+            self.include_patterns = dlg.get_patterns()
+            if hasattr(self, "btn_include_patterns"):
+                if self.include_patterns:
+                    self.btn_include_patterns.setText(
+                        f"{strings.tr('btn_include_patterns')} ({len(self.include_patterns)})"
+                    )
+                else:
+                    self.btn_include_patterns.setText(strings.tr("btn_include_patterns"))
     
     def open_shortcut_settings(self):
         """단축키 설정 다이얼로그 열기"""
@@ -2071,6 +2145,9 @@ class DuplicateFinderApp(QMainWindow):
             'byte_compare': self.chk_byte_compare.isChecked(),
             'same_name': self.chk_same_name.isChecked(),
             'name_only': self.chk_name_only.isChecked(),
+            'skip_hidden': self.chk_skip_hidden.isChecked() if hasattr(self, 'chk_skip_hidden') else False,
+            'follow_symlinks': self.chk_follow_symlinks.isChecked() if hasattr(self, 'chk_follow_symlinks') else False,
+            'include_patterns': self.include_patterns.copy(),
             'exclude_patterns': self.exclude_patterns.copy(),
             'use_trash': self.chk_use_trash.isChecked(),
             'use_similar_image': self.chk_similar_image.isChecked(),
@@ -2102,6 +2179,10 @@ class DuplicateFinderApp(QMainWindow):
             self.chk_same_name.setChecked(config['same_name'])
         if 'name_only' in config:
             self.chk_name_only.setChecked(config['name_only'])
+        if 'skip_hidden' in config and hasattr(self, 'chk_skip_hidden'):
+            self.chk_skip_hidden.setChecked(bool(config['skip_hidden']))
+        if 'follow_symlinks' in config and hasattr(self, 'chk_follow_symlinks'):
+            self.chk_follow_symlinks.setChecked(bool(config['follow_symlinks']))
         if 'use_trash' in config:
             self.chk_use_trash.setChecked(config['use_trash'])
         if 'use_similar_image' in config:
@@ -2116,6 +2197,19 @@ class DuplicateFinderApp(QMainWindow):
                 self.btn_exclude_patterns.setText(
                     f"{strings.tr('btn_exclude_patterns')} ({len(self.exclude_patterns)})"
                 )
+            else:
+                self.btn_exclude_patterns.setText(strings.tr("btn_exclude_patterns"))
+
+        # 포함 패턴
+        if 'include_patterns' in config:
+            self.include_patterns = config['include_patterns']
+            if hasattr(self, 'btn_include_patterns'):
+                if self.include_patterns:
+                    self.btn_include_patterns.setText(
+                        f"{strings.tr('btn_include_patterns')} ({len(self.include_patterns)})"
+                    )
+                else:
+                    self.btn_include_patterns.setText(strings.tr("btn_include_patterns"))
         self._sync_filter_states()
     
     def _apply_shortcuts(self, shortcuts: dict):

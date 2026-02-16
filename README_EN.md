@@ -35,6 +35,13 @@
 - **Custom Shortcuts**: Configure keyboard shortcuts for all functions.
 - **Multi-language Support**: Full Korean and English interface support.
 
+### 🧰 Tools
+- **Quarantine Management**: Files deleted in undoable mode are moved to Quarantine; restore or permanently purge them later.
+- **Selection Rules**: Define ordered KEEP/DELETE rules using fnmatch-style wildcards and apply them to groups/results.
+- **Operations Log**: Tracks operations (delete/restore/purge/hardlink, etc.) and supports per-item details plus CSV/JSON export.
+- **Preflight Checks**: Runs safety checks (locks/permissions/volume constraints) before advanced operations.
+- **Hardlink Consolidation (Advanced)**: Consolidate duplicates via hardlinks to reduce disk usage (optional).
+
 ---
 
 ## 📁 Project Structure
@@ -61,10 +68,20 @@ duplicate_finder/
 │   │   ├── theme.py             # Theme stylesheets
 │   │   ├── empty_folder_dialog.py
 │   │   ├── components/
-│   │   │   └── results_tree.py  # Results tree widget
+│   │   │   ├── results_tree.py  # Results tree widget
+│   │   │   ├── sidebar.py       # Sidebar navigation
+│   │   │   └── toast.py         # Toast notifications
+│   │   ├── pages/
+│   │   │   ├── scan_page.py      # Scan page (UI)
+│   │   │   ├── results_page.py   # Results page (UI)
+│   │   │   ├── tools_page.py     # Tools page (UI)
+│   │   │   └── settings_page.py  # Settings page (UI)
 │   │   └── dialogs/
 │   │       ├── preset_dialog.py
 │   │       ├── exclude_patterns_dialog.py
+│   │       ├── selection_rules_dialog.py
+│   │       ├── preflight_dialog.py
+│   │       └── operation_log_dialog.py
 │   │       └── shortcut_settings_dialog.py
 │   └── utils/
 │       └── i18n.py              # Internationalization strings
@@ -119,6 +136,11 @@ duplicate_finder/
 python main.py
 ```
 
+### (Optional) Run a headless CLI scan
+```bash
+python cli.py "D:/Data" "E:/Photos" --extensions jpg,png --output-json result.json --output-csv result.csv
+```
+
 ### 2. Search Settings
 - **Add Location**: Use "Add Folder" or Drag & Drop to add search targets.
 - **Filter Options**:
@@ -127,6 +149,9 @@ python main.py
     | Filename Only | Compare names only, skip content hashing (ultra-fast) |
     | Similar Image Detection | Analyze visual similarity (0.1~1.0 threshold) |
     | Use Recycle Bin | Move to Recycle Bin instead of permanent delete |
+    | Skip hidden/system files | Skips dotfiles and OS metadata files |
+    | Follow symlinks | Follows symbolic links (loop detection enabled) |
+    | Include patterns | If set, only matching files are scanned |
     | Exclude Patterns | Set wildcard patterns (*, ?) to skip during scan |
 
 ### 3. Scan & Review
@@ -150,6 +175,11 @@ python main.py
 | Preset Management | Save/load frequently used configurations |
 | Shortcut Settings | Customize keyboard shortcuts |
 | Find Empty Folders | Scan and batch delete empty folders |
+| Quarantine | Restore/purge files deleted in undoable mode |
+| Selection Rules | Pattern-based KEEP/DELETE auto-selection |
+| Operations Log | Operation history with details + CSV/JSON export |
+| Hardlink Consolidation | (Advanced) Save disk space via hardlinks |
+| Headless CLI Scan | Run scans without GUI and export JSON/CSV outputs |
 
 ---
 
