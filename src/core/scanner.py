@@ -91,6 +91,7 @@ class ScanWorker(QThread):
         self._current_scan_dirs = {}  # normalized dir path -> mtime
         self._base_scan_dirs = {}
         self.latest_file_meta = {}
+        self.incremental_stats = {}
         
         # 유사 이미지 탐지기
         if self.use_similar_image and _ImageHasher is not None:
@@ -483,6 +484,10 @@ class ScanWorker(QThread):
         """Incremental collection: stat known paths + walk changed directories only for new files."""
         size_map = defaultdict(list)
         file_count = 0
+        revalidated_count = 0
+        changed_count = 0
+        new_count = 0
+        missing_count = 0
         db_batch = []
         DB_BATCH_SIZE = 1000
 
@@ -513,6 +518,7 @@ class ScanWorker(QThread):
             try:
                 stat = os.stat(path, follow_symlinks=self.follow_symlinks)
             except OSError:
+                missing_count += 1
                 continue
 
             if stat.st_ino:
@@ -523,6 +529,10 @@ class ScanWorker(QThread):
 
             size = int(stat.st_size)
             mtime = float(stat.st_mtime)
+            if int(cached_size or -1) != size or float(cached_mtime or -1.0) != mtime:
+                changed_count += 1
+            else:
+                revalidated_count += 1
             self._track_file_record(path, size, mtime, size_map, db_batch)
             self._record_scan_dir(os.path.dirname(path))
 
@@ -566,6 +576,7 @@ class ScanWorker(QThread):
                     size = int(stat.st_size)
                     mtime = float(stat.st_mtime)
                     self._track_file_record(entry.path, size, mtime, size_map, db_batch)
+                    new_count += 1
 
                     if self.session_id and len(db_batch) >= DB_BATCH_SIZE:
                         self.cache_manager.save_scan_files_batch(self.session_id, db_batch)
@@ -580,6 +591,14 @@ class ScanWorker(QThread):
         if self.session_id and db_batch:
             self.cache_manager.save_scan_files_batch(self.session_id, db_batch)
 
+        self.incremental_stats = {
+            "revalidated": int(revalidated_count),
+            "changed": int(changed_count),
+            "new": int(new_count),
+            "missing": int(missing_count),
+            "total": int(file_count),
+            "base_session_id": int(base_session_id or 0),
+        }
         return size_map
 
     def _scan_files_from_cache(self, cached_entries):

@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QSpinBox,
     QLineEdit,
+    QComboBox,
 )
 from PySide6.QtCore import Qt
 
@@ -186,6 +187,76 @@ def build_settings_page(window) -> QWidget:
     hardlink_settings_layout.addWidget(window.chk_enable_hardlink)
 
     settings_layout.addWidget(hardlink_settings)
+
+    # Schedule settings card
+    schedule_settings = QWidget()
+    schedule_settings.setObjectName("folder_card")
+    schedule_layout = QVBoxLayout(schedule_settings)
+    schedule_layout.setContentsMargins(20, 16, 20, 16)
+    schedule_layout.setSpacing(12)
+
+    window.lbl_schedule_title = QLabel(strings.tr("settings_schedule_title"))
+    window.lbl_schedule_title.setObjectName("card_title")
+    schedule_layout.addWidget(window.lbl_schedule_title)
+
+    window.chk_schedule_enabled = QCheckBox(strings.tr("settings_schedule_enabled"))
+    schedule_layout.addWidget(window.chk_schedule_enabled)
+
+    row_s1 = QHBoxLayout()
+    row_s1.setSpacing(8)
+    window.lbl_schedule_frequency = QLabel(strings.tr("settings_schedule_frequency"))
+    row_s1.addWidget(window.lbl_schedule_frequency)
+    window.cmb_schedule_frequency = QComboBox()
+    window.cmb_schedule_frequency.addItem(strings.tr("term_daily"), "daily")
+    window.cmb_schedule_frequency.addItem(strings.tr("term_weekly"), "weekly")
+    row_s1.addWidget(window.cmb_schedule_frequency)
+
+    window.lbl_schedule_weekday = QLabel(strings.tr("settings_schedule_weekday"))
+    row_s1.addWidget(window.lbl_schedule_weekday)
+    window.cmb_schedule_weekday = QComboBox()
+    window.cmb_schedule_weekday.addItem(strings.tr("term_weekday_mon"), 0)
+    window.cmb_schedule_weekday.addItem(strings.tr("term_weekday_tue"), 1)
+    window.cmb_schedule_weekday.addItem(strings.tr("term_weekday_wed"), 2)
+    window.cmb_schedule_weekday.addItem(strings.tr("term_weekday_thu"), 3)
+    window.cmb_schedule_weekday.addItem(strings.tr("term_weekday_fri"), 4)
+    window.cmb_schedule_weekday.addItem(strings.tr("term_weekday_sat"), 5)
+    window.cmb_schedule_weekday.addItem(strings.tr("term_weekday_sun"), 6)
+    row_s1.addWidget(window.cmb_schedule_weekday)
+    row_s1.addStretch()
+    schedule_layout.addLayout(row_s1)
+
+    row_s2 = QHBoxLayout()
+    row_s2.setSpacing(8)
+    window.lbl_schedule_time = QLabel(strings.tr("settings_schedule_time"))
+    row_s2.addWidget(window.lbl_schedule_time)
+    window.txt_schedule_time = QLineEdit()
+    window.txt_schedule_time.setPlaceholderText("03:00")
+    window.txt_schedule_time.setMaximumWidth(120)
+    row_s2.addWidget(window.txt_schedule_time)
+
+    window.chk_schedule_export_json = QCheckBox(strings.tr("settings_schedule_export_json"))
+    row_s2.addWidget(window.chk_schedule_export_json)
+    window.chk_schedule_export_csv = QCheckBox(strings.tr("settings_schedule_export_csv"))
+    row_s2.addWidget(window.chk_schedule_export_csv)
+    row_s2.addStretch()
+    schedule_layout.addLayout(row_s2)
+
+    row_s3 = QHBoxLayout()
+    row_s3.setSpacing(8)
+    window.lbl_schedule_output = QLabel(strings.tr("settings_schedule_output"))
+    row_s3.addWidget(window.lbl_schedule_output)
+    window.txt_schedule_output = QLineEdit()
+    window.txt_schedule_output.setPlaceholderText(strings.tr("settings_schedule_output"))
+    row_s3.addWidget(window.txt_schedule_output, 1)
+    window.btn_schedule_pick = QPushButton(strings.tr("btn_choose_folder"))
+    window.btn_schedule_pick.clicked.connect(window.choose_schedule_output_folder)
+    row_s3.addWidget(window.btn_schedule_pick)
+    schedule_layout.addLayout(row_s3)
+
+    window.btn_schedule_apply = QPushButton(strings.tr("btn_apply"))
+    window.btn_schedule_apply.clicked.connect(window.apply_schedule_settings)
+    schedule_layout.addWidget(window.btn_schedule_apply)
+    settings_layout.addWidget(schedule_settings)
 
     settings_layout.addStretch()
     return page

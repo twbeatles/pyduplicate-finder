@@ -228,10 +228,15 @@ class ResultsTreeWidget(QTreeWidget):
         hash_str = "???"
         is_name_only = False
         is_similar = False
+        is_folder_dup = False
         is_byte_compare = False
         if isinstance(key, (tuple, list)) and key:
             if key[0] == "NAME_ONLY":
                 is_name_only = True
+                if len(key) > 1:
+                    hash_str = str(key[1])
+            elif key[0] == "FOLDER_DUP":
+                is_folder_dup = True
                 if len(key) > 1:
                     hash_str = str(key[1])
             else:
@@ -259,7 +264,7 @@ class ResultsTreeWidget(QTreeWidget):
                     break
 
         sizes = []
-        if size_from_key is not None and not is_name_only and not is_similar:
+        if size_from_key is not None and not is_name_only and not is_similar and not is_folder_dup:
             sizes = [size_from_key] * len(paths)
             size_str = self._format_size(size_from_key)
         else:
@@ -291,7 +296,10 @@ class ResultsTreeWidget(QTreeWidget):
             pass
         
         # Localized labels
-        label_group = strings.tr("term_name_group") if is_name_only else strings.tr("term_duplicate_group") 
+        if is_folder_dup:
+            label_group = strings.tr("term_folder_group")
+        else:
+            label_group = strings.tr("term_name_group") if is_name_only else strings.tr("term_duplicate_group")
         label_files = strings.tr("term_files")
         
         # Truncated hash for display
@@ -306,14 +314,28 @@ class ResultsTreeWidget(QTreeWidget):
             badges.append(strings.tr("badge_name_only"))
         if is_similar:
             badges.append(strings.tr("badge_similar"))
+        if is_folder_dup:
+            badges.append(strings.tr("badge_folder_dup"))
         if is_byte_compare:
             badges.append(strings.tr("badge_byte_compare"))
         badge_text = f" [{', '.join(badges)}]" if badges else ""
 
-        group_item.setText(
-            0,
-            f"📁 {label_group} ({len(paths)} {label_files}) • {hash_disp}{suffix}{badge_text}"
-        )
+        if is_folder_dup:
+            bytes_total = 0
+            folder_file_count = 0
+            if isinstance(key, (tuple, list)):
+                if len(key) > 2 and isinstance(key[2], int):
+                    bytes_total = int(key[2] or 0)
+                if len(key) > 3 and isinstance(key[3], int):
+                    folder_file_count = int(key[3] or 0)
+            size_tag = self._format_size(bytes_total) if bytes_total > 0 else "—"
+            count_tag = f"{folder_file_count} {label_files}" if folder_file_count > 0 else f"{len(paths)} {label_files}"
+            group_item.setText(0, f"📁 {label_group} ({len(paths)} dirs • {count_tag} • {size_tag}){badge_text}")
+        else:
+            group_item.setText(
+                0,
+                f"📁 {label_group} ({len(paths)} {label_files}) • {hash_disp}{suffix}{badge_text}"
+            )
         group_item.setText(1, size_str)
 
         # Store base group label for later suffix updates (keep/reclaim/missing).

@@ -212,6 +212,24 @@ Contributions are welcome! Performance improvements and bug reports are always a
 ## 📝 License
 MIT License
 
+## ✅ Implementation Status (2026-02-18)
+
+The following items are now implemented in code:
+
+- Advanced scan options exposed in GUI: mixed mode, duplicate-folder detection, incremental rescan, baseline session selector
+- CLI extensions: `--mixed-mode`, `--detect-folder-dup`, `--incremental-rescan`, `--baseline-session`
+- Delete dry-run summary: selected/visible counts, estimated reclaim size, per-group preview before destructive flow
+- Retry scope expansion: retries now cover hardlink/restore/purge failures in addition to delete failures
+- i18n cleanup: core hardcoded messages (Undo/Redo/Quarantine/History) migrated to translation keys
+- Scheduled scan (baseline): daily/weekly scheduling from Settings with optional JSON/CSV auto-export
+- Results/export enhancements: better `FOLDER_DUP` labels and CSV columns `group_kind`, `bytes_reclaim_est`, `baseline_delta`
+- Initial architecture split: added `src/core/scan_engine.py`, `src/ui/controllers/scan_controller.py`, `src/ui/controllers/ops_controller.py`
+
+Planned follow-up refactors:
+
+- Further decomposition of heavy logic from `src/core/scanner.py`
+- Broader controller extraction from `src/ui/main_window.py`
+
 ## Performance Refactor Notes (2026-02)
 
 - Hashing hot path now consumes pre-collected `(path, size, mtime)` tuples to avoid repeated `os.stat` calls.

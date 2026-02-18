@@ -11,9 +11,12 @@ from typing import Dict, Iterable, List, Optional, Tuple
 class GroupInfo:
     group_key_json: str
     group_type: str  # duplicate|name_only|similar|unknown
+    group_kind: str  # file|folder|similar
     has_byte_compare: bool
     label: str
     size_from_key: Optional[int]
+    bytes_reclaim_est: int
+    baseline_delta: str
 
 
 def _parse_group_key(key) -> GroupInfo:
@@ -26,6 +29,8 @@ def _parse_group_key(key) -> GroupInfo:
     has_byte_compare = False
     label = ""
     size_from_key = None
+    bytes_reclaim_est = 0
+    baseline_delta = ""
 
     parts: List = []
     if isinstance(key, (tuple, list)):
@@ -39,7 +44,13 @@ def _parse_group_key(key) -> GroupInfo:
         if isinstance(p, str) and p.startswith("byte_"):
             has_byte_compare = True
 
-    if parts and isinstance(parts[0], str) and parts[0] == "NAME_ONLY":
+    if parts and isinstance(parts[0], str) and parts[0] == "FOLDER_DUP":
+        group_type = "folder_dup"
+        if len(parts) > 1:
+            label = str(parts[1])
+        if len(parts) > 2 and isinstance(parts[2], int):
+            bytes_reclaim_est = int(parts[2] or 0)
+    elif parts and isinstance(parts[0], str) and parts[0] == "NAME_ONLY":
         group_type = "name_only"
         if len(parts) > 1:
             label = str(parts[1])
@@ -63,12 +74,22 @@ def _parse_group_key(key) -> GroupInfo:
     if not label:
         label = "group"
 
+    if group_type == "folder_dup":
+        group_kind = "folder"
+    elif group_type == "similar":
+        group_kind = "similar"
+    else:
+        group_kind = "file"
+
     return GroupInfo(
         group_key_json=key_json,
         group_type=group_type,
+        group_kind=group_kind,
         has_byte_compare=has_byte_compare,
         label=label,
         size_from_key=size_from_key,
+        bytes_reclaim_est=bytes_reclaim_est,
+        baseline_delta=baseline_delta,
     )
 
 
@@ -93,9 +114,12 @@ def export_scan_results_csv(
         w.writerow(
             [
                 "group_type",
+                "group_kind",
                 "group_label",
                 "group_key_json",
                 "byte_compare",
+                "bytes_reclaim_est",
+                "baseline_delta",
                 "path",
                 "selected",
                 "size_bytes",
@@ -126,9 +150,12 @@ def export_scan_results_csv(
                 w.writerow(
                     [
                         gi.group_type,
+                        gi.group_kind,
                         gi.label,
                         gi.group_key_json,
                         "1" if gi.has_byte_compare else "0",
+                        str(int(gi.bytes_reclaim_est or 0)),
+                        gi.baseline_delta,
                         p or "",
                         "1" if (p in selected_set) else "0",
                         size,
@@ -139,4 +166,3 @@ def export_scan_results_csv(
                 rows += 1
 
     return groups, rows
-

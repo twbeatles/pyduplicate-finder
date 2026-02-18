@@ -18,13 +18,14 @@ def test_export_scan_results_handles_various_group_keys(tmp_path):
         ("deadbeefcafebabe", 123): [c],
         ("similar_1", 999): [a],
         ("byte_compare", "byte_1", 10): [b],
+        ("FOLDER_DUP", "sig", 4096, 3): [str(tmp_path / "dirA"), str(tmp_path / "dirB")],
     }
 
     out = tmp_path / "out.csv"
     groups, rows = export_scan_results_csv(scan_results=scan_results, out_path=str(out), selected_paths=[a])
 
-    assert groups == 4
-    assert rows == 5
+    assert groups == 5
+    assert rows == 7
     assert out.exists()
 
     # Basic CSV sanity: header + rows
@@ -32,4 +33,4 @@ def test_export_scan_results_handles_various_group_keys(tmp_path):
         r = list(csv.reader(f))
     assert len(r) == 1 + rows
     assert r[0][0] == "group_type"
-
+    assert "group_kind" in r[0]

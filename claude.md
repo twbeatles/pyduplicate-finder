@@ -137,3 +137,11 @@ duplicate_finder/
 | send2trash | >=1.8.0 | 휴지통 기능 |
 | psutil | >=5.9.0 | 파일 잠금 프로세스 확인 |
 | uuid | (Std Lib) | 백업 파일명 충돌 방지 |
+
+## 6. 업데이트 메모 (2026-02-18)
+
+- `src/core/scan_engine.py` 추가: GUI/CLI에서 공통 스캔 옵션 전달 구조를 사용.
+- `src/core/scheduler.py` 추가: 예약 스캔의 다음 실행 시각 계산 및 실행 판단.
+- `src/ui/controllers/scan_controller.py`, `src/ui/controllers/ops_controller.py` 추가: `main_window` 오케스트레이션 분리 1차 적용.
+- `cache_manager` 스키마 버전 v4: `scan_jobs`, `scan_job_runs` 테이블 추가.
+- 스캔 UI에 `mixed_mode`, `detect_duplicate_folders`, `incremental_rescan`, `baseline_session` 옵션 노출.

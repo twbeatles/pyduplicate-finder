@@ -244,6 +244,7 @@ class OperationWorker(QThread):
         except Exception:
             preloaded = {}
         progress_step = max(1, total // 100) if total else 1
+        failed_item_ids = []
 
         for idx, item_id in enumerate(item_ids):
             if self._check_cancel():
@@ -266,9 +267,11 @@ class OperationWorker(QThread):
                     items_batch.append((orig, "restored", "ok", restored_path or "", size, mtime, qpath))
                 else:
                     res.failed.append((orig, msg))
+                    failed_item_ids.append(int(item_id))
                     items_batch.append((orig, "restored", "fail", msg, size, mtime, qpath))
             except Exception as e:
                 res.failed.append((str(item_id), str(e)))
+                failed_item_ids.append(int(item_id))
 
         if self._check_cancel():
             res.status = "cancelled"
@@ -284,6 +287,10 @@ class OperationWorker(QThread):
 
         if items_batch and res.op_id:
             self.cache_manager.append_operation_items(res.op_id, items_batch)
+        if failed_item_ids:
+            res.meta["failed_item_ids"] = failed_item_ids
+        if allow_replace:
+            res.meta["allow_replace_hardlink_to"] = allow_replace
 
     def _run_purge(self, op: Operation, res: OperationResult):
         if not self.quarantine_manager:
@@ -301,6 +308,7 @@ class OperationWorker(QThread):
         except Exception:
             preloaded = {}
         progress_step = max(1, total // 100) if total else 1
+        failed_item_ids = []
         for idx, item_id in enumerate(item_ids):
             if self._check_cancel():
                 break
@@ -320,9 +328,11 @@ class OperationWorker(QThread):
                     items_batch.append((orig, "purged", "ok", "", size, mtime, qpath))
                 else:
                     res.failed.append((orig, msg))
+                    failed_item_ids.append(int(item_id))
                     items_batch.append((orig, "purged", "fail", msg, size, mtime, qpath))
             except Exception as e:
                 res.failed.append((orig, str(e)))
+                failed_item_ids.append(int(item_id))
                 items_batch.append((orig, "purged", "fail", str(e), size, mtime, qpath))
 
         res.bytes_total = bytes_total
@@ -341,6 +351,8 @@ class OperationWorker(QThread):
 
         if items_batch and res.op_id:
             self.cache_manager.append_operation_items(res.op_id, items_batch)
+        if failed_item_ids:
+            res.meta["failed_item_ids"] = failed_item_ids
 
     def _run_hardlink(self, op: Operation, res: OperationResult):
         if not self.quarantine_manager:
@@ -359,6 +371,7 @@ class OperationWorker(QThread):
             res.status = "failed"
             res.message = strings.tr("op_canonical_missing")
             return
+        failed_targets = []
 
         for idx, t in enumerate(targets):
             if self._check_cancel():
@@ -392,6 +405,7 @@ class OperationWorker(QThread):
                 if not moved:
                     reason = failures[0][1] if failures else "move_failed"
                     res.failed.append((t, reason))
+                    failed_targets.append(str(t))
                     items_batch.append((t, "hardlinked", "fail", reason, size, mtime, ""))
                     continue
 
@@ -409,9 +423,11 @@ class OperationWorker(QThread):
                     except Exception:
                         pass
                     res.failed.append((t, str(e)))
+                    failed_targets.append(str(t))
                     items_batch.append((t, "hardlinked", "fail", str(e), size, mtime, m.quarantine_path))
             except Exception as e:
                 res.failed.append((t, str(e)))
+                failed_targets.append(str(t))
 
         res.bytes_saved_est = saved
 
@@ -429,6 +445,9 @@ class OperationWorker(QThread):
 
         if items_batch and res.op_id:
             self.cache_manager.append_operation_items(res.op_id, items_batch)
+        if failed_targets:
+            res.meta["failed_targets"] = failed_targets
+        res.meta["canonical"] = canonical
 
     def _run_undo(self, res: OperationResult):
         if not self.history_manager:
@@ -445,10 +464,10 @@ class OperationWorker(QThread):
         res.succeeded = list(restored_paths or [])
         if failed_count:
             res.status = "partial"
-            res.message = f"Undo restored {len(res.succeeded)} (failed {failed_count})"
+            res.message = strings.tr("op_undo_partial").format(ok=len(res.succeeded), failed=failed_count)
         else:
             res.status = "completed"
-            res.message = f"Undo restored {len(res.succeeded)}"
+            res.message = strings.tr("op_undo_done").format(ok=len(res.succeeded))
 
     def _run_redo(self, res: OperationResult):
         if not self.history_manager:
@@ -465,7 +484,7 @@ class OperationWorker(QThread):
         res.succeeded = list(deleted_paths or [])
         if failed_count:
             res.status = "partial"
-            res.message = f"Redo deleted {len(res.succeeded)} (failed {failed_count})"
+            res.message = strings.tr("op_redo_partial").format(ok=len(res.succeeded), failed=failed_count)
         else:
             res.status = "completed"
-            res.message = f"Redo deleted {len(res.succeeded)}"
+            res.message = strings.tr("op_redo_done").format(ok=len(res.succeeded))

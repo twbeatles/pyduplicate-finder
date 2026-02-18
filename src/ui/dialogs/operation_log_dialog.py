@@ -25,6 +25,7 @@ class OperationLogDialog(QDialog):
         self.cache_manager = cache_manager
         self.op_row = op_row or {}
         self.items = []
+        self.retry_payload = None
 
         self.setWindowTitle(strings.tr("dlg_operation_details"))
         self.setMinimumSize(860, 560)
@@ -87,6 +88,11 @@ class OperationLogDialog(QDialog):
         self.btn_undo_hardlink.setVisible(False)
         btns.addWidget(self.btn_undo_hardlink)
 
+        self.btn_retry_failed = QPushButton(strings.tr("btn_retry_failed"))
+        self.btn_retry_failed.setVisible(False)
+        self.btn_retry_failed.clicked.connect(self._prepare_retry)
+        btns.addWidget(self.btn_retry_failed)
+
         btns.addStretch()
 
         self.btn_close = QPushButton(strings.tr("btn_close"))
@@ -148,6 +154,54 @@ class OperationLogDialog(QDialog):
         if str(self.op_row.get("op_type") or "") == "hardlink_consolidate":
             self.btn_undo_hardlink.setVisible(True)
 
+        op_type = str(self.op_row.get("op_type") or "")
+        status = str(self.op_row.get("status") or "")
+        if status in ("partial", "failed") and op_type in ("delete_quarantine", "delete_trash", "hardlink_consolidate", "restore", "purge"):
+            self.btn_retry_failed.setVisible(True)
+
+    def _prepare_retry(self):
+        op_type = str(self.op_row.get("op_type") or "")
+        failed_items = [it for it in (self.items or []) if str(it.get("result") or "") == "fail"]
+        if not failed_items:
+            QMessageBox.information(self, strings.tr("app_title"), strings.tr("msg_no_items"))
+            return
+
+        if op_type in ("delete_quarantine", "delete_trash"):
+            paths = [str(it.get("path") or "") for it in failed_items if it.get("path")]
+            if paths:
+                self.retry_payload = {"op_type": op_type, "paths": paths}
+                self.accept()
+                return
+
+        if op_type in ("restore", "purge"):
+            item_ids = []
+            for it in failed_items:
+                qpath = str(it.get("quarantine_path") or "")
+                if not qpath:
+                    continue
+                qitem = self.cache_manager.get_quarantine_item_by_path(qpath)
+                if qitem and qitem.get("status") == "quarantined":
+                    try:
+                        item_ids.append(int(qitem.get("id") or 0))
+                    except Exception:
+                        pass
+            item_ids = [i for i in item_ids if i]
+            if item_ids:
+                self.retry_payload = {"op_type": op_type, "options": {"item_ids": item_ids}}
+                self.accept()
+                return
+
+        if op_type == "hardlink_consolidate":
+            opts = self.op_row.get("options") or {}
+            canonical = str(opts.get("canonical") or "")
+            targets = [str(it.get("path") or "") for it in failed_items if it.get("path")]
+            if canonical and targets:
+                self.retry_payload = {"op_type": op_type, "options": {"canonical": canonical, "targets": targets}}
+                self.accept()
+                return
+
+        QMessageBox.information(self, strings.tr("app_title"), strings.tr("msg_retry_unavailable"))
+
     def _export_csv(self):
         op_id = int(self.op_row.get("id") or 0)
         path, _ = QFileDialog.getSaveFileName(self, strings.tr("btn_export_csv2"), f"operation_{op_id}.csv", "CSV Files (*.csv)")
@@ -186,4 +240,3 @@ class OperationLogDialog(QDialog):
             QMessageBox.information(self, strings.tr("app_title"), strings.tr("msg_export_done").format(path))
         except Exception as e:
             QMessageBox.warning(self, strings.tr("app_title"), str(e))
-

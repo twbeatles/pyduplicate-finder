@@ -4,6 +4,7 @@ import uuid
 import time
 from dataclasses import dataclass
 from typing import Callable, Optional, List, Dict, Tuple
+from src.utils.i18n import strings
 
 
 def _safe_filename(name: str) -> str:
@@ -119,14 +120,14 @@ class QuarantineManager:
         """
         item = self.cache_manager.get_quarantine_item(item_id)
         if not item:
-            return False, "Item not found", None
+            return False, strings.tr("qm_item_not_found"), None
         if item.get("status") != "quarantined":
-            return False, "Item is not quarantined", None
+            return False, strings.tr("qm_item_not_quarantined"), None
 
         orig_path = item.get("orig_path")
         qpath = item.get("quarantine_path")
         if not qpath or not os.path.exists(qpath):
-            return False, "Quarantine file missing", None
+            return False, strings.tr("qm_quarantine_file_missing"), None
 
         try:
             parent = os.path.dirname(orig_path)
@@ -152,7 +153,7 @@ class QuarantineManager:
 
             shutil.move(qpath, dest)
             self.cache_manager.update_quarantine_item_status(item_id, "restored")
-            return True, "restored", dest
+            return True, strings.tr("qm_restored"), dest
         except Exception as e:
             return False, str(e), None
 
@@ -160,15 +161,15 @@ class QuarantineManager:
         """Permanently delete the quarantined file and mark as purged."""
         item = self.cache_manager.get_quarantine_item(item_id)
         if not item:
-            return False, "Item not found"
+            return False, strings.tr("qm_item_not_found")
         if item.get("status") != "quarantined":
-            return False, "Item is not quarantined"
+            return False, strings.tr("qm_item_not_quarantined")
         qpath = item.get("quarantine_path")
         try:
             if qpath and os.path.exists(qpath):
                 os.remove(qpath)
             self.cache_manager.update_quarantine_item_status(item_id, "purged")
-            return True, "purged"
+            return True, strings.tr("qm_purged")
         except Exception as e:
             return False, str(e)
 
@@ -219,4 +220,3 @@ class QuarantineManager:
                     pass
 
         return purged
-

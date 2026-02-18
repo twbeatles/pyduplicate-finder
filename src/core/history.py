@@ -1,6 +1,7 @@
 import os
 import shutil
 from typing import List, Tuple, Optional, Dict, Any
+from src.utils.i18n import strings
 
 # send2trash 라이브러리 (선택적)
 try:
@@ -117,16 +118,16 @@ class HistoryManager:
         
         if success_count == 0:
             if cancelled:
-                return (False, "Cancelled")
-            return (False, f"Failed to move files to trash")
+                return (False, strings.tr("op_cancelled"))
+            return (False, strings.tr("op_trash_move_failed"))
         elif failed_files:
-            msg = f"Moved {success_count}/{total_files} files. Failed: {len(failed_files)}"
+            msg = strings.tr("op_trash_move_partial").format(ok=success_count, total=total_files, failed=len(failed_files))
             if cancelled:
-                msg += " (Cancelled)"
+                msg += f" ({strings.tr('op_cancelled')})"
             return (True, msg)
-        msg = f"Successfully moved {success_count} files to trash"
+        msg = strings.tr("op_trash_move_done").format(ok=success_count)
         if cancelled:
-            msg += f" ({success_count}/{total_files}, Cancelled)"
+            msg += f" ({success_count}/{total_files}, {strings.tr('op_cancelled')})"
         return (True, msg)
     
     def _delete_to_quarantine(self, file_paths, progress_callback=None, check_cancel=None):
@@ -142,7 +143,7 @@ class HistoryManager:
             # Issue #1: 디스크 공간 부족 시 실패 반환
             required_mb = required / (1024 * 1024)
             available_mb = available / (1024 * 1024)
-            return (False, f"Insufficient disk space. Required: {required_mb:.1f}MB, Available: {available_mb:.1f}MB")
+            return (False, strings.tr("op_insufficient_space").format(required=required_mb, available=available_mb))
         
         transaction: Dict[str, Any] = {"paths": [], "item_ids": []}
         failed_files = []
@@ -176,18 +177,20 @@ class HistoryManager:
             self.redo_stack.clear()  # 새로운 동작이 발생하면 Redo 스택 초기화
             
             if failed_files:
-                msg = f"Deleted {len(transaction['item_ids'])}/{total_files} files. Failed: {len(failed_files)}"
+                msg = strings.tr("op_delete_partial").format(
+                    ok=len(transaction["item_ids"]), total=total_files, failed=len(failed_files)
+                )
                 if cancelled:
-                    msg += " (Cancelled)"
+                    msg += f" ({strings.tr('op_cancelled')})"
                 return (True, msg)
-            msg = f"Successfully deleted {len(transaction['item_ids'])} files"
+            msg = strings.tr("op_delete_done").format(ok=len(transaction["item_ids"]))
             if cancelled:
-                msg += f" ({len(transaction['item_ids'])}/{total_files}, Cancelled)"
+                msg += f" ({len(transaction['item_ids'])}/{total_files}, {strings.tr('op_cancelled')})"
             return (True, msg)
         
         if cancelled:
-            return (False, "Cancelled")
-        return (False, "No files were deleted")
+            return (False, strings.tr("op_cancelled"))
+        return (False, strings.tr("op_no_files_deleted"))
     
     @staticmethod
     def is_trash_available():

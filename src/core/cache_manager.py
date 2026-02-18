@@ -144,7 +144,7 @@ class CacheManager:
                     )
                 """)
                 conn.execute(
-                    "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '3')"
+                    "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '4')"
                 )
 
                 conn.execute("""
@@ -279,6 +279,49 @@ class CacheManager:
                 """)
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_quarantine_items_status ON quarantine_items(status)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_quarantine_items_created ON quarantine_items(created_at)")
+
+                # === Scheduler jobs/runs (schema v4) ===
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS scan_jobs (
+                        name TEXT PRIMARY KEY,
+                        enabled INTEGER NOT NULL DEFAULT 0,
+                        schedule_type TEXT NOT NULL DEFAULT 'daily',
+                        weekday INTEGER DEFAULT 0,
+                        time_hhmm TEXT NOT NULL DEFAULT '03:00',
+                        output_dir TEXT,
+                        output_json INTEGER NOT NULL DEFAULT 1,
+                        output_csv INTEGER NOT NULL DEFAULT 1,
+                        config_json TEXT NOT NULL DEFAULT '{}',
+                        last_run_at REAL,
+                        next_run_at REAL,
+                        last_status TEXT,
+                        last_message TEXT,
+                        updated_at REAL NOT NULL
+                    )
+                    """
+                )
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_jobs_enabled ON scan_jobs(enabled)")
+
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS scan_job_runs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        job_name TEXT NOT NULL,
+                        created_at REAL NOT NULL,
+                        started_at REAL NOT NULL,
+                        finished_at REAL,
+                        status TEXT NOT NULL,
+                        message TEXT,
+                        session_id INTEGER,
+                        groups_count INTEGER DEFAULT 0,
+                        files_count INTEGER DEFAULT 0,
+                        output_json_path TEXT,
+                        output_csv_path TEXT
+                    )
+                    """
+                )
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_job_runs_job ON scan_job_runs(job_name, started_at DESC)")
                 # Primary Key automatically indexes path, so no separate index is purely needed,
                 # but explicit index doesn't hurt. We removed it as per plan.
                 try:
@@ -288,9 +331,9 @@ class CacheManager:
                     current_version = int(row[0]) if row and str(row[0]).isdigit() else 0
                 except Exception:
                     current_version = 0
-                if current_version < 3:
+                if current_version < 4:
                     conn.execute(
-                        "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '3')"
+                        "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '4')"
                     )
         except Exception as e:
             print(f"DB Init Error: {e}")
@@ -393,6 +436,41 @@ class CacheManager:
         except Exception as e:
             print(f"Get latest completed session error: {e}")
         return None
+
+    def list_completed_sessions_by_hash(self, config_hash: str, limit: int = 20):
+        out = []
+        if not config_hash:
+            return out
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT id, status, stage, config_json, config_hash, updated_at, progress, progress_message
+                FROM scan_sessions
+                WHERE config_hash = ? AND status = 'completed'
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (config_hash, max(1, int(limit or 20))),
+            )
+            rows = cursor.fetchall()
+            for row in rows:
+                out.append(
+                    {
+                        "id": row[0],
+                        "status": row[1],
+                        "stage": row[2],
+                        "config_json": row[3],
+                        "config_hash": row[4],
+                        "updated_at": row[5],
+                        "progress": row[6],
+                        "progress_message": row[7],
+                    }
+                )
+        except Exception as e:
+            print(f"List completed sessions error: {e}")
+        return out
 
     def get_latest_session(self):
         try:
@@ -1254,6 +1332,194 @@ class CacheManager:
         except Exception as e:
             print(f"Cache cleanup error: {e}")
             return 0
+
+    # === Scheduler jobs / runs ===
+
+    def upsert_scan_job(
+        self,
+        *,
+        name: str,
+        enabled: bool,
+        schedule_type: str,
+        weekday: int,
+        time_hhmm: str,
+        output_dir: str,
+        output_json: bool,
+        output_csv: bool,
+        config_json: str,
+        next_run_at: Optional[float] = None,
+    ) -> None:
+        if not name:
+            return
+        now = time.time()
+        try:
+            conn = self._get_conn()
+            with conn:
+                conn.execute(
+                    """
+                    INSERT INTO scan_jobs (
+                        name, enabled, schedule_type, weekday, time_hhmm, output_dir,
+                        output_json, output_csv, config_json, next_run_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(name) DO UPDATE SET
+                        enabled=excluded.enabled,
+                        schedule_type=excluded.schedule_type,
+                        weekday=excluded.weekday,
+                        time_hhmm=excluded.time_hhmm,
+                        output_dir=excluded.output_dir,
+                        output_json=excluded.output_json,
+                        output_csv=excluded.output_csv,
+                        config_json=excluded.config_json,
+                        next_run_at=excluded.next_run_at,
+                        updated_at=excluded.updated_at
+                    """,
+                    (
+                        str(name),
+                        1 if enabled else 0,
+                        str(schedule_type or "daily"),
+                        int(weekday or 0),
+                        str(time_hhmm or "03:00"),
+                        str(output_dir or ""),
+                        1 if output_json else 0,
+                        1 if output_csv else 0,
+                        str(config_json or "{}"),
+                        float(next_run_at) if next_run_at is not None else None,
+                        now,
+                    ),
+                )
+        except Exception as e:
+            print(f"Upsert scan job error: {e}")
+
+    def get_scan_job(self, name: str):
+        if not name:
+            return None
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT name, enabled, schedule_type, weekday, time_hhmm, output_dir, output_json, output_csv,
+                       config_json, last_run_at, next_run_at, last_status, last_message, updated_at
+                FROM scan_jobs
+                WHERE name=?
+                LIMIT 1
+                """,
+                (str(name),),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return {
+                "name": row[0],
+                "enabled": bool(row[1]),
+                "schedule_type": row[2],
+                "weekday": int(row[3] or 0),
+                "time_hhmm": row[4],
+                "output_dir": row[5] or "",
+                "output_json": bool(row[6]),
+                "output_csv": bool(row[7]),
+                "config_json": row[8] or "{}",
+                "last_run_at": row[9],
+                "next_run_at": row[10],
+                "last_status": row[11],
+                "last_message": row[12],
+                "updated_at": row[13],
+            }
+        except Exception as e:
+            print(f"Get scan job error: {e}")
+        return None
+
+    def update_scan_job_runtime(
+        self,
+        name: str,
+        *,
+        last_run_at: Optional[float] = None,
+        next_run_at: Optional[float] = None,
+        last_status: Optional[str] = None,
+        last_message: Optional[str] = None,
+    ) -> None:
+        if not name:
+            return
+        fields = []
+        values = []
+        if last_run_at is not None:
+            fields.append("last_run_at=?")
+            values.append(float(last_run_at))
+        if next_run_at is not None:
+            fields.append("next_run_at=?")
+            values.append(float(next_run_at))
+        if last_status is not None:
+            fields.append("last_status=?")
+            values.append(str(last_status))
+        if last_message is not None:
+            fields.append("last_message=?")
+            values.append(str(last_message))
+        fields.append("updated_at=?")
+        values.append(time.time())
+        values.append(str(name))
+        try:
+            conn = self._get_conn()
+            with conn:
+                conn.execute(f"UPDATE scan_jobs SET {', '.join(fields)} WHERE name=?", values)
+        except Exception as e:
+            print(f"Update scan job runtime error: {e}")
+
+    def create_scan_job_run(self, job_name: str, *, session_id: Optional[int] = None, status: str = "running") -> int:
+        if not job_name:
+            return 0
+        now = time.time()
+        try:
+            conn = self._get_conn()
+            with conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    INSERT INTO scan_job_runs (job_name, created_at, started_at, status, session_id)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (str(job_name), now, now, str(status or "running"), int(session_id or 0)),
+                )
+                return int(cursor.lastrowid or 0)
+        except Exception as e:
+            print(f"Create scan job run error: {e}")
+            return 0
+
+    def finish_scan_job_run(
+        self,
+        run_id: int,
+        *,
+        status: str,
+        message: str = "",
+        groups_count: int = 0,
+        files_count: int = 0,
+        output_json_path: str = "",
+        output_csv_path: str = "",
+    ) -> None:
+        if not run_id:
+            return
+        try:
+            conn = self._get_conn()
+            with conn:
+                conn.execute(
+                    """
+                    UPDATE scan_job_runs
+                    SET finished_at=?, status=?, message=?, groups_count=?, files_count=?,
+                        output_json_path=?, output_csv_path=?
+                    WHERE id=?
+                    """,
+                    (
+                        time.time(),
+                        str(status or "completed"),
+                        str(message or ""),
+                        int(groups_count or 0),
+                        int(files_count or 0),
+                        str(output_json_path or ""),
+                        str(output_csv_path or ""),
+                        int(run_id),
+                    ),
+                )
+        except Exception as e:
+            print(f"Finish scan job run error: {e}")
 
     def close(self):
         """Close the current thread's database connection."""

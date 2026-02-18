@@ -34,7 +34,7 @@ def test_update_cache_batch_preserves_existing_hashes(tmp_path):
             pass
 
 
-def test_schema_version_migrates_to_v3(tmp_path):
+def test_schema_version_migrates_to_v4(tmp_path):
     db_path = tmp_path / "scan_cache.db"
     conn = sqlite3.connect(str(db_path))
     try:
@@ -50,7 +50,16 @@ def test_schema_version_migrates_to_v3(tmp_path):
         try:
             row = conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
             assert row is not None
-            assert str(row[0]) == "3"
+            assert str(row[0]) == "4"
+            # Scheduler tables should be present in v4.
+            t1 = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='scan_jobs'"
+            ).fetchone()
+            t2 = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='scan_job_runs'"
+            ).fetchone()
+            assert t1 is not None
+            assert t2 is not None
         finally:
             conn.close()
     finally:

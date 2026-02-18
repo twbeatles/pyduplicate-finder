@@ -218,6 +218,24 @@ pyinstaller PyDuplicateFinder.spec
 ## 📝 라이선스
 MIT License
 
+## ✅ 구현 상태 (2026-02-18)
+
+다음 항목은 현재 코드에 반영되었습니다.
+
+- 고급 스캔 옵션 노출: 혼합 모드, 중복 폴더 탐지, 증분 재스캔, Baseline 세션 선택
+- CLI 확장: `--mixed-mode`, `--detect-folder-dup`, `--incremental-rescan`, `--baseline-session`
+- 삭제 Dry-run 요약: 삭제 전 선택/가시 항목/예상 절감 용량 및 그룹 요약 표시
+- 작업 재시도 확장: delete 외 hardlink/restore/purge 실패 재시도 경로 강화
+- i18n 정리: 코어 하드코딩 메시지(Undo/Redo/Quarantine/History) 다국어 키로 통합
+- 예약 스캔(기본): 설정 화면에서 일/주 단위 스케줄 + 자동 JSON/CSV 출력
+- 결과 뷰/내보내기 강화: `FOLDER_DUP` 그룹 라벨 개선, CSV에 `group_kind`, `bytes_reclaim_est`, `baseline_delta` 컬럼 추가
+- 1차 구조 분리: `src/core/scan_engine.py`, `src/ui/controllers/scan_controller.py`, `src/ui/controllers/ops_controller.py` 도입
+
+아래 항목은 후속 리팩터링으로 유지됩니다.
+
+- `src/core/scanner.py` 본문 로직의 추가 분해(엔진 완전 분리)
+- `src/ui/main_window.py` 대규모 오케스트레이션의 컨트롤러 레벨 분리 확대
+
 ## Performance Refactor Notes (2026-02)
 
 - Hashing hot path now consumes pre-collected `(path, size, mtime)` tuples to avoid repeated `os.stat` calls.

@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QDoubleSpinBox,
     QFrame,
+    QComboBox,
 )
 from PySide6.QtCore import Qt
 
@@ -215,8 +216,51 @@ def build_scan_page(window) -> QWidget:
     row3_layout.addStretch()
     filter_main_layout.addLayout(row3_layout)
 
+    # Scan strategy header
+    window.lbl_filter_strategy = QLabel(strings.tr("hdr_filters_strategy"))
+    window.lbl_filter_strategy.setObjectName("section_header")
+    filter_main_layout.addWidget(window.lbl_filter_strategy)
+
+    row4_layout = QHBoxLayout()
+    row4_layout.setSpacing(20)
+
+    window.chk_mixed_mode = QCheckBox(strings.tr("chk_mixed_mode"))
+    window.chk_mixed_mode.setToolTip(strings.tr("tip_mixed_mode"))
+    row4_layout.addWidget(window.chk_mixed_mode)
+
+    window.chk_detect_folder_dup = QCheckBox(strings.tr("chk_detect_folder_dup"))
+    window.chk_detect_folder_dup.setToolTip(strings.tr("tip_detect_folder_dup"))
+    row4_layout.addWidget(window.chk_detect_folder_dup)
+
+    window.chk_incremental_rescan = QCheckBox(strings.tr("chk_incremental_rescan"))
+    window.chk_incremental_rescan.setToolTip(strings.tr("tip_incremental_rescan"))
+    row4_layout.addWidget(window.chk_incremental_rescan)
+
+    window.lbl_baseline_session = QLabel(strings.tr("lbl_baseline_session"))
+    window.cmb_baseline_session = QComboBox()
+    window.cmb_baseline_session.setMinimumWidth(220)
+    window.cmb_baseline_session.setEnabled(False)
+    row4_layout.addWidget(window.lbl_baseline_session)
+    row4_layout.addWidget(window.cmb_baseline_session)
+
+    row4_layout.addStretch()
+    filter_main_layout.addLayout(row4_layout)
+
     window.chk_name_only.toggled.connect(window._sync_filter_states)
     window.chk_similar_image.toggled.connect(window._sync_filter_states)
+    window.chk_mixed_mode.toggled.connect(window._sync_filter_states)
+    window.chk_incremental_rescan.toggled.connect(window._sync_filter_states)
+    window.chk_incremental_rescan.toggled.connect(window.refresh_incremental_baselines)
+    window.chk_same_name.toggled.connect(window.refresh_incremental_baselines)
+    window.chk_name_only.toggled.connect(window.refresh_incremental_baselines)
+    window.chk_byte_compare.toggled.connect(window.refresh_incremental_baselines)
+    window.chk_similar_image.toggled.connect(window.refresh_incremental_baselines)
+    window.chk_mixed_mode.toggled.connect(window.refresh_incremental_baselines)
+    window.chk_detect_folder_dup.toggled.connect(window.refresh_incremental_baselines)
+    window.chk_skip_hidden.toggled.connect(window.refresh_incremental_baselines)
+    window.chk_follow_symlinks.toggled.connect(window.refresh_incremental_baselines)
+    window.txt_extensions.textChanged.connect(window.refresh_incremental_baselines)
+    window.spin_min_size.valueChanged.connect(window.refresh_incremental_baselines)
 
     top_main_layout.addWidget(window.filter_container)
     window._sync_filter_states()

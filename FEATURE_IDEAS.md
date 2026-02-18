@@ -1,5 +1,21 @@
 # PyDuplicate Finder Pro - Feature Ideas (Draft)
 
+## Status Snapshot (2026-02-18)
+
+Implemented from this backlog:
+- Advanced GUI scan options wired to core (`mixed_mode`, `detect_duplicate_folders`, `incremental_rescan`, baseline session)
+- CLI flags for advanced scan options
+- Delete dry-run summary before destructive operations
+- Retry flow extension beyond delete operations
+- Core i18n cleanup for operation/quarantine/history messages
+- Scheduled scan foundation (settings + DB tables + periodic trigger + auto export)
+- Folder-duplicate result labeling and enriched CSV schema
+- Initial modularization (`scan_engine`, `scan_controller`, `ops_controller`)
+
+Still open:
+- Full extraction of scan logic into a pure engine
+- Deeper split of `main_window` orchestration across controllers
+
 This document proposes add-on features that fit the current architecture.
 It is based on reading `README.md`, `CLAUDE.md`, and key modules under `src/`.
 

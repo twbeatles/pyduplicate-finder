@@ -6,6 +6,7 @@ from typing import Any
 
 from PySide6.QtCore import QCoreApplication, QEventLoop
 
+from src.core.scan_engine import ScanConfig, build_scan_worker_kwargs
 from src.core.scanner import ScanWorker
 from src.ui.exporting import export_scan_results_csv
 from src.utils.i18n import strings
@@ -34,6 +35,10 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--byte-compare", action="store_true")
 
     p.add_argument("--similar-image", action="store_true")
+    p.add_argument("--mixed-mode", action="store_true")
+    p.add_argument("--detect-folder-dup", action="store_true")
+    p.add_argument("--incremental-rescan", action="store_true")
+    p.add_argument("--baseline-session", type=int, default=0)
     p.add_argument("--similarity-threshold", type=float, default=0.9)
 
     p.add_argument("--no-protect-system", action="store_true")
@@ -74,23 +79,26 @@ def main() -> int:
         "cancelled": False,
     }
 
-    worker = ScanWorker(
-        folders,
-        check_name=bool(args.same_name),
+    cfg = ScanConfig(
+        folders=folders,
+        extensions=exts or [],
         min_size_kb=max(0, int(args.min_size_kb or 0)),
-        extensions=exts or None,
-        protect_system=not bool(args.no_protect_system),
+        same_name=bool(args.same_name),
+        name_only=bool(args.name_only),
         byte_compare=bool(args.byte_compare),
-        exclude_patterns=list(args.exclude or []),
-        include_patterns=list(args.include or []),
+        protect_system=not bool(args.no_protect_system),
         skip_hidden=bool(args.skip_hidden),
         follow_symlinks=bool(args.follow_symlinks),
-        name_only=bool(args.name_only),
+        include_patterns=list(args.include or []),
+        exclude_patterns=list(args.exclude or []),
         use_similar_image=bool(args.similar_image),
+        use_mixed_mode=bool(args.mixed_mode),
+        detect_duplicate_folders=bool(args.detect_folder_dup),
+        incremental_rescan=bool(args.incremental_rescan),
+        baseline_session_id=int(args.baseline_session) if int(args.baseline_session or 0) > 0 else None,
         similarity_threshold=float(args.similarity_threshold or 0.9),
-        session_id=None,
-        use_cached_files=False,
     )
+    worker = ScanWorker(folders, **build_scan_worker_kwargs(cfg, session_id=None, use_cached_files=False))
 
     def on_progress(v: int, msg: str) -> None:
         if args.quiet:
