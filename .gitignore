@@ -17,6 +17,8 @@ env/
 # Distribution / Build
 build/
 dist/
+build_work/
+dist_build/
 *.spec
 !PyDuplicateFinder.spec
 
