@@ -77,6 +77,17 @@ class OperationWorker(QThread):
             pct = int((idx / total) * 100)
             self.progress_updated.emit(pct, msg)
 
+    @staticmethod
+    def _resolve_status(res: OperationResult) -> str:
+        if res.failed and res.succeeded:
+            return "partial"
+        if res.failed and not res.succeeded:
+            return "failed"
+        # skipped-only (or succeeded+skipped) should not be marked as fully completed.
+        if res.skipped:
+            return "partial"
+        return "completed"
+
     def run(self):
         op = self.op
         res = OperationResult(op_type=op.op_type)
@@ -217,12 +228,7 @@ class OperationWorker(QThread):
             res.status = "cancelled"
             res.message = strings.tr("op_cancelled")
         else:
-            if res.failed and res.succeeded:
-                res.status = "partial"
-            elif res.failed and not res.succeeded:
-                res.status = "failed"
-            else:
-                res.status = "completed"
+            res.status = self._resolve_status(res)
             res.message = strings.tr("op_moved_trash").format(ok=len(res.succeeded), total=total)
 
         if items_batch and res.op_id:
@@ -270,8 +276,13 @@ class OperationWorker(QThread):
                     failed_item_ids.append(int(item_id))
                     items_batch.append((orig, "restored", "fail", msg, size, mtime, qpath))
             except Exception as e:
-                res.failed.append((str(item_id), str(e)))
+                orig = str(item_id)
+                qpath = ""
+                size = None
+                mtime = None
+                res.failed.append((orig, str(e)))
                 failed_item_ids.append(int(item_id))
+                items_batch.append((orig, "restored", "fail", str(e), size, mtime, qpath))
 
         if self._check_cancel():
             res.status = "cancelled"
@@ -435,12 +446,7 @@ class OperationWorker(QThread):
             res.status = "cancelled"
             res.message = strings.tr("op_cancelled")
         else:
-            if res.failed and res.succeeded:
-                res.status = "partial"
-            elif res.failed and not res.succeeded:
-                res.status = "failed"
-            else:
-                res.status = "completed"
+            res.status = self._resolve_status(res)
             res.message = strings.tr("op_hardlinked").format(ok=len(res.succeeded), total=total)
 
         if items_batch and res.op_id:

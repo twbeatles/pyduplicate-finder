@@ -30,6 +30,12 @@ duplicate_finder/
     │   ├── main_window.py         # DuplicateFinderApp: 메인 GUI, scan_results 동기화
     │   ├── theme.py               # ModernTheme: 라이트/다크 테마 스타일시트
     │   ├── empty_folder_dialog.py # EmptyFolderDialog: 빈 폴더 정리용 모달 다이얼로그
+    │   ├── controllers/
+    │   │   ├── scan_controller.py       # ScanWorker 생성/시그널 바인딩
+    │   │   ├── scheduler_controller.py  # 예약 스캔 구성/실행 기록 관리
+    │   │   ├── ops_controller.py        # 실패 재시도 Operation 생성
+    │   │   ├── operation_flow_controller.py # 작업 큐/프로그레스/완료 처리 오케스트레이션
+    │   │   └── navigation_controller.py # Sidebar/QStackedWidget 네비게이션 제어
     │   ├── components/
     │   │   ├── results_tree.py    # ResultsTreeWidget: 결과 목록 UI 및 배치 렌더링
     │   │   ├── sidebar.py         # Sidebar: 페이지 네비게이션
@@ -85,7 +91,7 @@ duplicate_finder/
 - **트랜잭션 단위**: 한 번의 '삭제' 작업에 포함된 파일들을 하나의 트랜잭션으로 관리.
 - **복구 로직 (`undo`)**: 백업 확인 -> 부모 폴더 재생성 -> 파일 이동.
 - **안전한 백업**: `UUID`와 타임스탬프를 결합한 고유 파일명 생성으로, 동시 삭제 시 파일명 충돌(데이터 유실) 방지.
-- **자동 정리**: `atexit.register(self.cleanup)`으로 프로그램 종료 시 임시 폴더 자동 정리.
+- **격리함 보존 정책**: Undo 가능한 삭제는 persistent 격리함으로 이동되며, 설정한 보존 기간/용량 정책에 따라 정리.
 - **비동기 처리**: `FileOperationWorker`를 통해 UI 프리징 없이 실행.
 
 ### D. `src.core.empty_folder_finder.EmptyFolderFinder`
@@ -117,6 +123,7 @@ duplicate_finder/
 - **세션 복원**: 마지막 스캔 세션을 감지하고 재개/새 스캔 선택을 제공.
 - **페이지 네비게이션**: `Sidebar` + `QStackedWidget`으로 스캔/결과/도구/설정 화면 구성.
 - **알림 UX**: `ToastManager`로 페이지 이동/상태 알림 제공.
+- **컨트롤러 위임**: 스캔/예약/작업플로우/네비게이션 로직을 `src.ui.controllers.*`로 분리하여 오케스트레이션 책임을 축소.
 
 ## 4. 코딩 컨벤션 및 규칙 (Coding Conventions & Rules)
 
@@ -138,10 +145,13 @@ duplicate_finder/
 | psutil | >=5.9.0 | 파일 잠금 프로세스 확인 |
 | uuid | (Std Lib) | 백업 파일명 충돌 방지 |
 
-## 6. 업데이트 메모 (2026-02-18)
+## 6. 업데이트 메모 (2026-02-20)
 
 - `src/core/scan_engine.py` 추가: GUI/CLI에서 공통 스캔 옵션 전달 구조를 사용.
 - `src/core/scheduler.py` 추가: 예약 스캔의 다음 실행 시각 계산 및 실행 판단.
 - `src/ui/controllers/scan_controller.py`, `src/ui/controllers/ops_controller.py` 추가: `main_window` 오케스트레이션 분리 1차 적용.
+- `src/ui/controllers/scheduler_controller.py` 추가: 예약 스캔/실행 기록 경로 분리.
+- `src/ui/controllers/operation_flow_controller.py` 추가: 작업 큐/프리플라이트/진행/완료 후속처리 분리.
+- `src/ui/controllers/navigation_controller.py` 추가: 사이드바 네비게이션/페이지 전환 로직 분리.
 - `cache_manager` 스키마 버전 v4: `scan_jobs`, `scan_job_runs` 테이블 추가.
 - 스캔 UI에 `mixed_mode`, `detect_duplicate_folders`, `incremental_rescan`, `baseline_session` 옵션 노출.

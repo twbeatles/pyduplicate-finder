@@ -623,7 +623,7 @@ class ScanWorker(QThread):
             if not self._should_include(path):
                 continue
             try:
-                stat = os.stat(path)
+                stat = os.stat(path, follow_symlinks=self.follow_symlinks)
             except OSError:
                 missing_paths.append(path)
                 continue

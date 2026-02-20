@@ -49,22 +49,27 @@ def is_due(cfg: ScheduleConfig, *, last_run_at: Optional[float], now_ts: Optiona
     if not cfg.enabled:
         return False
     now = datetime.fromtimestamp(now_ts) if now_ts is not None else datetime.now()
-    # Compute the most recent scheduled point and compare with last_run_at.
     h, m = _parse_hhmm(cfg.time_hhmm)
+    weekly = str(cfg.schedule_type or "daily") == "weekly"
     slot = now.replace(hour=h, minute=m, second=0, microsecond=0)
 
-    if str(cfg.schedule_type or "daily") == "weekly":
+    # First run should only trigger after the current period's scheduled point.
+    if not last_run_at:
+        if weekly:
+            weekday = max(0, min(6, int(cfg.weekday or 0)))
+            this_week_slot = slot + timedelta(days=(weekday - slot.weekday()))
+            return now.timestamp() >= this_week_slot.timestamp()
+        return now.timestamp() >= slot.timestamp()
+
+    # Compute the most recent scheduled point and compare with last_run_at.
+    if weekly:
         weekday = max(0, min(6, int(cfg.weekday or 0)))
         days_back = (slot.weekday() - weekday) % 7
         slot = slot - timedelta(days=days_back)
         if slot > now:
             slot = slot - timedelta(days=7)
-    else:
-        if slot > now:
-            slot = slot - timedelta(days=1)
+    elif slot > now:
+        slot = slot - timedelta(days=1)
 
     slot_ts = slot.timestamp()
-    if not last_run_at:
-        return now.timestamp() >= slot_ts
     return float(last_run_at) < slot_ts <= now.timestamp()
-

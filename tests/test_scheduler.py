@@ -28,3 +28,21 @@ def test_is_due_daily_compares_with_last_run():
     # Last run at/after today's slot -> not due.
     assert not is_due(cfg, last_run_at=datetime(2026, 2, 18, 3, 0, 0).timestamp(), now_ts=now)
 
+
+def test_is_due_first_run_daily_before_slot_is_false():
+    cfg = ScheduleConfig(enabled=True, schedule_type="daily", time_hhmm="23:00")
+    now = datetime(2026, 2, 20, 10, 0, 0).timestamp()
+    assert not is_due(cfg, last_run_at=None, now_ts=now)
+
+
+def test_is_due_first_run_daily_after_slot_is_true():
+    cfg = ScheduleConfig(enabled=True, schedule_type="daily", time_hhmm="03:00")
+    now = datetime(2026, 2, 20, 10, 0, 0).timestamp()
+    assert is_due(cfg, last_run_at=None, now_ts=now)
+
+
+def test_is_due_first_run_weekly_before_slot_is_false():
+    # Wednesday, slot is Friday 10:15 (same week) -> not due.
+    cfg = ScheduleConfig(enabled=True, schedule_type="weekly", weekday=4, time_hhmm="10:15")
+    now = datetime(2026, 2, 18, 9, 0, 0).timestamp()
+    assert not is_due(cfg, last_run_at=None, now_ts=now)

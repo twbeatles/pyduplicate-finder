@@ -21,7 +21,7 @@
 - **안전한 삭제 & 실행 취소 (Robust Undo)**: 비동기 방식의 '삭제/복구' 작업을 지원하여, 대량의 파일을 삭제할 때도 UI가 멈추지 않습니다.
 - **휴지통 옵션**: 파일을 영구 삭제하는 대신 시스템 휴지통으로 이동시켜 안전하게 복구할 수 있는 옵션을 제공합니다.
 - **파일 잠금 감지**: 삭제 전 다른 프로세스에서 사용 중인 파일을 자동으로 감지하여 오류를 방지합니다.
-- **자동 정리**: 프로그램 종료 시 임시 폴더가 자동으로 정리됩니다. (atexit 핸들러)
+- **격리함 유지/보존 정책**: Undo 가능한 삭제는 persistent 격리함에 보관되며, 설정한 보존 기간/용량 정책에 따라 정리됩니다.
 
 ### 🎨 모던 UI & 사용자 경험
 - **다양한 스캔 모드**: 
@@ -69,6 +69,12 @@ duplicate_finder/
 │   │   ├── main_window.py       # 메인 윈도우
 │   │   ├── theme.py             # 테마 스타일시트
 │   │   ├── empty_folder_dialog.py
+│   │   ├── controllers/         # UI 오케스트레이션 컨트롤러
+│   │   │   ├── scan_controller.py
+│   │   │   ├── scheduler_controller.py
+│   │   │   ├── ops_controller.py
+│   │   │   ├── operation_flow_controller.py
+│   │   │   └── navigation_controller.py
 │   │   ├── components/
 │   │   │   ├── results_tree.py  # 결과 트리 위젯
 │   │   │   ├── sidebar.py       # 사이드바 네비게이션
@@ -218,7 +224,7 @@ pyinstaller PyDuplicateFinder.spec
 ## 📝 라이선스
 MIT License
 
-## ✅ 구현 상태 (2026-02-18)
+## ✅ 구현 상태 (2026-02-20)
 
 다음 항목은 현재 코드에 반영되었습니다.
 
@@ -229,7 +235,10 @@ MIT License
 - i18n 정리: 코어 하드코딩 메시지(Undo/Redo/Quarantine/History) 다국어 키로 통합
 - 예약 스캔(기본): 설정 화면에서 일/주 단위 스케줄 + 자동 JSON/CSV 출력
 - 결과 뷰/내보내기 강화: `FOLDER_DUP` 그룹 라벨 개선, CSV에 `group_kind`, `bytes_reclaim_est`, `baseline_delta` 컬럼 추가
-- 1차 구조 분리: `src/core/scan_engine.py`, `src/ui/controllers/scan_controller.py`, `src/ui/controllers/ops_controller.py` 도입
+- 구조 분리 2차 진행:
+  - `src/core/scan_engine.py` + `src/ui/controllers/scan_controller.py` + `src/ui/controllers/scheduler_controller.py`
+  - 작업 플로우 분리: `src/ui/controllers/operation_flow_controller.py`
+  - 네비게이션 분리: `src/ui/controllers/navigation_controller.py`
 
 아래 항목은 후속 리팩터링으로 유지됩니다.
 

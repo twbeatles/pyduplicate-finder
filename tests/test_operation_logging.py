@@ -49,3 +49,24 @@ class TestOperationLogging(unittest.TestCase):
         self.assertIn(id2, out)
         self.assertEqual(out[id1]["orig_path"], "o1")
         self.assertEqual(out[id2]["quarantine_path"], "q2")
+
+    def test_update_scan_job_run_session(self):
+        self.cache.upsert_scan_job(
+            name="default",
+            enabled=True,
+            schedule_type="daily",
+            weekday=0,
+            time_hhmm="03:00",
+            output_dir="",
+            output_json=True,
+            output_csv=False,
+            config_json="{}",
+        )
+        run_id = self.cache.create_scan_job_run("default", session_id=0, status="running")
+        self.assertTrue(run_id > 0)
+        self.cache.update_scan_job_run_session(run_id, session_id=123)
+
+        conn = self.cache._get_conn()
+        row = conn.execute("SELECT session_id FROM scan_job_runs WHERE id=?", (run_id,)).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(int(row[0] or 0), 123)

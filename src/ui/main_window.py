@@ -9,6 +9,7 @@ import subprocess
 import string
 import ctypes
 import json
+import logging
 from datetime import datetime
 
 from src.core.history import HistoryManager
@@ -19,9 +20,9 @@ from src.core.file_lock_checker import FileLockChecker
 from src.core.quarantine_manager import QuarantineManager
 from src.core.preflight import PreflightAnalyzer
 from src.core.selection_rules import parse_rules, decide_keep_delete_for_group
-from src.core.operation_queue import OperationWorker, Operation
+from src.core.operation_queue import Operation
 from src.core.scan_engine import ScanConfig
-from src.core.scheduler import ScheduleConfig, compute_next_run, is_due
+from src.core.scheduler import ScheduleConfig
 from src.ui.empty_folder_dialog import EmptyFolderDialog
 from src.ui.components.results_tree import ResultsTreeWidget
 from src.ui.components.sidebar import Sidebar
@@ -40,6 +41,11 @@ from src.ui.pages.tools_page import build_tools_page
 from src.ui.pages.settings_page import build_settings_page
 from src.ui.controllers.scan_controller import ScanController
 from src.ui.controllers.ops_controller import OpsController
+from src.ui.controllers.scheduler_controller import SchedulerController
+from src.ui.controllers.operation_flow_controller import OperationFlowController
+from src.ui.controllers.navigation_controller import NavigationController
+
+logger = logging.getLogger(__name__)
 
 
 class DuplicateFinderApp(QMainWindow):
@@ -78,6 +84,9 @@ class DuplicateFinderApp(QMainWindow):
         self.selection_rules = []
         self.scan_controller = ScanController()
         self.ops_controller = OpsController()
+        self.scheduler_controller = SchedulerController()
+        self.operation_flow_controller = OperationFlowController()
+        self.navigation_controller = NavigationController()
 
         self._op_worker = None
         self._op_progress = None
@@ -1025,6 +1034,14 @@ class DuplicateFinderApp(QMainWindow):
             session_id = None
 
         self.current_session_id = session_id
+        if self._scheduled_run_context and self._scheduled_job_run_id:
+            try:
+                self.cache_manager.update_scan_job_run_session(
+                    self._scheduled_job_run_id,
+                    session_id=self.current_session_id or 0,
+                )
+            except Exception:
+                logger.warning("Failed to sync scheduled run session_id", exc_info=True)
         self._pending_selected_paths = []
         self._pending_selected_add.clear()
         self._pending_selected_remove.clear()
@@ -2672,7 +2689,7 @@ class DuplicateFinderApp(QMainWindow):
                 getattr(self, wname).setEnabled(enabled)
 
     def _build_schedule_config(self) -> ScheduleConfig:
-        return ScheduleConfig(
+        return self.scheduler_controller.build_config(
             enabled=bool(hasattr(self, "chk_schedule_enabled") and self.chk_schedule_enabled.isChecked()),
             schedule_type=str(self.cmb_schedule_frequency.currentData() if hasattr(self, "cmb_schedule_frequency") else "daily"),
             weekday=int(self.cmb_schedule_weekday.currentData() if hasattr(self, "cmb_schedule_weekday") else 0),
@@ -2681,24 +2698,18 @@ class DuplicateFinderApp(QMainWindow):
 
     def _persist_schedule_job(self):
         cfg = self._build_schedule_config()
-        next_dt = compute_next_run(cfg)
-        next_ts = next_dt.timestamp() if next_dt else None
         scan_cfg = self._get_current_config()
         try:
-            self.cache_manager.upsert_scan_job(
-                name="default",
-                enabled=cfg.enabled,
-                schedule_type=cfg.schedule_type,
-                weekday=cfg.weekday,
-                time_hhmm=cfg.time_hhmm,
+            self.scheduler_controller.persist_job(
+                cache_manager=self.cache_manager,
+                cfg=cfg,
+                scan_config=scan_cfg,
                 output_dir=str(self.txt_schedule_output.text() if hasattr(self, "txt_schedule_output") else "").strip(),
                 output_json=bool(self.chk_schedule_export_json.isChecked() if hasattr(self, "chk_schedule_export_json") else True),
                 output_csv=bool(self.chk_schedule_export_csv.isChecked() if hasattr(self, "chk_schedule_export_csv") else True),
-                config_json=json.dumps(scan_cfg, ensure_ascii=False, sort_keys=True, default=str),
-                next_run_at=next_ts,
             )
         except Exception:
-            pass
+            logger.exception("Failed to persist scheduled scan job")
 
     def apply_schedule_settings(self):
         try:
@@ -2713,39 +2724,26 @@ class DuplicateFinderApp(QMainWindow):
     def _scheduler_tick(self):
         if self._scheduled_run_context:
             return
-        if bool(getattr(self, "btn_stop_scan", None) and self.btn_stop_scan.isEnabled()):
-            return
-
-        job = self.cache_manager.get_scan_job("default")
-        if not job or not bool(job.get("enabled")):
-            return
-
-        cfg = ScheduleConfig(
-            enabled=bool(job.get("enabled")),
-            schedule_type=str(job.get("schedule_type") or "daily"),
-            weekday=int(job.get("weekday") or 0),
-            time_hhmm=str(job.get("time_hhmm") or "03:00"),
+        is_scanning = bool(getattr(self, "btn_stop_scan", None) and self.btn_stop_scan.isEnabled())
+        job, cfg = self.scheduler_controller.get_due_job(
+            cache_manager=self.cache_manager,
+            is_scanning=is_scanning,
         )
-        if not is_due(cfg, last_run_at=job.get("last_run_at")):
+        if not job or not cfg:
             return
 
         if not self.selected_folders:
-            next_dt = compute_next_run(cfg)
-            self.cache_manager.update_scan_job_runtime(
-                "default",
-                last_run_at=datetime.now().timestamp(),
-                last_status="skipped",
-                last_message="no_folders",
-                next_run_at=(next_dt.timestamp() if next_dt else None),
+            self.scheduler_controller.record_skip_no_folders(
+                cache_manager=self.cache_manager,
+                cfg=cfg,
             )
             return
 
-        self._scheduled_run_context = {
-            "output_dir": str(job.get("output_dir") or "").strip(),
-            "output_json": bool(job.get("output_json")),
-            "output_csv": bool(job.get("output_csv")),
-        }
-        self._scheduled_job_run_id = int(self.cache_manager.create_scan_job_run("default", session_id=self.current_session_id or 0, status="running") or 0)
+        self._scheduled_run_context = self.scheduler_controller.build_run_context(job).as_dict()
+        self._scheduled_job_run_id = self.scheduler_controller.create_job_run(
+            cache_manager=self.cache_manager,
+            session_id=self.current_session_id or 0,
+        )
         self.start_scan(force_new=False)
 
     def _scheduled_export_results(self, results: dict):
@@ -2756,6 +2754,7 @@ class DuplicateFinderApp(QMainWindow):
         try:
             os.makedirs(out_dir, exist_ok=True)
         except Exception:
+            logger.warning("Scheduled export output dir is not writable: %s", out_dir, exc_info=True)
             return ("", "")
 
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -2770,6 +2769,7 @@ class DuplicateFinderApp(QMainWindow):
                 with open(out_json, "w", encoding="utf-8") as f:
                     json.dump({"results": payload}, f, ensure_ascii=False, indent=2)
         except Exception:
+            logger.warning("Scheduled JSON export failed", exc_info=True)
             out_json = ""
         try:
             if bool(ctx.get("output_csv")):
@@ -2778,6 +2778,7 @@ class DuplicateFinderApp(QMainWindow):
 
                 export_scan_results_csv(scan_results=results or {}, out_path=out_csv, selected_paths=[])
         except Exception:
+            logger.warning("Scheduled CSV export failed", exc_info=True)
             out_csv = ""
         return (out_json, out_csv)
 
@@ -2793,26 +2794,19 @@ class DuplicateFinderApp(QMainWindow):
         files = sum(len(v or []) for v in (results or {}).values()) if results else 0
         message = status
         try:
-            if self._scheduled_job_run_id:
-                self.cache_manager.finish_scan_job_run(
-                    self._scheduled_job_run_id,
-                    status=status,
-                    message=message,
-                    groups_count=groups,
-                    files_count=files,
-                    output_json_path=out_json,
-                    output_csv_path=out_csv,
-                )
-            next_dt = compute_next_run(cfg)
-            self.cache_manager.update_scan_job_runtime(
-                "default",
-                last_run_at=datetime.now().timestamp(),
-                next_run_at=next_dt.timestamp() if next_dt else None,
-                last_status=status,
-                last_message=message,
+            self.scheduler_controller.finalize_run(
+                cache_manager=self.cache_manager,
+                run_id=self._scheduled_job_run_id,
+                cfg=cfg,
+                status=status,
+                message=message,
+                groups_count=groups,
+                files_count=files,
+                output_json_path=out_json,
+                output_csv_path=out_csv,
             )
         except Exception:
-            pass
+            logger.exception("Failed to finish scheduled run bookkeeping")
         self._scheduled_job_run_id = 0
         self._scheduled_run_context = None
 
@@ -3122,245 +3116,27 @@ class DuplicateFinderApp(QMainWindow):
         self._enqueue_operations(ops)
 
     def _enqueue_operations(self, ops: list):
-        self._op_queue = list(ops or [])
-        self._start_next_operation()
+        self.operation_flow_controller.enqueue_operations(self, ops)
 
     def _start_next_operation(self):
-        if not self._op_queue:
-            return
-        op = self._op_queue.pop(0)
-        self._start_operation(op, allow_queue_continue=True)
+        self.operation_flow_controller.start_next_operation(self)
 
     def _start_operation(self, op: Operation, allow_queue_continue: bool = False):
-        if self._op_worker and self._op_worker.isRunning():
-            return
-
-        # Mandatory preflight for destructive operations.
-        rep = None
-        if op.op_type in ("delete_quarantine", "delete_trash"):
-            if op.op_type == "delete_quarantine":
-                qdir = None
-                try:
-                    qdir = self.quarantine_manager.get_quarantine_dir()
-                except Exception:
-                    qdir = None
-                rep = self.preflight_analyzer.analyze_delete(op.paths, quarantine_dir=qdir)
-            else:
-                rep = self.preflight_analyzer.analyze_delete_trash(op.paths)
-            dlg = PreflightDialog(rep, self)
-            if not dlg.exec():
-                self._op_queue.clear()
-                return
-            if not dlg.can_proceed:
-                self._op_queue.clear()
-                return
-
-            # Final confirmation (includes filter/hidden warning + size).
-            try:
-                eligible = list(getattr(rep, "eligible_paths", []) or [])
-                count = len(eligible)
-                opt = getattr(op, "options", {}) or {}
-                filter_active = bool(opt.get("filter_active"))
-                try:
-                    visible_checked = int(opt.get("visible_checked") or 0)
-                except Exception:
-                    visible_checked = 0
-                visible_checked = min(visible_checked, count) if count else visible_checked
-
-                size_str = self.format_size(int(getattr(rep, "bytes_total", 0) or 0))
-                info_lines = [
-                    strings.tr("confirm_delete_selected_counts").format(total=count, visible=visible_checked),
-                    strings.tr("msg_total_size").format(size=size_str),
-                ]
-                if filter_active:
-                    info_lines.append(strings.tr("msg_delete_includes_hidden"))
-
-                if op.op_type == "delete_trash":
-                    msg = strings.tr("confirm_trash_delete").format(count)
-                else:
-                    msg = strings.tr("confirm_delete_quarantine").format(count=count)
-                if info_lines:
-                    msg = msg + "\n\n" + "\n".join(info_lines)
-
-                res = QMessageBox.question(
-                    self,
-                    strings.tr("confirm_delete_title"),
-                    msg,
-                    QMessageBox.Yes | QMessageBox.No,
-                )
-                if res != QMessageBox.Yes:
-                    self._op_queue.clear()
-                    return
-
-                # Only proceed with eligible paths (preflight filtered).
-                op.paths = eligible
-            except Exception:
-                pass
-        elif op.op_type == "hardlink_consolidate":
-            rep = self.preflight_analyzer.analyze_hardlink(
-                str(op.options.get("canonical") or ""),
-                list(op.options.get("targets") or []),
-            )
-            dlg = PreflightDialog(rep, self)
-            if not dlg.exec():
-                self._op_queue.clear()
-                return
-            if not dlg.can_proceed:
-                self._op_queue.clear()
-                return
-
-        # Progress dialog (unified)
-        self._op_progress = QProgressDialog(strings.tr("status_working"), strings.tr("btn_cancel"), 0, 100, self)
-        self._op_progress.setWindowTitle(strings.tr("app_title"))
-        self._op_progress.setAutoClose(False)
-        self._op_progress.setAutoReset(False)
-        self._op_progress.canceled.connect(self._cancel_operation)
-        self._op_progress.show()
-
-        self._op_worker = OperationWorker(
-            cache_manager=self.cache_manager,
-            quarantine_manager=self.quarantine_manager,
-            history_manager=self.history_manager,
-            op=op,
-        )
-        self._op_worker.progress_updated.connect(self._on_op_progress)
-        self._op_worker.operation_result.connect(lambda result: self._on_op_finished(result, allow_queue_continue))
-        self._op_worker.start()
+        self.operation_flow_controller.start_operation(self, op, allow_queue_continue=allow_queue_continue)
 
     def _cancel_operation(self):
-        try:
-            if self._op_worker:
-                self._op_worker.stop()
-        except Exception:
-            pass
+        self.operation_flow_controller.cancel_operation(self)
 
     def _on_op_progress(self, val: int, msg: str):
-        try:
-            if self._op_progress:
-                self._op_progress.setValue(int(val))
-                self._op_progress.setLabelText(str(msg or ""))
-        except Exception:
-            pass
+        self.operation_flow_controller.on_progress(self, val, msg)
 
     def _on_op_finished(self, result, allow_queue_continue: bool):
-        try:
-            if self._op_progress:
-                self._op_progress.setValue(100)
-                self._op_progress.close()
-        except Exception:
-            pass
-        self._op_progress = None
-
-        try:
-            self._op_worker = None
-        except Exception:
-            pass
-
-        # Refresh tools lists after any op.
-        try:
-            if result and getattr(result, "op_type", "") in ("delete_quarantine", "hardlink_consolidate", "purge"):
-                self._apply_quarantine_retention()
-            self.refresh_quarantine_list()
-            self.refresh_operations_list()
-        except Exception:
-            pass
-
-        # Sync scan results for destructive operations.
-        try:
-            if result and getattr(result, "op_type", "") in ("delete_quarantine", "delete_trash", "hardlink_consolidate"):
-                removed = list(getattr(result, "succeeded", []) or [])
-                if removed:
-                    self._remove_paths_from_results(removed)
-                    selected = self.cache_manager.load_selected_paths(self.current_session_id) if self.current_session_id else []
-                    self._render_results(self.scan_results, selected_paths=list(selected))
-                    if self.current_session_id:
-                        self.cache_manager.save_scan_results(self.current_session_id, self.scan_results)
-        except Exception:
-            pass
-
-        # Show message
-        try:
-            msg = getattr(result, "message", "") or strings.tr("status_done")
-            self.status_label.setText(msg)
-            if hasattr(self, "toast_manager") and self.toast_manager:
-                if getattr(result, "status", "") == "failed":
-                    self.toast_manager.error(msg, duration=3500)
-                elif getattr(result, "status", "") == "partial":
-                    self.toast_manager.warning(msg, duration=3500)
-                else:
-                    self.toast_manager.success(msg, duration=2500)
-        except Exception:
-            pass
-
-        # Offer retry for failures when not queued.
-        try:
-            failed = list(getattr(result, "failed", []) or [])
-            if failed and not allow_queue_continue:
-                res = QMessageBox.question(
-                    self,
-                    strings.tr("app_title"),
-                    strings.tr("msg_retry_failed").format(len(failed)),
-                    QMessageBox.Yes | QMessageBox.No,
-                )
-                if res == QMessageBox.Yes:
-                    retry_op = self.ops_controller.build_retry_operation(result)
-                    if retry_op:
-                        self._start_operation(retry_op)
-                        return
-        except Exception:
-            pass
-
-        # Continue queued operations if requested and not cancelled.
-        if allow_queue_continue and self._op_queue and getattr(result, "status", "") not in ("cancelled", "failed"):
-            self._start_next_operation()
-        else:
-            self._op_queue.clear()
+        self.operation_flow_controller.on_finished(self, result, allow_queue_continue)
     
     def _on_page_changed(self, page_name: str):
-        """Handle sidebar navigation - switch pages and show toast"""
-        try:
-            # Page index mapping
-            page_indices = {
-                "scan": 0,
-                "results": 1,
-                "tools": 2,
-                "settings": 3,
-            }
-            
-            page_names = {
-                "scan": strings.tr("nav_scan"),
-                "results": strings.tr("nav_results"),
-                "tools": strings.tr("nav_tools"),
-                "settings": strings.tr("nav_settings"),
-            }
-            
-            if page_name in page_indices:
-                # Switch to the selected page
-                self.page_stack.setCurrentIndex(page_indices[page_name])
-                if page_name == "tools":
-                    try:
-                        self.refresh_quarantine_list()
-                        self.refresh_operations_list()
-                    except Exception:
-                        pass
-                
-                # Update status label
-                if page_name in page_names:
-                    # Don't overwrite scan progress messages while scanning.
-                    is_scanning = bool(getattr(self, "btn_stop_scan", None) and self.btn_stop_scan.isEnabled())
-                    if not is_scanning:
-                        self.status_label.setText(page_names[page_name])
-                
-                # Show toast notification
-                if hasattr(self, 'toast_manager') and self.toast_manager:
-                    self.toast_manager.info(page_names[page_name], duration=2000)
-                    
-        except Exception as e:
-            print(f"Navigation error: {page_name} - {e}")
+        self.navigation_controller.on_page_changed(self, page_name)
 
     def _navigate_to(self, page_name: str):
-        if hasattr(self, "sidebar"):
-            self.sidebar.set_page(page_name)
-        self._on_page_changed(page_name)
+        self.navigation_controller.navigate_to(self, page_name)
 
 

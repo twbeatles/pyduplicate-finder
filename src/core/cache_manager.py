@@ -1,4 +1,4 @@
-import sqlite3
+﻿import sqlite3
 import os
 import platform
 import threading
@@ -6,7 +6,10 @@ import threading
 import json
 import hashlib
 import time
+import logging
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 class CacheManager:
     def __init__(self, db_path=None):
@@ -336,7 +339,7 @@ class CacheManager:
                         "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '4')"
                     )
         except Exception as e:
-            print(f"DB Init Error: {e}")
+            logger.exception("DB Init Error")
 
     def _normalize_config(self, config: dict[str, Any]) -> str:
         try:
@@ -371,7 +374,7 @@ class CacheManager:
                 """, (status, stage, config_json, config_hash, now, now, 0, ""))
                 return int(cursor.lastrowid or 0)
         except Exception as e:
-            print(f"Create session error: {e}")
+            logger.exception("Create session error")
             return 0
 
     def find_resumable_session(self, config: dict[str, Any]):
@@ -402,7 +405,7 @@ class CacheManager:
                     "progress_message": row[7],
                 }
         except Exception as e:
-            print(f"Find session error: {e}")
+            logger.exception("Find session error")
         return None
 
     def get_latest_completed_session_by_hash(self, config_hash: str):
@@ -434,7 +437,7 @@ class CacheManager:
                     "progress_message": row[7],
                 }
         except Exception as e:
-            print(f"Get latest completed session error: {e}")
+            logger.exception("Get latest completed session error")
         return None
 
     def list_completed_sessions_by_hash(self, config_hash: str, limit: int = 20):
@@ -469,7 +472,7 @@ class CacheManager:
                     }
                 )
         except Exception as e:
-            print(f"List completed sessions error: {e}")
+            logger.exception("List completed sessions error")
         return out
 
     def get_latest_session(self):
@@ -495,7 +498,7 @@ class CacheManager:
                     "progress_message": row[7],
                 }
         except Exception as e:
-            print(f"Get latest session error: {e}")
+            logger.exception("Get latest session error")
         return None
 
     def cleanup_old_sessions(self, keep_latest: int = 5):
@@ -523,7 +526,7 @@ class CacheManager:
                 conn.execute(f"DELETE FROM scan_selected WHERE session_id NOT IN ({placeholders})", keep_ids)
                 conn.execute(f"DELETE FROM scan_sessions WHERE id NOT IN ({placeholders})", keep_ids)
         except Exception as e:
-            print(f"Cleanup sessions error: {e}")
+            logger.exception("Cleanup sessions error")
 
     def update_scan_session(self, session_id: int, **fields):
         if not session_id or not fields:
@@ -544,7 +547,7 @@ class CacheManager:
                     values
                 )
         except Exception as e:
-            print(f"Update session error: {e}")
+            logger.exception("Update session error")
 
     def save_scan_files_batch(self, session_id: int, entries):
         if not session_id or not entries:
@@ -558,7 +561,7 @@ class CacheManager:
                     VALUES (?, ?, ?, ?)
                 """, [(session_id, p, s, m) for p, s, m in entries])
         except Exception as e:
-            print(f"Save scan files error: {e}")
+            logger.exception("Save scan files error")
 
     def save_scan_dirs_batch(self, session_id: int, entries):
         if not session_id or not entries:
@@ -574,7 +577,7 @@ class CacheManager:
                     [(session_id, p, m) for p, m in entries if p],
                 )
         except Exception as e:
-            print(f"Save scan dirs error: {e}")
+            logger.exception("Save scan dirs error")
 
     def load_scan_dirs(self, session_id: int):
         out = {}
@@ -587,7 +590,7 @@ class CacheManager:
             for p, m in cursor.fetchall():
                 out[p] = m
         except Exception as e:
-            print(f"Load scan dirs error: {e}")
+            logger.exception("Load scan dirs error")
         return out
 
     def clear_scan_dirs(self, session_id: int):
@@ -598,7 +601,7 @@ class CacheManager:
             with conn:
                 conn.execute("DELETE FROM scan_dirs WHERE session_id=?", (session_id,))
         except Exception as e:
-            print(f"Clear scan dirs error: {e}")
+            logger.exception("Clear scan dirs error")
 
     def save_scan_folder_sigs_batch(self, session_id: int, entries):
         """
@@ -622,7 +625,7 @@ class CacheManager:
                     ],
                 )
         except Exception as e:
-            print(f"Save scan folder sigs error: {e}")
+            logger.exception("Save scan folder sigs error")
 
     def load_scan_files(self, session_id: int):
         try:
@@ -633,7 +636,7 @@ class CacheManager:
             """, (session_id,))
             return cursor.fetchall()
         except Exception as e:
-            print(f"Load scan files error: {e}")
+            logger.exception("Load scan files error")
             return []
 
     def has_scan_files(self, session_id: int) -> bool:
@@ -662,7 +665,7 @@ class CacheManager:
                 for row in rows:
                     yield row
         except Exception as e:
-            print(f"Iter scan files error: {e}")
+            logger.exception("Iter scan files error")
 
     def load_scan_hashes_for_paths(self, session_id: int, paths, hash_type: Optional[str] = None):
         """
@@ -705,7 +708,7 @@ class CacheManager:
                 for path, size, mtime, htype, hval in cursor.fetchall():
                     result[(path, htype)] = (hval, size, mtime)
         except Exception as e:
-            print(f"Load scan hashes for paths error: {e}")
+            logger.exception("Load scan hashes for paths error")
 
         return result
 
@@ -717,7 +720,7 @@ class CacheManager:
             with conn:
                 conn.execute("DELETE FROM scan_files WHERE session_id=?", (session_id,))
         except Exception as e:
-            print(f"Clear scan files error: {e}")
+            logger.exception("Clear scan files error")
 
     def remove_scan_files(self, session_id: int, paths):
         if not session_id or not paths:
@@ -730,7 +733,7 @@ class CacheManager:
                     [(session_id, p) for p in paths]
                 )
         except Exception as e:
-            print(f"Remove scan files error: {e}")
+            logger.exception("Remove scan files error")
 
     def save_scan_hashes_batch(self, session_id: int, entries):
         if not session_id or not entries:
@@ -744,7 +747,7 @@ class CacheManager:
                     VALUES (?, ?, ?, ?, ?, ?)
                 """, [(session_id, p, s, m, t, v) for p, s, m, t, v in entries])
         except Exception as e:
-            print(f"Save scan hashes error: {e}")
+            logger.exception("Save scan hashes error")
 
     def load_scan_hashes(self, session_id: int, hash_type: Optional[str] = None):
         result = {}
@@ -766,7 +769,7 @@ class CacheManager:
             for path, size, mtime, htype, hval in cursor.fetchall():
                 result[(path, htype)] = (hval, size, mtime)
         except Exception as e:
-            print(f"Load scan hashes error: {e}")
+            logger.exception("Load scan hashes error")
         return result
 
     def clear_scan_hashes(self, session_id: int):
@@ -777,7 +780,7 @@ class CacheManager:
             with conn:
                 conn.execute("DELETE FROM scan_hashes WHERE session_id=?", (session_id,))
         except Exception as e:
-            print(f"Clear scan hashes error: {e}")
+            logger.exception("Clear scan hashes error")
 
     def clear_scan_results(self, session_id: int):
         if not session_id:
@@ -787,7 +790,7 @@ class CacheManager:
             with conn:
                 conn.execute("DELETE FROM scan_results WHERE session_id=?", (session_id,))
         except Exception as e:
-            print(f"Clear scan results error: {e}")
+            logger.exception("Clear scan results error")
 
     def save_scan_results(self, session_id: int, results: dict[Any, list[str]]):
         if not session_id:
@@ -807,7 +810,7 @@ class CacheManager:
                         VALUES (?, ?, ?)
                     """, entries)
         except Exception as e:
-            print(f"Save scan results error: {e}")
+            logger.exception("Save scan results error")
 
     def load_scan_results(self, session_id: int):
         results = {}
@@ -828,7 +831,7 @@ class CacheManager:
                     key = (group_key,)
                 results.setdefault(key, []).append(path)
         except Exception as e:
-            print(f"Load scan results error: {e}")
+            logger.exception("Load scan results error")
         return results
 
     def save_selected_paths(self, session_id: int, paths):
@@ -844,7 +847,7 @@ class CacheManager:
                         VALUES (?, ?, 1)
                     """, [(session_id, p) for p in paths])
         except Exception as e:
-            print(f"Save selected paths error: {e}")
+            logger.exception("Save selected paths error")
 
     def save_selected_paths_delta(self, session_id: int, add_paths=None, remove_paths=None):
         if not session_id:
@@ -870,7 +873,7 @@ class CacheManager:
                         [(session_id, p) for p in remove_values],
                     )
         except Exception as e:
-            print(f"Save selected delta error: {e}")
+            logger.exception("Save selected delta error")
 
     def load_selected_paths(self, session_id: int):
         if not session_id:
@@ -884,7 +887,7 @@ class CacheManager:
             """, (session_id,))
             return {row[0] for row in cursor.fetchall()}
         except Exception as e:
-            print(f"Load selected paths error: {e}")
+            logger.exception("Load selected paths error")
             return set()
 
     def clear_selected_paths(self, session_id: int):
@@ -895,7 +898,7 @@ class CacheManager:
             with conn:
                 conn.execute("DELETE FROM scan_selected WHERE session_id=?", (session_id,))
         except Exception as e:
-            print(f"Clear selected paths error: {e}")
+            logger.exception("Clear selected paths error")
 
     # === Operations / Quarantine APIs ===
 
@@ -916,7 +919,7 @@ class CacheManager:
                 )
                 return int(cur.lastrowid or 0)
         except Exception as e:
-            print(f"Create operation error: {e}")
+            logger.exception("Create operation error")
             return 0
 
     def append_operation_items(self, op_id: int, items_batch):
@@ -942,7 +945,7 @@ class CacheManager:
                     rows,
                 )
         except Exception as e:
-            print(f"Append operation items error: {e}")
+            logger.exception("Append operation items error")
 
     def finish_operation(
         self,
@@ -966,7 +969,7 @@ class CacheManager:
                     (status, message or "", int(bytes_total or 0), int(bytes_saved_est or 0), op_id),
                 )
         except Exception as e:
-            print(f"Finish operation error: {e}")
+            logger.exception("Finish operation error")
 
     def list_operations(self, limit: int = 50, offset: int = 0):
         try:
@@ -997,7 +1000,7 @@ class CacheManager:
                 )
             return out
         except Exception as e:
-            print(f"List operations error: {e}")
+            logger.exception("List operations error")
             return []
 
     def get_operation_items(self, op_id: int):
@@ -1031,7 +1034,7 @@ class CacheManager:
                 )
             return out
         except Exception as e:
-            print(f"Get operation items error: {e}")
+            logger.exception("Get operation items error")
             return []
 
     def insert_quarantine_item(
@@ -1056,7 +1059,7 @@ class CacheManager:
                 )
                 return int(cur.lastrowid or 0)
         except Exception as e:
-            print(f"Insert quarantine item error: {e}")
+            logger.exception("Insert quarantine item error")
             return 0
 
     def list_quarantine_items(
@@ -1103,7 +1106,7 @@ class CacheManager:
                 )
             return out
         except Exception as e:
-            print(f"List quarantine items error: {e}")
+            logger.exception("List quarantine items error")
             return []
 
     def update_quarantine_item_status(self, item_id: int, status: str) -> None:
@@ -1114,7 +1117,7 @@ class CacheManager:
             with conn:
                 conn.execute("UPDATE quarantine_items SET status=? WHERE id=?", (status, int(item_id)))
         except Exception as e:
-            print(f"Update quarantine status error: {e}")
+            logger.exception("Update quarantine status error")
 
     def get_quarantine_item(self, item_id: int):
         if not item_id:
@@ -1143,7 +1146,7 @@ class CacheManager:
                 "status": row[6],
             }
         except Exception as e:
-            print(f"Get quarantine item error: {e}")
+            logger.exception("Get quarantine item error")
             return None
 
     def get_quarantine_item_by_path(self, quarantine_path: str):
@@ -1173,7 +1176,7 @@ class CacheManager:
                 "status": row[6],
             }
         except Exception as e:
-            print(f"Get quarantine item by path error: {e}")
+            logger.exception("Get quarantine item by path error")
             return None
 
     def get_quarantine_items_by_ids(self, item_ids: list[int]):
@@ -1207,7 +1210,7 @@ class CacheManager:
                         "status": row[6],
                     }
         except Exception as e:
-            print(f"Get quarantine items by ids error: {e}")
+            logger.exception("Get quarantine items by ids error")
         return out
 
     def get_cached_hash(self, path, size, mtime):
@@ -1262,7 +1265,7 @@ class CacheManager:
                 """, (path, size, mtime, current_partial, current_full, time.time()))
                 
         except Exception as e:
-            print(f"Cache Update Error: {e}")
+            logger.exception("Cache Update Error")
 
     def update_cache_batch(self, entries):
         """
@@ -1301,7 +1304,7 @@ class CacheManager:
                         rows,
                     )
         except Exception as e:
-            print(f"Batch Update Error: {e}")
+            logger.exception("Batch Update Error")
 
     def cleanup_old_entries(self, days_old: int = 30) -> int:
         """
@@ -1326,11 +1329,11 @@ class CacheManager:
                 if count > 0:
                     cursor.execute("DELETE FROM file_hashes WHERE last_seen < ?", (cutoff_time,))
                     conn.commit()
-                    print(f"Cache cleanup: Removed {count} entries older than {days_old} days")
+                    logger.info("Cache cleanup: removed %s entries older than %s days", count, days_old)
                     
                 return count
         except Exception as e:
-            print(f"Cache cleanup error: {e}")
+            logger.exception("Cache cleanup error")
             return 0
 
     # === Scheduler jobs / runs ===
@@ -1388,7 +1391,7 @@ class CacheManager:
                     ),
                 )
         except Exception as e:
-            print(f"Upsert scan job error: {e}")
+            logger.exception("Upsert scan job error")
 
     def get_scan_job(self, name: str):
         if not name:
@@ -1426,7 +1429,7 @@ class CacheManager:
                 "updated_at": row[13],
             }
         except Exception as e:
-            print(f"Get scan job error: {e}")
+            logger.exception("Get scan job error")
         return None
 
     def update_scan_job_runtime(
@@ -1462,7 +1465,7 @@ class CacheManager:
             with conn:
                 conn.execute(f"UPDATE scan_jobs SET {', '.join(fields)} WHERE name=?", values)
         except Exception as e:
-            print(f"Update scan job runtime error: {e}")
+            logger.exception("Update scan job runtime error")
 
     def create_scan_job_run(self, job_name: str, *, session_id: Optional[int] = None, status: str = "running") -> int:
         if not job_name:
@@ -1481,8 +1484,21 @@ class CacheManager:
                 )
                 return int(cursor.lastrowid or 0)
         except Exception as e:
-            print(f"Create scan job run error: {e}")
+            logger.exception("Create scan job run error")
             return 0
+
+    def update_scan_job_run_session(self, run_id: int, *, session_id: Optional[int]) -> None:
+        if not run_id:
+            return
+        try:
+            conn = self._get_conn()
+            with conn:
+                conn.execute(
+                    "UPDATE scan_job_runs SET session_id=? WHERE id=?",
+                    (int(session_id or 0), int(run_id)),
+                )
+        except Exception as e:
+            logger.exception("Update scan job run session error")
 
     def finish_scan_job_run(
         self,
@@ -1519,7 +1535,7 @@ class CacheManager:
                     ),
                 )
         except Exception as e:
-            print(f"Finish scan job run error: {e}")
+            logger.exception("Finish scan job run error")
 
     def close(self):
         """Close the current thread's database connection."""
@@ -1550,4 +1566,5 @@ class CacheManager:
             self.close_all()
         except:
             pass
+
 

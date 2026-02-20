@@ -21,7 +21,7 @@
 - **Safe Delete & Robust Undo**: Asynchronous delete/restore operations keep UI responsive when processing thousands of files.
 - **Recycle Bin Option**: Move files to system Recycle Bin instead of permanent deletion.
 - **File Lock Detection**: Automatically detects files in use by other processes before deletion.
-- **Auto Cleanup**: Temporary folders are automatically cleaned on program exit (atexit handler).
+- **Persistent Quarantine + Retention**: Undoable deletes are kept in persistent Quarantine and cleaned by configured retention rules (age/size).
 
 ### 🎨 Modern UI & User Experience
 - **Multiple Scan Modes**: 
@@ -67,6 +67,12 @@ duplicate_finder/
 │   │   ├── main_window.py       # Main window
 │   │   ├── theme.py             # Theme stylesheets
 │   │   ├── empty_folder_dialog.py
+│   │   ├── controllers/         # UI orchestration controllers
+│   │   │   ├── scan_controller.py
+│   │   │   ├── scheduler_controller.py
+│   │   │   ├── ops_controller.py
+│   │   │   ├── operation_flow_controller.py
+│   │   │   └── navigation_controller.py
 │   │   ├── components/
 │   │   │   ├── results_tree.py  # Results tree widget
 │   │   │   ├── sidebar.py       # Sidebar navigation
@@ -212,7 +218,7 @@ Contributions are welcome! Performance improvements and bug reports are always a
 ## 📝 License
 MIT License
 
-## ✅ Implementation Status (2026-02-18)
+## ✅ Implementation Status (2026-02-20)
 
 The following items are now implemented in code:
 
@@ -223,7 +229,10 @@ The following items are now implemented in code:
 - i18n cleanup: core hardcoded messages (Undo/Redo/Quarantine/History) migrated to translation keys
 - Scheduled scan (baseline): daily/weekly scheduling from Settings with optional JSON/CSV auto-export
 - Results/export enhancements: better `FOLDER_DUP` labels and CSV columns `group_kind`, `bytes_reclaim_est`, `baseline_delta`
-- Initial architecture split: added `src/core/scan_engine.py`, `src/ui/controllers/scan_controller.py`, `src/ui/controllers/ops_controller.py`
+- Architecture split phase 2:
+  - `src/core/scan_engine.py` + `src/ui/controllers/scan_controller.py` + `src/ui/controllers/scheduler_controller.py`
+  - Operation flow extracted to `src/ui/controllers/operation_flow_controller.py`
+  - Navigation flow extracted to `src/ui/controllers/navigation_controller.py`
 
 Planned follow-up refactors:
 

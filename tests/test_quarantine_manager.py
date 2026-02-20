@@ -9,6 +9,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from src.core.cache_manager import CacheManager
 from src.core.quarantine_manager import QuarantineManager
+from src.core.history import HistoryManager
+from src.utils.i18n import strings
 
 
 class TestQuarantineManager(unittest.TestCase):
@@ -18,6 +20,7 @@ class TestQuarantineManager(unittest.TestCase):
         self.qdir = os.path.join(self.tmp, "quarantine")
         self.cache = CacheManager(db_path=self.db_path)
         self.qm = QuarantineManager(self.cache, quarantine_dir=self.qdir)
+        self.history = HistoryManager(cache_manager=self.cache, quarantine_manager=self.qm)
 
     def tearDown(self):
         try:
@@ -65,3 +68,25 @@ class TestQuarantineManager(unittest.TestCase):
         purged = self.qm.apply_retention(max_days=9999, max_bytes=1024)  # keep only 1 file worth
         self.assertGreaterEqual(len(purged), 1)
 
+    def test_history_delete_reflects_cancelled_state(self):
+        files = []
+        for i in range(2):
+            p = os.path.join(self.tmp, f"cancel_{i}.txt")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write("x")
+            files.append(p)
+
+        calls = {"n": 0}
+
+        def check_cancel():
+            calls["n"] += 1
+            return calls["n"] > 1
+
+        ok, msg = self.history.execute_delete(files, check_cancel=check_cancel)
+        self.assertTrue(ok)
+        self.assertIn(strings.tr("op_cancelled"), msg)
+
+        items = self.cache.list_quarantine_items(status_filter="quarantined")
+        self.assertEqual(len(items), 1)
+        self.assertFalse(os.path.exists(files[0]))
+        self.assertTrue(os.path.exists(files[1]))

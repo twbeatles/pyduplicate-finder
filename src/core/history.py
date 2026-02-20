@@ -150,12 +150,25 @@ class HistoryManager:
         total_files = len(file_paths)
         cancelled = False
 
+        def _wrapped_cancel() -> bool:
+            nonlocal cancelled
+            if not check_cancel:
+                return False
+            try:
+                if check_cancel():
+                    cancelled = True
+                    return True
+            except Exception:
+                cancelled = True
+                return True
+            return False
+
         moved, failures = self.quarantine_manager.move_to_quarantine(
             list(file_paths or []),
             progress_callback=(
                 (lambda cur, tot, _msg: progress_callback(cur, tot)) if progress_callback else None
             ),
-            check_cancel=check_cancel,
+            check_cancel=_wrapped_cancel,
         )
 
         for m in moved:
