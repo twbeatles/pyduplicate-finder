@@ -98,6 +98,7 @@ def export_scan_results_csv(
     scan_results: Dict,
     out_path: str,
     selected_paths: Optional[Iterable[str]] = None,
+    file_meta: Optional[Dict[str, tuple[int, float]]] = None,
 ) -> Tuple[int, int]:
     """
     Export scan results to CSV robustly across group key shapes.
@@ -105,6 +106,7 @@ def export_scan_results_csv(
     Returns: (groups_written, rows_written)
     """
     selected_set = set(selected_paths or [])
+    meta_map = dict(file_meta or {})
 
     groups = 0
     rows = 0
@@ -140,8 +142,16 @@ def export_scan_results_csv(
                         ext = os.path.splitext(p)[1]
                     except Exception:
                         ext = ""
+                    meta = meta_map.get(p)
+                    if meta and len(meta) >= 2:
+                        try:
+                            size = str(int(meta[0] or 0))
+                            mtime = str(float(meta[1] or 0.0))
+                        except Exception:
+                            size = ""
+                            mtime = ""
                     try:
-                        if os.path.exists(p) and (not os.path.isdir(p)):
+                        if not size and os.path.exists(p) and (not os.path.isdir(p)):
                             size = str(os.path.getsize(p))
                             mtime = str(os.path.getmtime(p))
                     except Exception:

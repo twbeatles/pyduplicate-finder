@@ -155,3 +155,27 @@ duplicate_finder/
 - `src/ui/controllers/navigation_controller.py` 추가: 사이드바 네비게이션/페이지 전환 로직 분리.
 - `cache_manager` 스키마 버전 v4: `scan_jobs`, `scan_job_runs` 테이블 추가.
 - 스캔 UI에 `mixed_mode`, `detect_duplicate_folders`, `incremental_rescan`, `baseline_session` 옵션 노출.
+
+## Update Memo (2026-02-21)
+
+- Added controller split for performance-sensitive UI paths:
+  - `src/ui/controllers/results_controller.py`
+  - `src/ui/controllers/preview_controller.py`
+- `ResultsTreeWidget` now supports delta selection signal:
+  - `files_checked_delta(added, removed, selected_count)`
+  - Existing `files_checked(list)` remains for compatibility.
+- Preview path now uses async loading + small LRU cache to reduce UI stalls on rapid selection changes.
+- Scanner improvements:
+  - pre-compiled include/exclude matchers
+  - throttled session progress DB writes (separate from UI progress throttle)
+  - deduplicated session hash batch writes
+  - folder-duplicate full hash path integrated with parallel hash pipeline
+  - final `file_meta` trimmed to result-referenced paths
+- Operation queue reduced repeated stat calls in trash/hardlink flows and unified throttled progress behavior.
+- CSV export now supports optional `file_meta` passthrough to avoid redundant filesystem stats.
+- Added deterministic performance regression tests and a local benchmark runner:
+  - `tests/test_scanner_perf_path.py`
+  - `tests/test_results_tree_perf.py`
+  - `tests/test_exporting.py`
+  - `tests/test_main_window_selection_perf.py`
+  - `tests/benchmarks/bench_perf.py`

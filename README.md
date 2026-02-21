@@ -252,3 +252,22 @@ MIT License
 - Results tree rendering accepts injected metadata and applies filtering inside the widget for faster UI response.
 - Selection persistence now uses delta upsert/delete instead of full-table rewrite on each change.
 - Operation restore/purge flows now use batch quarantine item fetch with throttled progress updates.
+
+## Performance Refactor Notes (2026-02-21)
+
+- Added delta selection signal on results tree (`files_checked_delta`) while keeping existing `files_checked` behavior.
+- Improved large-result interaction via dynamic batch rendering, filter short-circuit, and cached group summaries.
+- Added controller split for maintainability/performance: `results_controller.py`, `preview_controller.py`.
+- Added async preview loading + LRU cache to reduce UI freeze when moving quickly between items.
+- Optimized scanner pattern matching, session progress DB write throttling, hash session batch dedupe, and folder-duplicate full-hash path.
+- Reduced memory peak by trimming `file_meta` to final-result paths.
+- Optimized operation queue progress/stat calls and CSV export path reuse with optional `file_meta`.
+
+## Benchmark & Regression Guardrails
+
+- Deterministic perf regression tests were added in `tests/`.
+- Local benchmark runner:
+
+```bash
+python tests/benchmarks/bench_perf.py --files 200000 --groups 5000 --output bench_perf.json
+```

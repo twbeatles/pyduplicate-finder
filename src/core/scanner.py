@@ -58,6 +58,8 @@ class ScanWorker(QThread):
         self.byte_compare = byte_compare
         self.exclude_patterns = exclude_patterns or []  # 제외 패턴 목록
         self.include_patterns = include_patterns or []  # 포함 패턴 목록 (optional)
+        self._exclude_matchers = self._prepare_patterns(self.exclude_patterns)
+        self._include_matchers = self._prepare_patterns(self.include_patterns)
         self.skip_hidden = bool(skip_hidden)
         self.follow_symlinks = bool(follow_symlinks)
         self.detect_duplicate_folders = bool(detect_duplicate_folders)
@@ -82,6 +84,8 @@ class ScanWorker(QThread):
         # Progress throttling
         self._last_progress_update_time = 0
         self._progress_update_interval = 0.1  # 100ms
+        self._last_session_progress_time = 0
+        self._session_progress_update_interval = 0.8
         self._progress_mutex = QMutex()
         self._stage = None
 
@@ -151,33 +155,40 @@ class ScanWorker(QThread):
             return normalized.lower()
         return normalized
 
-    def _matches_any_pattern(self, path: str, patterns) -> bool:
-        if not patterns:
+    def _prepare_patterns(self, patterns):
+        prepared = []
+        for pattern in patterns or []:
+            if not pattern:
+                continue
+            pattern_str = str(pattern)
+            name_match = pattern_str.lower() if os.name == "nt" else pattern_str
+            path_match = self._normalize_match(pattern_str)
+            prepared.append((name_match, path_match))
+        return prepared
+
+    def _matches_any_pattern(self, path: str, matchers) -> bool:
+        if not matchers:
             return False
         name = os.path.basename(path)
         name_match = name.lower() if os.name == "nt" else name
         path_match = self._normalize_match(path)
 
-        for pattern in patterns:
-            if not pattern:
-                continue
-            pattern_str = str(pattern)
-            pattern_match = pattern_str.lower() if os.name == "nt" else pattern_str
-            if fnmatch.fnmatchcase(name_match, pattern_match):
+        for name_pat, path_pat in matchers:
+            if fnmatch.fnmatchcase(name_match, name_pat):
                 return True
-            if fnmatch.fnmatchcase(path_match, self._normalize_match(pattern_str)):
+            if fnmatch.fnmatchcase(path_match, path_pat):
                 return True
         return False
 
     def _should_exclude(self, path: str) -> bool:
-        """제외 패턴과 일치하는지 확인"""
-        return self._matches_any_pattern(path, self.exclude_patterns)
+        """Exclude check."""
+        return self._matches_any_pattern(path, self._exclude_matchers)
 
     def _should_include(self, path: str) -> bool:
-        """포함 패턴이 설정된 경우, 포함 여부 확인 (파일 기준)."""
-        if not self.include_patterns:
+        """Include check (file-level)."""
+        if not self._include_matchers:
             return True
-        return self._matches_any_pattern(path, self.include_patterns)
+        return self._matches_any_pattern(path, self._include_matchers)
 
     def _is_hidden_or_system_name(self, name: str) -> bool:
         if not name:
@@ -259,15 +270,21 @@ class ScanWorker(QThread):
 
         current_time = time.time()
         with QMutexLocker(self._progress_mutex):
-            if force or (current_time - self._last_progress_update_time >= self._progress_update_interval):
+            should_emit_ui = force or (current_time - self._last_progress_update_time >= self._progress_update_interval)
+            if should_emit_ui:
                 self.progress_updated.emit(value, message)
                 self._last_progress_update_time = current_time
-                if self.session_id:
+            if self.session_id:
+                should_persist = force or (
+                    current_time - self._last_session_progress_time >= self._session_progress_update_interval
+                )
+                if should_persist:
                     self.cache_manager.update_scan_session(
                         self.session_id,
                         progress=value,
                         progress_message=message
                     )
+                    self._last_session_progress_time = current_time
 
     def get_file_hash(self, filepath, size=None, mtime=None, block_size=BUFFER_SIZE, partial=False):
         """
@@ -673,7 +690,7 @@ class ScanWorker(QThread):
 
         progress_step = max(10, min(500, total // 200 if total >= 200 else 10))
         db_batch = []
-        session_hash_batch = []
+        session_hash_batch = {}
 
         def _emit_hash_progress(force=False):
             if force or (processed % progress_step == 0) or processed == total:
@@ -743,7 +760,7 @@ class ScanWorker(QThread):
                         if digest:
                             hash_map[(size, digest, type_str)].append(filepath)
                             if self.session_id:
-                                session_hash_batch.append((filepath, size, mtime, type_str, digest))
+                                session_hash_batch[(filepath, type_str)] = (filepath, size, mtime, type_str, digest)
                         processed += 1
                         _emit_hash_progress()
                         return True
@@ -774,7 +791,7 @@ class ScanWorker(QThread):
                                 type_str = "PARTIAL" if partial else "FULL"
                                 hash_map[(size, digest, type_str)].append(filepath)
                                 if self.session_id:
-                                    session_hash_batch.append((filepath, size, mtime, type_str, digest))
+                                    session_hash_batch[(filepath, type_str)] = (filepath, size, mtime, type_str, digest)
                                 if is_newly_calculated:
                                     db_batch.append(
                                         (
@@ -792,7 +809,7 @@ class ScanWorker(QThread):
                             self.cache_manager.update_cache_batch(db_batch)
                             db_batch.clear()
                         if self.session_id and len(session_hash_batch) >= SESSION_BATCH_SIZE:
-                            self.cache_manager.save_scan_hashes_batch(self.session_id, session_hash_batch)
+                            self.cache_manager.save_scan_hashes_batch(self.session_id, list(session_hash_batch.values()))
                             session_hash_batch.clear()
 
                         processed += 1
@@ -802,7 +819,7 @@ class ScanWorker(QThread):
         if db_batch:
             self.cache_manager.update_cache_batch(db_batch)
         if self.session_id and session_hash_batch:
-            self.cache_manager.save_scan_hashes_batch(self.session_id, session_hash_batch)
+            self.cache_manager.save_scan_hashes_batch(self.session_id, list(session_hash_batch.values()))
         _emit_hash_progress(force=True)
         return hash_map
 
@@ -837,8 +854,6 @@ class ScanWorker(QThread):
                     )
                 self.scan_cancelled.emit()
                 return
-            if self.session_id:
-                self.cache_manager.update_scan_session(self.session_id, stage="collected")
             self._set_stage("collected")
 
             final_duplicates = {}
@@ -899,8 +914,6 @@ class ScanWorker(QThread):
                             )
                         self.scan_cancelled.emit()
                         return
-                    if self.session_id:
-                        self.cache_manager.update_scan_session(self.session_id, stage="hashing")
                     self._set_stage("hashing")
 
                     # 4. Full Scan & Byte Compare Resolution
@@ -950,6 +963,7 @@ class ScanWorker(QThread):
                     final_duplicates.update(similar_groups)
 
             self._emit_progress(100, f"{strings.tr('status_done')}! ({time.time() - start_time:.2f}s)", force=True)
+            self._trim_file_meta_for_results(final_duplicates)
             self.latest_file_meta = dict(self._file_meta or {})
             if self.session_id:
                 self.cache_manager.update_scan_session(
@@ -1050,7 +1064,7 @@ class ScanWorker(QThread):
                     image_files,
                     hash_type="PHASH",
                 )
-            session_hash_batch = []
+            session_hash_batch = {}
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                 futures = {}
@@ -1081,7 +1095,7 @@ class ScanWorker(QThread):
                         if h:
                             hash_results[path] = h
                             if self.session_id:
-                                session_hash_batch.append((path, size, mtime, "PHASH", h))
+                                session_hash_batch[(path, "PHASH")] = (path, size, mtime, "PHASH", h)
                         processed += 1
                         if processed % 10 == 0:
                             percent = int((processed / total) * 50) + 10
@@ -1119,7 +1133,7 @@ class ScanWorker(QThread):
                             if hash_val and path:
                                 hash_results[path] = hash_val
                                 if self.session_id:
-                                    session_hash_batch.append((path, size, mtime, "PHASH", hash_val))
+                                    session_hash_batch[(path, "PHASH")] = (path, size, mtime, "PHASH", hash_val)
                         except Exception:
                             pass
 
@@ -1131,7 +1145,7 @@ class ScanWorker(QThread):
                         submit_task()
 
             if self.session_id and session_hash_batch:
-                self.cache_manager.save_scan_hashes_batch(self.session_id, session_hash_batch)
+                self.cache_manager.save_scan_hashes_batch(self.session_id, list(session_hash_batch.values()))
 
             self._set_stage("grouping")
             self._emit_progress(60, strings.tr("status_grouping"), force=True)
@@ -1201,6 +1215,20 @@ class ScanWorker(QThread):
                 self.scan_failed.emit(str(e))
             return {}
 
+    def _trim_file_meta_for_results(self, results):
+        """Keep metadata only for paths that are still part of final result groups."""
+        if not self._file_meta:
+            return
+        needed = set()
+        for paths in (results or {}).values():
+            for p in paths or []:
+                if p:
+                    needed.add(p)
+        if not needed:
+            self._file_meta = {}
+            return
+        self._file_meta = {p: self._file_meta[p] for p in needed if p in self._file_meta}
+
     def _detect_duplicate_folders(self):
         """Detect duplicate directories from collected file metadata."""
         if not self._file_meta:
@@ -1250,6 +1278,27 @@ class ScanWorker(QThread):
             quick_groups[sig_quick].append((dir_path, members, bytes_total, file_count))
             quick_rows.append((dir_path, sig_quick, None, bytes_total, file_count))
 
+        full_hash_by_path = {}
+        full_candidate_map = {}
+        for sig_quick, dirs in quick_groups.items():
+            if len(dirs) < 2:
+                continue
+            for _dir_path, members, _bytes_total, _file_count in dirs:
+                for _rel, size, mtime, abs_path in members:
+                    if abs_path not in full_candidate_map:
+                        full_candidate_map[abs_path] = (int(size), float(mtime))
+
+        if full_candidate_map:
+            full_candidates = [(p, s, m) for p, (s, m) in full_candidate_map.items()]
+            full_hash_groups = self._calculate_hashes_parallel(
+                full_candidates,
+                is_quick_scan=False,
+                seed_session_id=self.base_session_id if self.incremental_rescan else None,
+            )
+            for (_size, digest, _type_str), paths in full_hash_groups.items():
+                for p in paths:
+                    full_hash_by_path[p] = digest
+
         final_groups = {}
         full_rows = []
         for sig_quick, dirs in quick_groups.items():
@@ -1261,7 +1310,7 @@ class ScanWorker(QThread):
                 for rel, size, mtime, abs_path in sorted(members):
                     if self._stop_event.is_set():
                         return {}
-                    full_hash, _is_new = self.get_file_hash(abs_path, size=size, mtime=mtime, partial=False)
+                    full_hash = full_hash_by_path.get(abs_path)
                     if not full_hash:
                         full_hash = f"size:{size}"
                     parts.append(f"{rel}\0{full_hash}")

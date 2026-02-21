@@ -59,3 +59,28 @@ def test_cancelled_run_marks_session_paused(tmp_path, monkeypatch):
             cm.close_all()
         except Exception:
             pass
+
+
+def test_progress_session_writes_are_throttled(monkeypatch):
+    worker = ScanWorker(["."], session_id=1, max_workers=1)
+    calls = {"count": 0}
+
+    def fake_update_scan_session(_sid, **_fields):
+        calls["count"] += 1
+
+    worker.cache_manager.update_scan_session = fake_update_scan_session
+
+    t = {"v": 0.0}
+
+    def fake_time():
+        # Tight loop simulation: 10ms increments.
+        t["v"] += 0.01
+        return t["v"]
+
+    monkeypatch.setattr(scanner_module.time, "time", fake_time)
+
+    for i in range(200):
+        worker._emit_progress(i % 100, "x", force=False)
+
+    # With 0.8s DB throttle and 200*10ms ~= 2s window, writes should stay very low.
+    assert calls["count"] <= 4

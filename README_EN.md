@@ -246,3 +246,30 @@ Planned follow-up refactors:
 - Results tree rendering accepts injected metadata and applies filtering inside the widget for faster UI response.
 - Selection persistence now uses delta upsert/delete instead of full-table rewrite on each change.
 - Operation restore/purge flows now use batch quarantine item fetch with throttled progress updates.
+
+## Performance Refactor Notes (2026-02-21)
+
+- Added `ResultsTreeWidget.files_checked_delta(added, removed, selected_count)` while preserving `files_checked(list)` for compatibility.
+- Results tree now uses dynamic batch rendering, filter short-circuit, and cached group summaries for faster large-result interaction.
+- Introduced `ResultsController` and `PreviewController` to split selection/preview orchestration from `main_window` and reduce UI-thread blocking.
+- Preview loading now uses async workers plus LRU caching to keep scrolling/selection responsive.
+- Scanner now pre-compiles include/exclude matchers, throttles session progress DB writes independently from UI progress emits, and deduplicates session hash batch writes.
+- Folder-duplicate full-hash computation now reuses the parallel hash pipeline instead of per-file synchronous hashing.
+- Final `file_meta` is trimmed to result-referenced paths to lower memory peak on large scans.
+- Operation queue now uses throttled progress for trash deletes and reduces repeated `exists/getsize/getmtime` calls in trash/hardlink paths.
+- CSV export supports optional `file_meta` injection to avoid repeated filesystem stats when metadata is already available.
+
+## Benchmark & Regression Guardrails
+
+- Added deterministic performance regression tests:
+  - `tests/test_scanner_perf_path.py`
+  - `tests/test_results_tree_perf.py`
+  - `tests/test_exporting.py`
+  - `tests/test_main_window_selection_perf.py`
+- Added local benchmark script (JSON output): `tests/benchmarks/bench_perf.py`
+
+Example:
+
+```bash
+python tests/benchmarks/bench_perf.py --files 200000 --groups 5000 --output bench_perf.json
+```

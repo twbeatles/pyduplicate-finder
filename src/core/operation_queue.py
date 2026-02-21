@@ -199,23 +199,26 @@ class OperationWorker(QThread):
         total = len(paths)
         items_batch = []
         ok = 0
+        progress_step = max(1, total // 100) if total else 1
         for idx, p in enumerate(paths):
             if self._check_cancel():
                 break
-            pct = int(((idx + 1) / total) * 100) if total else 0
-            self.progress_updated.emit(pct, f"{idx + 1}/{total}")
-            if not p or not os.path.exists(p) or os.path.isdir(p):
+            self._emit_progress_throttled(idx + 1, total, f"{idx + 1}/{total}", step=progress_step)
+            if not p:
                 res.skipped.append((p, "missing_or_dir"))
                 items_batch.append((p, "delete_trash", "fail", "missing_or_dir", None, None, ""))
                 continue
             try:
-                size = None
-                mtime = None
                 try:
-                    size = os.path.getsize(p)
-                    mtime = os.path.getmtime(p)
+                    st = os.stat(p)
+                    if os.path.isdir(p):
+                        raise OSError("is_dir")
+                    size = int(st.st_size)
+                    mtime = float(st.st_mtime)
                 except Exception:
-                    pass
+                    res.skipped.append((p, "missing_or_dir"))
+                    items_batch.append((p, "delete_trash", "fail", "missing_or_dir", None, None, ""))
+                    continue
                 _send_to_trash(p)
                 ok += 1
                 res.succeeded.append(p)
@@ -378,7 +381,15 @@ class OperationWorker(QThread):
         saved = 0
         progress_step = max(1, total // 100) if total else 1
 
-        if not canonical or not os.path.exists(canonical):
+        if not canonical:
+            res.status = "failed"
+            res.message = strings.tr("op_canonical_missing")
+            return
+        try:
+            _ = os.stat(canonical)
+            if os.path.isdir(canonical):
+                raise OSError("canonical_is_dir")
+        except Exception:
             res.status = "failed"
             res.message = strings.tr("op_canonical_missing")
             return
@@ -389,7 +400,15 @@ class OperationWorker(QThread):
                 break
             self._emit_progress_throttled(idx + 1, total, f"{idx + 1}/{total}", step=progress_step)
 
-            if not t or not os.path.exists(t) or os.path.isdir(t):
+            if not t:
+                res.skipped.append((t, "missing_or_dir"))
+                items_batch.append((t, "hardlinked", "fail", "missing_or_dir", None, None, ""))
+                continue
+            try:
+                target_stat = os.stat(t)
+                if os.path.isdir(t):
+                    raise OSError("target_is_dir")
+            except Exception:
                 res.skipped.append((t, "missing_or_dir"))
                 items_batch.append((t, "hardlinked", "fail", "missing_or_dir", None, None, ""))
                 continue
@@ -404,13 +423,8 @@ class OperationWorker(QThread):
                     continue
 
             try:
-                size = 0
-                mtime = None
-                try:
-                    size = int(os.path.getsize(t))
-                    mtime = float(os.path.getmtime(t))
-                except Exception:
-                    pass
+                size = int(target_stat.st_size)
+                mtime = float(target_stat.st_mtime)
 
                 moved, failures = self.quarantine_manager.move_to_quarantine([t], check_cancel=self._check_cancel)
                 if not moved:

@@ -19,7 +19,7 @@ from src.core.preset_manager import PresetManager, get_default_config
 from src.core.file_lock_checker import FileLockChecker
 from src.core.quarantine_manager import QuarantineManager
 from src.core.preflight import PreflightAnalyzer
-from src.core.selection_rules import parse_rules, decide_keep_delete_for_group
+from src.core.selection_rules import parse_rules
 from src.core.operation_queue import Operation
 from src.core.scan_engine import ScanConfig
 from src.core.scheduler import ScheduleConfig
@@ -44,6 +44,8 @@ from src.ui.controllers.ops_controller import OpsController
 from src.ui.controllers.scheduler_controller import SchedulerController
 from src.ui.controllers.operation_flow_controller import OperationFlowController
 from src.ui.controllers.navigation_controller import NavigationController
+from src.ui.controllers.results_controller import ResultsController, ResultEntry
+from src.ui.controllers.preview_controller import PreviewController
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +89,11 @@ class DuplicateFinderApp(QMainWindow):
         self.scheduler_controller = SchedulerController()
         self.operation_flow_controller = OperationFlowController()
         self.navigation_controller = NavigationController()
+        self.results_controller = ResultsController()
+        self.preview_controller = PreviewController(self)
+        self.preview_controller.preview_ready.connect(self._on_preview_ready)
+        self._preview_request_id = 0
+        self._current_result_meta = {}
 
         self._op_worker = None
         self._op_progress = None
@@ -140,6 +147,11 @@ class DuplicateFinderApp(QMainWindow):
     def closeEvent(self, event):
         self.save_settings()
         self._flush_selected_paths()
+        try:
+            if hasattr(self, "preview_controller") and self.preview_controller:
+                self.preview_controller.close()
+        except Exception:
+            pass
         try:
             if hasattr(self.history_manager, "cleanup"):
                 self.history_manager.cleanup()
@@ -1052,6 +1064,7 @@ class DuplicateFinderApp(QMainWindow):
 
         self.tree_widget.clear()
         self.scan_results = {}
+        self._current_result_meta = {}
         self._set_results_view(False)
         self._update_results_summary(0)
         self.toggle_ui_state(scanning=True)
@@ -1256,91 +1269,91 @@ class DuplicateFinderApp(QMainWindow):
             except Exception:
                 selected = []
 
-            export_scan_results_csv(scan_results=self.scan_results, out_path=path, selected_paths=selected)
+            export_scan_results_csv(
+                scan_results=self.scan_results,
+                out_path=path,
+                selected_paths=selected,
+                file_meta=self._current_result_meta,
+            )
             QMessageBox.information(self, strings.tr("status_done"), strings.tr("status_done") + f":\n{path}")
         except Exception as e:
             QMessageBox.critical(self, strings.tr("app_title"), strings.tr("err_save").format(e))
 
     # --- 기능 구현: 선택 및 삭제 (Undo/Redo 포함) ---
+    def _group_entries_with_items(self, group):
+        entries = []
+        for j in range(group.childCount()):
+            item = group.child(j)
+            path = item.data(0, Qt.UserRole)
+            if not path:
+                continue
+            path = str(path)
+            mtime = 0.0
+            try:
+                mtime = float(item.data(2, Qt.UserRole) or 0.0)
+            except Exception:
+                pass
+            if not mtime:
+                try:
+                    mtime = float((self._current_result_meta.get(path) or (0, 0.0))[1] or 0.0)
+                except Exception:
+                    mtime = 0.0
+            entries.append((ResultEntry(path=path, mtime=mtime), item))
+        return entries
+
+    def _apply_keep_set_to_group(self, group, keep_set: set[str]):
+        for _entry, item in self._group_entries_with_items(group):
+            p = item.data(0, Qt.UserRole)
+            if not p:
+                continue
+            item.setCheckState(0, Qt.Unchecked if str(p) in keep_set else Qt.Checked)
+
+    def _mtime_for_path(self, path: str) -> float:
+        try:
+            meta = self._current_result_meta.get(str(path))
+            if meta and len(meta) >= 2:
+                return float(meta[1] or 0.0)
+        except Exception:
+            pass
+        return 0.0
+
     def select_duplicates_smart(self):
         root = self.tree_widget.invisibleRootItem()
-        for i in range(root.childCount()):
-            group = root.child(i)
-            files = []
-            for j in range(group.childCount()):
-                item = group.child(j)
-                path = item.data(0, Qt.UserRole)
-                try: mtime = os.path.getmtime(path)
-                except: mtime = 0
-                files.append((path, mtime, item))
-            
-            # 스마트 선택 로직 개선 (점수 기반)
-            def calculate_score(entry):
-                path, mtime, _ = entry
-                score = 0
-                lower_path = path.lower()
-                
-                # 1. 삭제 우선순위가 높은 패턴 (높은 점수 = 삭제 대상)
-                if any(x in lower_path for x in ['/temp/', '\\temp\\', '\\appdata\\local\\temp\\', '/cache/', '\\cache\\', '.tmp']):
-                    score += 1000
-                
-                # 2. 복사본 패턴
-                if 'copy' in lower_path or ' - 복사본' in lower_path or ' - copy' in lower_path or '(1)' in lower_path:
-                    score += 500
-                    
-                # 3. 파일명 길이 (보통 원본이 짧음)
-                score += len(os.path.basename(path)) * 0.1
-                
-                # 4. 최신 파일이 보통 복사본일 확률이 높음 (또는 원본 보존 정책에 따라 다름)
-                # 여기서는 "오래된 것이 원본"이라는 가정 하에, 최신 파일 점수를 높임
-                score += mtime * 0.0000001
-                
-                return score
-
-            # 점수가 낮은 순(원본 가능성 높음)으로 정렬
-            files.sort(key=calculate_score)
-            
-            # 첫 번째(가장 원본 같은) 파일만 체크 해제, 나머지는 삭제(체크)
-            for idx, (_, _, item) in enumerate(files):
-                item.setCheckState(0, Qt.Unchecked if idx == 0 else Qt.Checked)
+        self.tree_widget.begin_bulk_check_update()
+        try:
+            for i in range(root.childCount()):
+                group = root.child(i)
+                entries = [e for e, _ in self._group_entries_with_items(group)]
+                keep_set, _ = self.results_controller.build_keep_delete(entries, strategy="smart")
+                self._apply_keep_set_to_group(group, keep_set)
+        finally:
+            self.tree_widget.end_bulk_check_update()
 
     def select_duplicates_newest(self):
         """Keep Oldest, Select Newest (Date based)"""
         root = self.tree_widget.invisibleRootItem()
-        for i in range(root.childCount()):
-            group = root.child(i)
-            files = []
-            for j in range(group.childCount()):
-                item = group.child(j)
-                path = item.data(0, Qt.UserRole)
-                try: mtime = os.path.getmtime(path)
-                except: mtime = 0
-                files.append((mtime, item))
-            
-            # Sort by Modified Time (Ascending: Oldest first)
-            files.sort(key=lambda x: x[0])
-            # Keep first (Oldest), Check others (Newer)
-            for idx, (_, item) in enumerate(files):
-                item.setCheckState(0, Qt.Unchecked if idx == 0 else Qt.Checked)
+        self.tree_widget.begin_bulk_check_update()
+        try:
+            for i in range(root.childCount()):
+                group = root.child(i)
+                entries = [e for e, _ in self._group_entries_with_items(group)]
+                keep_set, _ = self.results_controller.build_keep_delete(entries, strategy="oldest")
+                self._apply_keep_set_to_group(group, keep_set)
+        finally:
+            self.tree_widget.end_bulk_check_update()
 
     def select_duplicates_oldest(self):
         """Keep Newest, Select Oldest (Date based)"""
         root = self.tree_widget.invisibleRootItem()
-        for i in range(root.childCount()):
-            group = root.child(i)
-            files = []
-            for j in range(group.childCount()):
-                item = group.child(j)
-                path = item.data(0, Qt.UserRole)
-                try: mtime = os.path.getmtime(path)
-                except: mtime = 0
-                files.append((mtime, item))
-            
-            # Sort by Modified Time (Descending: Newest first)
-            files.sort(key=lambda x: x[0], reverse=True)
-            # Keep first (Newest), Check others (Older)
-            for idx, (_, item) in enumerate(files):
-                item.setCheckState(0, Qt.Unchecked if idx == 0 else Qt.Checked)
+        self.tree_widget.begin_bulk_check_update()
+        try:
+            for i in range(root.childCount()):
+                group = root.child(i)
+                entries = [e for e, _ in self._group_entries_with_items(group)]
+                keep_set, _ = self.results_controller.build_keep_delete(entries, strategy="newest")
+                self._apply_keep_set_to_group(group, keep_set)
+        finally:
+            self.tree_widget.end_bulk_check_update()
 
     def select_duplicates_by_pattern(self):
         """Select files matching a text pattern"""
@@ -1352,21 +1365,19 @@ class DuplicateFinderApp(QMainWindow):
         root = self.tree_widget.invisibleRootItem()
         
         count = 0
-        for i in range(root.childCount()):
-            group = root.child(i)
-            # Don't uncheck everything, just check matches. 
-            # Or should we uncheck everything first? Usually "Select" adds to selection or replaces. 
-            # Smart Select replaces. Let's make this additive or independent.
-            # Let's check ONLY matches.
-            
-            for j in range(group.childCount()):
-                item = group.child(j)
-                path = item.data(0, Qt.UserRole) or ""
-                path = path.lower()
-                
-                if pattern in path:
-                    item.setCheckState(0, Qt.Checked)
-                    count += 1
+        self.tree_widget.begin_bulk_check_update()
+        try:
+            for i in range(root.childCount()):
+                group = root.child(i)
+                for j in range(group.childCount()):
+                    item = group.child(j)
+                    path = item.data(0, Qt.UserRole) or ""
+                    path = path.lower()
+                    if pattern in path:
+                        item.setCheckState(0, Qt.Checked)
+                        count += 1
+        finally:
+            self.tree_widget.end_bulk_check_update()
         
         self.status_label.setText(
             strings.tr("msg_selected_pattern").format(count=count, pattern=text)
@@ -1409,10 +1420,11 @@ class DuplicateFinderApp(QMainWindow):
         selected_count: int = None,
     ):
         selected = list(selected_paths or [])
+        self._current_result_meta = dict(file_meta or {})
         self.tree_widget.populate(
             results,
             selected_paths=selected,
-            file_meta=file_meta,
+            file_meta=self._current_result_meta,
             existence_map=existence_map,
         )
         self._saved_selected_paths = set(selected)
@@ -1679,79 +1691,75 @@ class DuplicateFinderApp(QMainWindow):
 
     # --- 기능 구현: 미리보기 ---
     def update_preview(self, current, previous):
-        if not current: return
-        
+        if not current:
+            return
+
         path = current.data(0, Qt.UserRole)
-        # 그룹 아이템인 경우 path가 없을 수 있음
-        if not path or not os.path.exists(path):
+        if not path:
             self.show_preview_info(strings.tr("msg_select_file"))
             return
 
-        if os.path.isdir(path):
-            self._set_preview_info(path, is_folder=True)
+        path = str(path)
+        self._preview_request_id += 1
+        request_id = int(self._preview_request_id)
+
+        self._set_preview_info(path)
+        self.show_preview_info(strings.tr("status_analyzing"), keep_info=True)
+
+        try:
+            self.preview_controller.request_preview(path, request_id)
+        except Exception:
+            self.show_preview_info(strings.tr("msg_preview_unavailable"), keep_info=True)
+
+    def _on_preview_ready(self, payload):
+        try:
+            req_id = int((payload or {}).get("request_id") or 0)
+        except Exception:
+            req_id = 0
+        if req_id != int(getattr(self, "_preview_request_id", 0)):
+            return
+
+        path = str((payload or {}).get("path") or "")
+        kind = str((payload or {}).get("kind") or "info")
+        size = (payload or {}).get("size")
+        mtime = (payload or {}).get("mtime")
+
+        if kind == "folder":
+            self._set_preview_info(path, is_folder=True, size=size, mtime=mtime)
             self.show_preview_info(strings.tr("msg_preview_folder_hint"), keep_info=True)
             return
 
-        _, ext = os.path.splitext(path)
-        ext = ext.lower()
-
-        try:
-            # 1. 이미지
-            if ext in ['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.ico']:
-                pixmap = QPixmap(path)
+        if kind == "image":
+            image = (payload or {}).get("image")
+            if image is not None:
+                pixmap = QPixmap.fromImage(image)
                 if not pixmap.isNull():
-                    self._set_preview_info(path)
-                    scaled = pixmap.scaled(self.lbl_image_preview.size().boundedTo(QSize(400, 400)), 
-                                         Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    self._set_preview_info(path, size=size, mtime=mtime)
+                    scaled = pixmap.scaled(
+                        self.lbl_image_preview.size().boundedTo(QSize(400, 400)),
+                        Qt.KeepAspectRatio,
+                        Qt.SmoothTransformation,
+                    )
                     self.lbl_image_preview.setPixmap(scaled)
                     self.lbl_image_preview.show()
                     self.txt_text_preview.hide()
                     self.lbl_info_preview.hide()
                     return
-            
-            # 2. 텍스트 및 코드
-            elif ext in ['.txt', '.py', '.c', '.cpp', '.h', '.java', '.md', '.json', '.xml', 
-                         '.html', '.css', '.js', '.log', '.bat', '.sh', '.ini', '.yaml', '.yml', '.csv']:
-                try:
-                    # Avoid loading huge files into the UI.
-                    file_size = None
-                    try:
-                        file_size = os.path.getsize(path)
-                    except Exception:
-                        file_size = None
 
-                    # Read more than 4KB for better usability, but cap for safety.
-                    max_chars = 200_000  # ~200KB (chars) best-effort
-                    read_all = bool(file_size is not None and file_size <= 1_000_000 and ext == ".json")
+        if kind == "text":
+            content = str((payload or {}).get("text") or "")
+            self._set_preview_info(path, size=size, mtime=mtime)
+            self.txt_text_preview.setPlainText(content)
+            font = QFont("Consolas")
+            font.setStyleHint(QFont.Monospace)
+            font.setPointSize(10)
+            self.txt_text_preview.setFont(font)
+            self.txt_text_preview.show()
+            self.lbl_image_preview.hide()
+            self.lbl_info_preview.hide()
+            return
 
-                    with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-                        content = f.read() if read_all else f.read(max_chars)
-                    
-                    # JSON Pretty Print
-                    if ext == '.json' and read_all:
-                        try:
-                            parsed = json.loads(content)
-                            content = json.dumps(parsed, indent=4, ensure_ascii=False)
-                        except: pass
-                        
-                    self._set_preview_info(path)
-                    self.txt_text_preview.setPlainText(content)
-                    font = QFont("Consolas")
-                    font.setStyleHint(QFont.Monospace)
-                    font.setPointSize(10)
-                    self.txt_text_preview.setFont(font)
-                    self.txt_text_preview.show()
-                    self.lbl_image_preview.hide()
-                    self.lbl_info_preview.hide()
-                    return
-                except:
-                    pass
-
-        except Exception as e:
-            pass
-
-        # 3. 그 외
-        self._set_preview_info(path)
+        self._set_preview_info(path, size=size, mtime=mtime)
         self.show_preview_info(strings.tr("msg_preview_unavailable"), keep_info=True)
 
     def show_preview_info(self, msg, keep_info=False):
@@ -1764,7 +1772,7 @@ class DuplicateFinderApp(QMainWindow):
         else:
             self.preview_info.hide()
 
-    def _set_preview_info(self, path, is_folder=False):
+    def _set_preview_info(self, path, is_folder=False, size=None, mtime=None):
         name = os.path.basename(path) or path
         self.lbl_preview_name.setText(name)
         self.lbl_preview_path.setText(path)
@@ -1776,19 +1784,46 @@ class DuplicateFinderApp(QMainWindow):
 
         size_str = strings.tr("msg_preview_meta_unknown")
         mtime_str = strings.tr("msg_preview_meta_unknown")
-        try:
-            size_str = self.format_size(os.path.getsize(path))
-        except Exception:
-            pass
-        try:
-            mtime = os.path.getmtime(path)
-            mtime_str = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M')
-        except Exception:
-            pass
 
-        self.lbl_preview_meta.setText(
-            strings.tr("msg_preview_meta").format(size=size_str, mtime=mtime_str)
-        )
+        size_val = size
+        mtime_val = mtime
+
+        if size_val is None or mtime_val is None:
+            try:
+                meta = self._current_result_meta.get(path)
+                if meta and len(meta) >= 2:
+                    if size_val is None:
+                        size_val = int(meta[0] or 0)
+                    if mtime_val is None:
+                        mtime_val = float(meta[1] or 0.0)
+            except Exception:
+                pass
+
+        if size_val is None:
+            try:
+                size_val = int(os.path.getsize(path))
+            except Exception:
+                size_val = None
+
+        if mtime_val is None:
+            try:
+                mtime_val = float(os.path.getmtime(path))
+            except Exception:
+                mtime_val = None
+
+        if size_val is not None:
+            try:
+                size_str = self.format_size(int(size_val))
+            except Exception:
+                pass
+
+        if mtime_val is not None:
+            try:
+                mtime_str = datetime.fromtimestamp(float(mtime_val)).strftime('%Y-%m-%d %H:%M')
+            except Exception:
+                pass
+
+        self.lbl_preview_meta.setText(strings.tr("msg_preview_meta").format(size=size_str, mtime=mtime_str))
         self.preview_info.show()
 
     # --- 기능 구현: 설정 저장/로드 ---
@@ -2156,20 +2191,42 @@ class DuplicateFinderApp(QMainWindow):
         return hash_config
 
     def on_checked_files_changed(self, paths):
-        self._update_results_summary(len(paths))
-        self._update_action_buttons_state(selected_count=len(paths))
-        if not self.current_session_id:
-            return
+        """Backward-compatible full-list handler."""
         new_set = set(paths or [])
-        added = new_set - self._saved_selected_paths
-        removed = self._saved_selected_paths - new_set
-        if added:
-            self._pending_selected_add.update(added)
-            self._pending_selected_remove.difference_update(added)
-        if removed:
-            self._pending_selected_remove.update(removed)
-            self._pending_selected_add.difference_update(removed)
-        self._saved_selected_paths = new_set
+        added = sorted(new_set - self._saved_selected_paths)
+        removed = sorted(self._saved_selected_paths - new_set)
+        self.on_checked_files_delta(added, removed, len(new_set), full_snapshot=new_set)
+
+    def on_checked_files_delta(self, added, removed, selected_count: int, full_snapshot=None):
+        self._update_results_summary(int(selected_count or 0))
+        self._update_action_buttons_state(selected_count=int(selected_count or 0))
+        if not self.current_session_id:
+            if full_snapshot is not None:
+                self._saved_selected_paths = set(full_snapshot or set())
+            else:
+                if added:
+                    self._saved_selected_paths.update(set(added))
+                if removed:
+                    self._saved_selected_paths.difference_update(set(removed))
+            return
+
+        add_set = set(added or [])
+        remove_set = set(removed or [])
+        if full_snapshot is not None:
+            self._saved_selected_paths = set(full_snapshot or set())
+        else:
+            if add_set:
+                self._saved_selected_paths.update(add_set)
+            if remove_set:
+                self._saved_selected_paths.difference_update(remove_set)
+
+        if add_set:
+            self._pending_selected_add.update(add_set)
+            self._pending_selected_remove.difference_update(add_set)
+        if remove_set:
+            self._pending_selected_remove.update(remove_set)
+            self._pending_selected_add.difference_update(remove_set)
+
         self._selection_save_timer.start(220)
 
     def _flush_selected_paths(self):
@@ -2281,7 +2338,7 @@ class DuplicateFinderApp(QMainWindow):
 
                 def apply_rules():
                     paths = self.tree_widget.get_group_paths(item)
-                    keep_set, delete_set = decide_keep_delete_for_group(paths, self.selection_rules)
+                    keep_set, _delete_set = self.results_controller.build_keep_delete_by_rules(paths, self.selection_rules)
                     self.tree_widget.begin_bulk_check_update()
                     try:
                         for j in range(item.childCount()):
@@ -2323,7 +2380,7 @@ class DuplicateFinderApp(QMainWindow):
                     canonical = unchecked[0] if unchecked else None
                     if not canonical:
                         try:
-                            canonical = min(paths, key=lambda p: os.path.getmtime(p) if os.path.exists(p) else 0)
+                            canonical = min(paths, key=lambda p: self._mtime_for_path(p))
                         except Exception:
                             canonical = paths[0]
                     targets = checked if checked else [p for p in paths if p != canonical]
@@ -2776,7 +2833,12 @@ class DuplicateFinderApp(QMainWindow):
                 out_csv = os.path.join(out_dir, f"scan_{stamp}.csv")
                 from src.ui.exporting import export_scan_results_csv
 
-                export_scan_results_csv(scan_results=results or {}, out_path=out_csv, selected_paths=[])
+                export_scan_results_csv(
+                    scan_results=results or {},
+                    out_path=out_csv,
+                    selected_paths=[],
+                    file_meta=self._current_result_meta,
+                )
         except Exception:
             logger.warning("Scheduled CSV export failed", exc_info=True)
             out_csv = ""
@@ -3028,7 +3090,7 @@ class DuplicateFinderApp(QMainWindow):
             for i in range(root.childCount()):
                 group = root.child(i)
                 paths = self.tree_widget.get_group_paths(group)
-                keep_set, delete_set = decide_keep_delete_for_group(paths, rules)
+                keep_set, _delete_set = self.results_controller.build_keep_delete_by_rules(paths, rules)
                 for j in range(group.childCount()):
                     child = group.child(j)
                     p = child.data(0, Qt.UserRole)

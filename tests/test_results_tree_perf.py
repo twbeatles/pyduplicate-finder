@@ -70,3 +70,31 @@ def test_checked_cache_and_filter_counts(qapp):
 
     widget.set_group_checked(group, False)
     assert widget.get_checked_files() == []
+
+
+def test_files_checked_delta_and_filter_short_circuit(qapp):
+    paths = ["/x/a.log", "/x/b.log", "/x/c.log"]
+    results = {("hash_c", 30): paths}
+    file_meta = {p: (30, 1700000100.0 + i) for i, p in enumerate(paths)}
+
+    widget = ResultsTreeWidget()
+    widget.populate(results, selected_paths=[], file_meta=file_meta, existence_map={p: True for p in paths})
+    _drain_populate(widget)
+
+    deltas = []
+    widget.files_checked_delta.connect(lambda added, removed, count: deltas.append((list(added), list(removed), int(count))))
+
+    group = widget.invisibleRootItem().child(0)
+    first = group.child(0)
+    second = group.child(1)
+    first.setCheckState(0, Qt.CheckState.Checked)
+    second.setCheckState(0, Qt.CheckState.Checked)
+    second.setCheckState(0, Qt.CheckState.Unchecked)
+
+    assert deltas[0] == ([paths[0]], [], 1)
+    assert deltas[1] == ([paths[1]], [], 2)
+    assert deltas[2] == ([], [paths[1]], 1)
+
+    v1 = widget.apply_filter("a.log")
+    v2 = widget.apply_filter("a.log")
+    assert v1 == v2

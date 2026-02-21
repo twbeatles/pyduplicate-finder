@@ -81,7 +81,10 @@ def build_results_page(window) -> QWidget:
     window.tree_widget.itemDoubleClicked.connect(window.open_file)
     window.tree_widget.currentItemChanged.connect(window.update_preview)
     window.tree_widget.customContextMenuRequested.connect(window.show_context_menu)
-    window.tree_widget.files_checked.connect(window.on_checked_files_changed)
+    if hasattr(window, "on_checked_files_delta"):
+        window.tree_widget.files_checked_delta.connect(window.on_checked_files_delta)
+    else:
+        window.tree_widget.files_checked.connect(window.on_checked_files_changed)
 
     from PySide6.QtWidgets import QStackedWidget
 
