@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 import os
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -17,6 +20,15 @@ class GroupInfo:
     size_from_key: Optional[int]
     bytes_reclaim_est: int
     baseline_delta: str
+
+
+def _read_fs_meta(path: str) -> tuple[str, str]:
+    try:
+        if os.path.exists(path) and (not os.path.isdir(path)):
+            return (str(os.path.getsize(path)), str(os.path.getmtime(path)))
+    except Exception:
+        logger.debug("Failed to read file metadata for export path: %s", path, exc_info=True)
+    return ("", "")
 
 
 def _parse_group_key(key) -> GroupInfo:
@@ -150,12 +162,8 @@ def export_scan_results_csv(
                         except Exception:
                             size = ""
                             mtime = ""
-                    try:
-                        if not size and os.path.exists(p) and (not os.path.isdir(p)):
-                            size = str(os.path.getsize(p))
-                            mtime = str(os.path.getmtime(p))
-                    except Exception:
-                        pass
+                    if not size:
+                        size, mtime = _read_fs_meta(p)
 
                 w.writerow(
                     [

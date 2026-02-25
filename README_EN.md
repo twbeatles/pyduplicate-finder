@@ -146,6 +146,7 @@ python main.py
 ```bash
 python cli.py "D:/Data" "E:/Photos" --extensions jpg,png --output-json result.json --output-csv result.csv
 ```
+- `--similarity-threshold` only accepts values in `0.0`~`1.0`. Out-of-range input is rejected with CLI error (`SystemExit 2`).
 
 ### 2. Search Settings
 - **Add Location**: Use "Add Folder" or Drag & Drop to add search targets.
@@ -185,6 +186,7 @@ python cli.py "D:/Data" "E:/Photos" --extensions jpg,png --output-json result.js
 | Selection Rules | Pattern-based KEEP/DELETE auto-selection |
 | Operations Log | Operation history with details + CSV/JSON export |
 | Hardlink Consolidation | (Advanced) Save disk space via hardlinks |
+| Scheduled Scan Snapshot | Scheduled runs use saved config snapshot (`scan_jobs.config_json`); if some folders are missing, run valid folders only; if all are missing, mark run as `skipped(no_valid_folders)` |
 | Headless CLI Scan | Run scans without GUI and export JSON/CSV outputs |
 
 ---
@@ -224,10 +226,12 @@ The following items are now implemented in code:
 
 - Advanced scan options exposed in GUI: mixed mode, duplicate-folder detection, incremental rescan, baseline session selector
 - CLI extensions: `--mixed-mode`, `--detect-folder-dup`, `--incremental-rescan`, `--baseline-session`
+- CLI validation: `--similarity-threshold` is constrained to `0.0~1.0` (out-of-range input rejected)
 - Delete dry-run summary: selected/visible counts, estimated reclaim size, per-group preview before destructive flow
 - Retry scope expansion: retries now cover hardlink/restore/purge failures in addition to delete failures
 - i18n cleanup: core hardcoded messages (Undo/Redo/Quarantine/History) migrated to translation keys
 - Scheduled scan (baseline): daily/weekly scheduling from Settings with optional JSON/CSV auto-export
+- Scheduled execution policy: run from saved snapshot (`scan_jobs.config_json`) rather than current UI state; folder handling is `run valid folders only / all missing -> skipped(no_valid_folders)`
 - Results/export enhancements: better `FOLDER_DUP` labels and CSV columns `group_kind`, `bytes_reclaim_est`, `baseline_delta`
 - Architecture split phase 2:
   - `src/core/scan_engine.py` + `src/ui/controllers/scan_controller.py` + `src/ui/controllers/scheduler_controller.py`

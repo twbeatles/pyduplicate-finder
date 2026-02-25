@@ -43,10 +43,10 @@ def test_export_scan_results_prefers_file_meta_without_fs_calls(tmp_path, monkey
     scan_results = {("deadbeef", 10): [p1, p2]}
     file_meta = {p1: (10, 1000.0), p2: (20, 2000.0)}
 
-    def fail_exists(_path):
-        raise AssertionError("os.path.exists should not be called when file_meta is provided")
+    def fail_fs_meta(_path):
+        raise AssertionError("_read_fs_meta should not be called when file_meta is provided")
 
-    monkeypatch.setattr(exporting_module.os.path, "exists", fail_exists)
+    monkeypatch.setattr(exporting_module, "_read_fs_meta", fail_fs_meta)
 
     out = tmp_path / "meta.csv"
     groups, rows = export_scan_results_csv(
@@ -57,4 +57,30 @@ def test_export_scan_results_prefers_file_meta_without_fs_calls(tmp_path, monkey
     )
     assert groups == 1
     assert rows == 2
+    assert out.exists()
+
+
+def test_export_scan_results_uses_fs_meta_helper_when_file_meta_missing(tmp_path, monkeypatch):
+    p1 = str(tmp_path / "x.txt")
+    scan_results = {("deadbeef", 10): [p1]}
+
+    calls = {"n": 0}
+
+    def fake_fs_meta(path):
+        calls["n"] += 1
+        assert path == p1
+        return ("111", "222.0")
+
+    monkeypatch.setattr(exporting_module, "_read_fs_meta", fake_fs_meta)
+
+    out = tmp_path / "meta_helper.csv"
+    groups, rows = export_scan_results_csv(
+        scan_results=scan_results,
+        out_path=str(out),
+        selected_paths=[],
+        file_meta=None,
+    )
+    assert groups == 1
+    assert rows == 1
+    assert calls["n"] == 1
     assert out.exists()

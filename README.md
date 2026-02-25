@@ -148,6 +148,7 @@ python main.py
 ```bash
 python cli.py "D:/Data" "E:/Photos" --extensions jpg,png --output-json result.json --output-csv result.csv
 ```
+- `--similarity-threshold` 값은 `0.0`~`1.0`만 허용됩니다. 범위를 벗어나면 CLI는 에러(`SystemExit 2`)로 종료됩니다.
 
 ### 2. 검색 설정
 - **파일 위치 추가**: '폴더 추가' 혹은 드래그 앤 드롭으로 검색할 위치를 등록합니다.
@@ -190,6 +191,7 @@ python cli.py "D:/Data" "E:/Photos" --extensions jpg,png --output-json result.js
 | 자동 선택 규칙 | 패턴 기반 KEEP/DELETE 규칙으로 자동 선택 |
 | 작업 기록 | 삭제/복구/정리/하드링크 작업 기록 및 내보내기 |
 | 하드링크 통합 | (고급) 중복 파일을 하드링크로 통합하여 공간 절감 |
+| 예약 스캔 스냅샷 | 저장된 예약 설정(`scan_jobs.config_json`)으로 실행되며, 폴더 일부 누락 시 유효 폴더만 실행/전체 누락 시 `skipped(no_valid_folders)` 처리 |
 | 헤드리스 CLI 스캔 | GUI 없이 폴더 스캔 후 JSON/CSV 결과 출력 |
 
 ---
@@ -230,10 +232,12 @@ MIT License
 
 - 고급 스캔 옵션 노출: 혼합 모드, 중복 폴더 탐지, 증분 재스캔, Baseline 세션 선택
 - CLI 확장: `--mixed-mode`, `--detect-folder-dup`, `--incremental-rescan`, `--baseline-session`
+- CLI 입력 검증: `--similarity-threshold`는 `0.0~1.0` 범위만 허용 (범위 밖 입력 거부)
 - 삭제 Dry-run 요약: 삭제 전 선택/가시 항목/예상 절감 용량 및 그룹 요약 표시
 - 작업 재시도 확장: delete 외 hardlink/restore/purge 실패 재시도 경로 강화
 - i18n 정리: 코어 하드코딩 메시지(Undo/Redo/Quarantine/History) 다국어 키로 통합
 - 예약 스캔(기본): 설정 화면에서 일/주 단위 스케줄 + 자동 JSON/CSV 출력
+- 예약 스캔 실행 정책: UI 현재 상태가 아닌 저장 스냅샷(`scan_jobs.config_json`) 기준 실행, 누락 폴더 정책은 `유효 폴더만 실행 / 전체 누락 시 skipped(no_valid_folders)`
 - 결과 뷰/내보내기 강화: `FOLDER_DUP` 그룹 라벨 개선, CSV에 `group_kind`, `bytes_reclaim_est`, `baseline_delta` 컬럼 추가
 - 구조 분리 2차 진행:
   - `src/core/scan_engine.py` + `src/ui/controllers/scan_controller.py` + `src/ui/controllers/scheduler_controller.py`

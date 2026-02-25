@@ -926,8 +926,8 @@ class DuplicateFinderApp(QMainWindow):
             "grouping": strings.tr("status_grouping"),
             "folder_dup": strings.tr("status_folder_dup"),
             "completed": strings.tr("status_done"),
-            "error": "Error",
-            "abandoned": "Abandoned",
+            "error": strings.tr("status_error"),
+            "abandoned": strings.tr("status_abandoned"),
         }
         label = stage_map.get(code, code or strings.tr("status_ready"))
         self.lbl_scan_stage.setText(strings.tr("msg_scan_stage").format(stage=label))
@@ -985,23 +985,57 @@ class DuplicateFinderApp(QMainWindow):
 
     # --- 기능 구현: 스캔 ---
     # --- 기능 구현: 스캔 ---
-    def start_scan(self, force_new=False):
-        if not self.selected_folders:
+    def start_scan(
+        self,
+        force_new=False,
+        config_override: dict | None = None,
+        folders_override: list[str] | None = None,
+        scheduled_context: dict | None = None,
+    ):
+        if scheduled_context is not None:
+            self._scheduled_run_context = dict(scheduled_context or {})
+
+        current_config = self._get_current_config()
+        if isinstance(config_override, dict):
+            current_config.update(dict(config_override))
+        if folders_override is not None:
+            current_config["folders"] = list(folders_override or [])
+
+        raw_folders = list(current_config.get("folders") or self.selected_folders or [])
+        effective_folders = []
+        seen = set()
+        for p in raw_folders:
+            if not p:
+                continue
+            abs_path = os.path.abspath(str(p))
+            key = os.path.normcase(os.path.normpath(abs_path))
+            if key in seen:
+                continue
+            seen.add(key)
+            effective_folders.append(abs_path)
+        current_config["folders"] = list(effective_folders)
+
+        if not effective_folders:
+            if self._scheduled_run_context and self._scheduled_job_run_id:
+                logger.warning("Scheduled scan skipped: no valid folders at start_scan")
+                self._finish_scheduled_run("skipped", {}, message_override="no_valid_folders")
+                return
             QMessageBox.warning(self, strings.tr("app_title"), strings.tr("err_no_folder"))
             return
 
-        raw_ext = self.txt_extensions.text()
-        extensions = [x.strip() for x in raw_ext.split(',')] if raw_ext.strip() else None
-        min_size = self.spin_min_size.value()
+        raw_ext = str(current_config.get("extensions") or "").strip()
+        extensions = [x.strip() for x in raw_ext.split(',') if x.strip()] if raw_ext else None
+        min_size = max(0, int(current_config.get("min_size_kb") or 0))
 
-        current_config = self._get_current_config()
         hash_config = self._get_scan_hash_config(current_config)
         config_hash = self.cache_manager.get_config_hash(hash_config)
 
         incremental_rescan = bool(current_config.get("incremental_rescan"))
-        if incremental_rescan:
+        if incremental_rescan and not isinstance(config_override, dict):
             self.refresh_incremental_baselines()
-            current_config["baseline_session_id"] = self._get_selected_baseline_session_id() or current_config.get("baseline_session_id") or 0
+            current_config["baseline_session_id"] = (
+                self._get_selected_baseline_session_id() or current_config.get("baseline_session_id") or 0
+            )
         baseline_session_id = int(current_config.get("baseline_session_id") or 0)
         if incremental_rescan and baseline_session_id <= 0:
             try:
@@ -1009,9 +1043,13 @@ class DuplicateFinderApp(QMainWindow):
                 baseline_session_id = int((latest_completed or {}).get("id") or 0)
                 current_config["baseline_session_id"] = baseline_session_id
             except Exception:
+                logger.warning("Failed to resolve baseline session for incremental scan", exc_info=True)
                 baseline_session_id = 0
         if incremental_rescan and baseline_session_id <= 0:
-            QMessageBox.information(self, strings.tr("app_title"), strings.tr("msg_incremental_no_baseline"))
+            if self._scheduled_run_context:
+                logger.info("Scheduled scan: disabling incremental mode because baseline session is unavailable")
+            else:
+                QMessageBox.information(self, strings.tr("app_title"), strings.tr("msg_incremental_no_baseline"))
             incremental_rescan = False
             current_config["incremental_rescan"] = False
             current_config["baseline_session_id"] = 0
@@ -1028,7 +1066,7 @@ class DuplicateFinderApp(QMainWindow):
             if not use_cached_files:
                 self.cache_manager.clear_scan_files(session_id)
 
-            # Keep session metadata aligned with current UI settings (even if config_hash matches).
+            # Keep session metadata aligned with current settings (even if config_hash matches).
             try:
                 self.cache_manager.update_scan_session(
                     session_id,
@@ -1036,7 +1074,7 @@ class DuplicateFinderApp(QMainWindow):
                     config_hash=config_hash,
                 )
             except Exception:
-                pass
+                logger.warning("Failed to update resumable session metadata", exc_info=True)
         else:
             session_id = self.cache_manager.create_scan_session(current_config, config_hash=config_hash)
             self.cache_manager.clear_selected_paths(session_id)
@@ -1046,6 +1084,9 @@ class DuplicateFinderApp(QMainWindow):
             session_id = None
 
         self.current_session_id = session_id
+        if self._scheduled_run_context is not None:
+            self._scheduled_run_context["executed_config_hash"] = config_hash
+            self._scheduled_run_context["executed_folders"] = list(effective_folders)
         if self._scheduled_run_context and self._scheduled_job_run_id:
             try:
                 self.cache_manager.update_scan_job_run_session(
@@ -1071,23 +1112,23 @@ class DuplicateFinderApp(QMainWindow):
         self._set_scan_stage_code("collecting")
 
         scan_cfg = ScanConfig(
-            folders=list(self.selected_folders or []),
+            folders=list(effective_folders or []),
             extensions=list(extensions or []),
             min_size_kb=int(min_size or 0),
-            same_name=bool(self.chk_same_name.isChecked()),
-            name_only=bool(self.chk_name_only.isChecked()),
-            byte_compare=bool(self.chk_byte_compare.isChecked()),
-            protect_system=bool(self.chk_protect_system.isChecked()),
-            skip_hidden=bool(self.chk_skip_hidden.isChecked() if hasattr(self, "chk_skip_hidden") else False),
-            follow_symlinks=bool(self.chk_follow_symlinks.isChecked() if hasattr(self, "chk_follow_symlinks") else False),
-            include_patterns=list(self.include_patterns or []),
-            exclude_patterns=list(self.exclude_patterns or []),
-            use_similar_image=bool(self.chk_similar_image.isChecked()),
-            use_mixed_mode=bool(self.chk_mixed_mode.isChecked() if hasattr(self, "chk_mixed_mode") else False),
-            detect_duplicate_folders=bool(self.chk_detect_folder_dup.isChecked() if hasattr(self, "chk_detect_folder_dup") else False),
+            same_name=bool(current_config.get("same_name")),
+            name_only=bool(current_config.get("name_only")),
+            byte_compare=bool(current_config.get("byte_compare")),
+            protect_system=bool(current_config.get("protect_system", True)),
+            skip_hidden=bool(current_config.get("skip_hidden", False)),
+            follow_symlinks=bool(current_config.get("follow_symlinks", False)),
+            include_patterns=list(current_config.get("include_patterns") or []),
+            exclude_patterns=list(current_config.get("exclude_patterns") or []),
+            use_similar_image=bool(current_config.get("use_similar_image")),
+            use_mixed_mode=bool(current_config.get("use_mixed_mode", False)),
+            detect_duplicate_folders=bool(current_config.get("detect_duplicate_folders", False)),
             incremental_rescan=bool(incremental_rescan),
             baseline_session_id=int(baseline_session_id) if baseline_session_id > 0 else None,
-            similarity_threshold=float(self.spin_similarity.value()),
+            similarity_threshold=float(current_config.get("similarity_threshold") or 0.9),
         )
         self.worker = self.scan_controller.build_worker(
             config=scan_cfg,
@@ -2135,8 +2176,8 @@ class DuplicateFinderApp(QMainWindow):
                 "grouping": strings.tr("status_grouping"),
                 "analyzing": strings.tr("status_analyzing"),
                 "completed": strings.tr("status_done"),
-                "error": "Error",
-                "abandoned": "Abandoned",
+                "error": strings.tr("status_error"),
+                "abandoned": strings.tr("status_abandoned"),
             }
             stage_label = stage_map.get(stage_code, stage_code or strings.tr("status_ready"))
 
@@ -2753,6 +2794,15 @@ class DuplicateFinderApp(QMainWindow):
             time_hhmm=str(self.txt_schedule_time.text() if hasattr(self, "txt_schedule_time") else "03:00").strip() or "03:00",
         )
 
+    def _build_schedule_config_from_context(self) -> ScheduleConfig:
+        ctx = dict(self._scheduled_run_context or {})
+        return self.scheduler_controller.build_config(
+            enabled=True,
+            schedule_type=str(ctx.get("schedule_type") or "daily"),
+            weekday=int(ctx.get("weekday") or 0),
+            time_hhmm=str(ctx.get("time_hhmm") or "03:00").strip() or "03:00",
+        )
+
     def _persist_schedule_job(self):
         cfg = self._build_schedule_config()
         scan_cfg = self._get_current_config()
@@ -2789,19 +2839,33 @@ class DuplicateFinderApp(QMainWindow):
         if not job or not cfg:
             return
 
-        if not self.selected_folders:
-            self.scheduler_controller.record_skip_no_folders(
+        snapshot_cfg = self.scheduler_controller.parse_scan_config(job)
+        valid_folders, missing_folders = self.scheduler_controller.resolve_snapshot_folders(snapshot_cfg)
+        if not valid_folders:
+            self.scheduler_controller.record_skip_no_valid_folders(
                 cache_manager=self.cache_manager,
                 cfg=cfg,
             )
             return
 
-        self._scheduled_run_context = self.scheduler_controller.build_run_context(job).as_dict()
+        snapshot_cfg["folders"] = list(valid_folders)
+        self._scheduled_run_context = self.scheduler_controller.build_run_context(
+            job,
+            cfg=cfg,
+            scan_config=snapshot_cfg,
+            valid_folders=valid_folders,
+            missing_folders=missing_folders,
+        ).as_dict()
         self._scheduled_job_run_id = self.scheduler_controller.create_job_run(
             cache_manager=self.cache_manager,
             session_id=self.current_session_id or 0,
         )
-        self.start_scan(force_new=False)
+        self.start_scan(
+            force_new=False,
+            config_override=snapshot_cfg,
+            folders_override=list(valid_folders),
+            scheduled_context=dict(self._scheduled_run_context or {}),
+        )
 
     def _scheduled_export_results(self, results: dict):
         ctx = dict(self._scheduled_run_context or {})
@@ -2844,17 +2908,17 @@ class DuplicateFinderApp(QMainWindow):
             out_csv = ""
         return (out_json, out_csv)
 
-    def _finish_scheduled_run(self, status: str, results: dict):
+    def _finish_scheduled_run(self, status: str, results: dict, message_override: str = ""):
         if not self._scheduled_run_context:
             return
-        cfg = self._build_schedule_config()
+        cfg = self._build_schedule_config_from_context()
         out_json = ""
         out_csv = ""
         if status == "completed":
             out_json, out_csv = self._scheduled_export_results(results or {})
         groups = len(results or {})
         files = sum(len(v or []) for v in (results or {}).values()) if results else 0
-        message = status
+        message = str(message_override or status)
         try:
             self.scheduler_controller.finalize_run(
                 cache_manager=self.cache_manager,

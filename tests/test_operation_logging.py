@@ -50,6 +50,23 @@ class TestOperationLogging(unittest.TestCase):
         self.assertEqual(out[id1]["orig_path"], "o1")
         self.assertEqual(out[id2]["quarantine_path"], "q2")
 
+    def test_append_operation_items_preserves_duplicate_paths(self):
+        op_id = self.cache.create_operation("delete_quarantine", {})
+        self.assertTrue(op_id > 0)
+
+        self.cache.append_operation_items(
+            op_id,
+            [
+                ("same.txt", "moved_to_quarantine", "ok", "first", 10, 1.0, "q/1"),
+                ("same.txt", "moved_to_quarantine", "ok", "second", 10, 1.1, "q/2"),
+            ],
+        )
+
+        items = self.cache.get_operation_items(op_id)
+        self.assertEqual(len(items), 2)
+        self.assertEqual(items[0]["detail"], "first")
+        self.assertEqual(items[1]["detail"], "second")
+
     def test_update_scan_job_run_session(self):
         self.cache.upsert_scan_job(
             name="default",

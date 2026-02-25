@@ -19,7 +19,17 @@ def _serialize_results(scan_results: dict[Any, list[str]]) -> dict[str, list[str
     return out
 
 
-def _parse_args() -> argparse.Namespace:
+def _similarity_threshold_type(raw: str) -> float:
+    try:
+        value = float(raw)
+    except Exception as exc:
+        raise argparse.ArgumentTypeError("similarity-threshold must be a float between 0.0 and 1.0") from exc
+    if value < 0.0 or value > 1.0:
+        raise argparse.ArgumentTypeError("similarity-threshold must be within [0.0, 1.0]")
+    return value
+
+
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="pyduplicate-cli",
         description="Headless scan runner for PyDuplicate Finder Pro",
@@ -39,7 +49,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--detect-folder-dup", action="store_true")
     p.add_argument("--incremental-rescan", action="store_true")
     p.add_argument("--baseline-session", type=int, default=0)
-    p.add_argument("--similarity-threshold", type=float, default=0.9)
+    p.add_argument("--similarity-threshold", type=_similarity_threshold_type, default=0.9)
 
     p.add_argument("--no-protect-system", action="store_true")
     p.add_argument("--skip-hidden", action="store_true")
@@ -51,7 +61,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--output-json", default="")
     p.add_argument("--output-csv", default="")
     p.add_argument("--quiet", action="store_true")
-    return p.parse_args()
+    return p.parse_args(argv)
 
 
 def main() -> int:

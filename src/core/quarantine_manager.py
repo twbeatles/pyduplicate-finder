@@ -19,10 +19,16 @@ def _safe_filename(name: str) -> str:
     return out or "file"
 
 
-def _conflict_restore_path(orig_path: str) -> str:
+def _conflict_restore_path(orig_path: str, *, max_attempts: int = 16) -> str:
     base, ext = os.path.splitext(orig_path)
     stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime())
-    return f"{base}.restored-{stamp}{ext}"
+    attempts = max(1, int(max_attempts or 1))
+    for _ in range(attempts):
+        suffix = uuid.uuid4().hex[:8]
+        candidate = f"{base}.restored-{stamp}-{suffix}{ext}"
+        if not os.path.exists(candidate):
+            return candidate
+    return f"{base}.restored-{stamp}-{uuid.uuid4().hex}{ext}"
 
 
 @dataclass(frozen=True)

@@ -2,6 +2,7 @@ import os
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import sys
 
@@ -90,3 +91,36 @@ class TestQuarantineManager(unittest.TestCase):
         self.assertEqual(len(items), 1)
         self.assertFalse(os.path.exists(files[0]))
         self.assertTrue(os.path.exists(files[1]))
+
+    def test_restore_conflict_name_is_unique_for_multiple_items(self):
+        orig = os.path.join(self.tmp, "same.txt")
+
+        with open(orig, "w", encoding="utf-8") as f:
+            f.write("first")
+        moved1, failures1 = self.qm.move_to_quarantine([orig])
+        self.assertFalse(failures1)
+        self.assertEqual(len(moved1), 1)
+
+        with open(orig, "w", encoding="utf-8") as f:
+            f.write("second")
+        moved2, failures2 = self.qm.move_to_quarantine([orig])
+        self.assertFalse(failures2)
+        self.assertEqual(len(moved2), 1)
+
+        # Keep original destination occupied so both restores must resolve conflict names.
+        with open(orig, "w", encoding="utf-8") as f:
+            f.write("occupied")
+
+        item_ids = [int(moved1[0].item_id), int(moved2[0].item_id)]
+        with patch("src.core.quarantine_manager.time.strftime", return_value="20260225-120000"):
+            ok1, _msg1, path1 = self.qm.restore_item(item_ids[0])
+            ok2, _msg2, path2 = self.qm.restore_item(item_ids[1])
+
+        self.assertTrue(ok1)
+        self.assertTrue(ok2)
+        self.assertTrue(path1 and path2)
+        self.assertNotEqual(path1, path2)
+        self.assertTrue(os.path.exists(path1))
+        self.assertTrue(os.path.exists(path2))
+        self.assertIn(".restored-20260225-120000-", path1)
+        self.assertIn(".restored-20260225-120000-", path2)

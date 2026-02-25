@@ -1,4 +1,5 @@
 from datetime import datetime
+import json
 
 from src.ui.controllers.scheduler_controller import SchedulerController
 
@@ -99,6 +100,45 @@ def test_scheduler_controller_skip_no_folders_records_runtime():
     assert payload["last_status"] == "skipped"
     assert payload["last_message"] == "no_folders"
     assert float(payload["last_run_at"]) == float(now_ts)
+
+
+def test_scheduler_controller_skip_no_valid_folders_records_runtime():
+    c = SchedulerController()
+    cache = _FakeCache()
+    cfg = c.build_config(enabled=True, schedule_type="daily", weekday=0, time_hhmm="03:00")
+    now_ts = datetime(2026, 2, 20, 10, 0, 0).timestamp()
+    c.record_skip_no_valid_folders(cache_manager=cache, cfg=cfg, now_ts=now_ts)
+
+    assert cache.runtime_calls
+    _name, payload = cache.runtime_calls[-1]
+    assert payload["last_status"] == "skipped"
+    assert payload["last_message"] == "no_valid_folders"
+    assert float(payload["last_run_at"]) == float(now_ts)
+
+
+def test_scheduler_controller_parse_scan_config_handles_invalid_json():
+    c = SchedulerController()
+    assert c.parse_scan_config({"config_json": "{oops"}) == {}
+    assert c.parse_scan_config({"config_json": ""}) == {}
+    assert c.parse_scan_config({"config_json": []}) == {}
+
+
+def test_scheduler_controller_parse_and_resolve_snapshot_folders(tmp_path):
+    c = SchedulerController()
+    valid = tmp_path / "valid"
+    valid.mkdir()
+    missing = tmp_path / "missing"
+    cfg = {
+        "folders": [str(valid), str(missing), str(valid)],
+        "min_size_kb": 10,
+    }
+    job = {"config_json": json.dumps(cfg)}
+    parsed = c.parse_scan_config(job)
+    got_valid, got_missing = c.resolve_snapshot_folders(parsed)
+
+    assert parsed.get("min_size_kb") == 10
+    assert got_valid == [str(valid.resolve())]
+    assert got_missing == [str(missing.resolve())]
 
 
 def test_scheduler_controller_finalize_run_updates_both_tables():

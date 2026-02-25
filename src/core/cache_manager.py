@@ -12,6 +12,8 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 class CacheManager:
+    SCHEMA_VERSION = 5
+
     def __init__(self, db_path=None):
         # Default to a user-writable location. A relative path like "scan_cache.db"
         # is fragile after packaging (CWD might be read-only or unexpected).
@@ -37,6 +39,7 @@ class CacheManager:
         # NOTE: sqlite3.Connection is not weakref-able on some Python versions (e.g. 3.14).
         # Track strong refs and close them explicitly.
         self._connections = []
+        self._foi_has_id: Optional[bool] = None
         # Initialize immediately (creation/migration)
         self._init_db()
 
@@ -95,6 +98,75 @@ class CacheManager:
                     pass
         return self._local.conn
 
+    @staticmethod
+    def _get_table_columns(conn: sqlite3.Connection, table_name: str) -> list[str]:
+        try:
+            cur = conn.cursor()
+            cur.execute(f"PRAGMA table_info({table_name})")
+            return [str(row[1]) for row in (cur.fetchall() or []) if len(row) > 1]
+        except Exception:
+            return []
+
+    def _file_operation_items_has_surrogate_id(self, conn: sqlite3.Connection) -> bool:
+        cols = self._get_table_columns(conn, "file_operation_items")
+        return "id" in cols
+
+    @staticmethod
+    def _create_file_operation_items_v5(conn: sqlite3.Connection, table_name: str = "file_operation_items") -> None:
+        conn.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS {table_name} (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                op_id INTEGER NOT NULL,
+                path TEXT,
+                action TEXT,
+                result TEXT,
+                detail TEXT,
+                size INTEGER,
+                mtime REAL,
+                quarantine_path TEXT,
+                created_at REAL NOT NULL
+            )
+            """
+        )
+
+    def _migrate_file_operation_items_to_v5(self, conn: sqlite3.Connection) -> bool:
+        cols = self._get_table_columns(conn, "file_operation_items")
+        if not cols:
+            self._create_file_operation_items_v5(conn)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_file_operation_items_op ON file_operation_items(op_id)")
+            return True
+        if "id" in cols:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_file_operation_items_op ON file_operation_items(op_id)")
+            return True
+
+        savepoint = "sp_file_operation_items_v5"
+        try:
+            conn.execute(f"SAVEPOINT {savepoint}")
+            self._create_file_operation_items_v5(conn, table_name="file_operation_items_v5")
+            conn.execute(
+                """
+                INSERT INTO file_operation_items_v5
+                (op_id, path, action, result, detail, size, mtime, quarantine_path, created_at)
+                SELECT op_id, path, action, result, detail, size, mtime, quarantine_path, created_at
+                FROM file_operation_items
+                ORDER BY created_at ASC
+                """
+            )
+            conn.execute("DROP TABLE file_operation_items")
+            conn.execute("ALTER TABLE file_operation_items_v5 RENAME TO file_operation_items")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_file_operation_items_op ON file_operation_items(op_id)")
+            conn.execute(f"RELEASE SAVEPOINT {savepoint}")
+            return True
+        except Exception:
+            logger.warning("DB schema v5 migration failed for file_operation_items; keeping legacy schema", exc_info=True)
+            try:
+                conn.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+                conn.execute(f"RELEASE SAVEPOINT {savepoint}")
+            except Exception:
+                pass
+            return False
+
 
     def _init_db(self):
         """Initialize SQLite table with generic hash columns"""
@@ -147,7 +219,7 @@ class CacheManager:
                     )
                 """)
                 conn.execute(
-                    "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '4')"
+                    f"INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '{self.SCHEMA_VERSION}')"
                 )
 
                 conn.execute("""
@@ -253,20 +325,7 @@ class CacheManager:
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_file_operations_status ON file_operations(status)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_file_operations_type ON file_operations(op_type)")
 
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS file_operation_items (
-                        op_id INTEGER NOT NULL,
-                        path TEXT,
-                        action TEXT,
-                        result TEXT,
-                        detail TEXT,
-                        size INTEGER,
-                        mtime REAL,
-                        quarantine_path TEXT,
-                        created_at REAL NOT NULL,
-                        PRIMARY KEY (op_id, created_at, path)
-                    )
-                """)
+                self._create_file_operation_items_v5(conn)
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_file_operation_items_op ON file_operation_items(op_id)")
 
                 conn.execute("""
@@ -334,10 +393,15 @@ class CacheManager:
                     current_version = int(row[0]) if row and str(row[0]).isdigit() else 0
                 except Exception:
                     current_version = 0
-                if current_version < 4:
+                migration_ok = True
+                if current_version < self.SCHEMA_VERSION:
+                    migration_ok = self._migrate_file_operation_items_to_v5(conn)
+                if current_version < self.SCHEMA_VERSION and migration_ok:
                     conn.execute(
-                        "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '4')"
+                        "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)",
+                        (str(self.SCHEMA_VERSION),),
                     )
+                self._foi_has_id = self._file_operation_items_has_surrogate_id(conn)
         except Exception as e:
             logger.exception("DB Init Error")
 
@@ -932,18 +996,35 @@ class CacheManager:
         try:
             now = time.time()
             rows = []
-            for (path, action, result, detail, size, mtime, quarantine_path) in items_batch:
-                rows.append((op_id, path, action, result, detail, size, mtime, quarantine_path, now))
+            for idx, (path, action, result, detail, size, mtime, quarantine_path) in enumerate(items_batch):
+                # Keep created_at strictly increasing within a single batch so legacy schemas
+                # (without surrogate id) do not collapse rows by composite PK collisions.
+                created_at = now + (idx * 1e-6)
+                rows.append((op_id, path, action, result, detail, size, mtime, quarantine_path, created_at))
             conn = self._get_conn()
+            has_id = self._foi_has_id
+            if has_id is None:
+                has_id = self._file_operation_items_has_surrogate_id(conn)
+                self._foi_has_id = has_id
             with conn:
-                conn.executemany(
-                    """
-                    INSERT OR REPLACE INTO file_operation_items
-                    (op_id, path, action, result, detail, size, mtime, quarantine_path, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    rows,
-                )
+                if has_id:
+                    conn.executemany(
+                        """
+                        INSERT INTO file_operation_items
+                        (op_id, path, action, result, detail, size, mtime, quarantine_path, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        rows,
+                    )
+                else:
+                    conn.executemany(
+                        """
+                        INSERT INTO file_operation_items
+                        (op_id, path, action, result, detail, size, mtime, quarantine_path, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        rows,
+                    )
         except Exception as e:
             logger.exception("Append operation items error")
 
@@ -1009,12 +1090,17 @@ class CacheManager:
         try:
             conn = self._get_conn()
             cur = conn.cursor()
+            has_id = self._foi_has_id
+            if has_id is None:
+                has_id = self._file_operation_items_has_surrogate_id(conn)
+                self._foi_has_id = has_id
+            order_by = "id ASC" if has_id else "created_at ASC"
             cur.execute(
-                """
+                f"""
                 SELECT path, action, result, detail, size, mtime, quarantine_path, created_at
                 FROM file_operation_items
                 WHERE op_id=?
-                ORDER BY created_at ASC
+                ORDER BY {order_by}
                 """,
                 (int(op_id),),
             )
