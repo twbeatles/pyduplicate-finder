@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QLabel, QProgressBar, QCheckBox, QMessageBox, QGroupBox, QTreeWidget, QTreeWidgetItem, QToolBar, QSpinBox, QLineEdit, QMenu, QSplitter, QTextEdit, QScrollArea, QStyle, QProgressDialog, QToolButton, QSizePolicy, QListWidget, QDoubleSpinBox, QInputDialog, QStackedWidget, QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView)
+from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QLabel, QProgressBar, QCheckBox, QMessageBox, QGroupBox, QTreeWidget, QTreeWidgetItem, QToolBar, QSpinBox, QLineEdit, QMenu, QSplitter, QTextEdit, QScrollArea, QStyle, QToolButton, QSizePolicy, QListWidget, QDoubleSpinBox, QInputDialog, QStackedWidget, QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView)
 from PySide6.QtCore import Qt, Slot, QSize, QSettings, QTimer
 from PySide6.QtGui import QAction, QKeySequence, QIcon, QPixmap, QFont, QCursor
 
@@ -10,18 +10,19 @@ import string
 import ctypes
 import json
 import logging
+import re
 from datetime import datetime
 
 from src.core.history import HistoryManager
 from src.core.cache_manager import CacheManager
-from src.core.file_ops import FileOperationWorker
 from src.core.preset_manager import PresetManager, get_default_config
 from src.core.file_lock_checker import FileLockChecker
 from src.core.quarantine_manager import QuarantineManager
 from src.core.preflight import PreflightAnalyzer
 from src.core.selection_rules import parse_rules
 from src.core.operation_queue import Operation
-from src.core.scan_engine import ScanConfig
+from src.core.scan_engine import ScanConfig, validate_similar_image_dependency
+from src.core.result_schema import dump_results_v2, load_results_any
 from src.core.scheduler import ScheduleConfig
 from src.ui.empty_folder_dialog import EmptyFolderDialog
 from src.ui.components.results_tree import ResultsTreeWidget
@@ -91,9 +92,10 @@ class DuplicateFinderApp(QMainWindow):
         self.navigation_controller = NavigationController()
         self.results_controller = ResultsController()
         self.preview_controller = PreviewController(self)
-        self.preview_controller.preview_ready.connect(self._on_preview_ready)
+        self.preview_controller.preview_ready.connect(self._on_preview_ready, Qt.QueuedConnection)
         self._preview_request_id = 0
         self._current_result_meta = {}
+        self._current_baseline_delta_map = {}
 
         self._op_worker = None
         self._op_progress = None
@@ -460,6 +462,14 @@ class DuplicateFinderApp(QMainWindow):
             self.btn_cache_open.setText(strings.tr("ctx_open_folder"))
         if hasattr(self, "btn_cache_copy"):
             self.btn_cache_copy.setText(strings.tr("ctx_copy_path"))
+        if hasattr(self, "lbl_cache_session_keep_latest"):
+            self.lbl_cache_session_keep_latest.setText(strings.tr("settings_cache_session_keep_latest"))
+        if hasattr(self, "lbl_cache_hash_cleanup_days"):
+            self.lbl_cache_hash_cleanup_days.setText(strings.tr("settings_cache_hash_cleanup_days"))
+        if hasattr(self, "spin_cache_hash_cleanup_days"):
+            self.spin_cache_hash_cleanup_days.setSuffix(strings.tr("term_days_suffix"))
+        if hasattr(self, "btn_cache_apply"):
+            self.btn_cache_apply.setText(strings.tr("btn_apply"))
 
         # Tools: Quarantine / Rules / Ops
         if hasattr(self, "lbl_quarantine_title"):
@@ -1054,6 +1064,34 @@ class DuplicateFinderApp(QMainWindow):
             current_config["incremental_rescan"] = False
             current_config["baseline_session_id"] = 0
 
+        scan_cfg = ScanConfig(
+            folders=list(effective_folders or []),
+            extensions=list(extensions or []),
+            min_size_kb=int(min_size or 0),
+            same_name=bool(current_config.get("same_name")),
+            name_only=bool(current_config.get("name_only")),
+            byte_compare=bool(current_config.get("byte_compare")),
+            protect_system=bool(current_config.get("protect_system", True)),
+            skip_hidden=bool(current_config.get("skip_hidden", False)),
+            follow_symlinks=bool(current_config.get("follow_symlinks", False)),
+            include_patterns=list(current_config.get("include_patterns") or []),
+            exclude_patterns=list(current_config.get("exclude_patterns") or []),
+            use_similar_image=bool(current_config.get("use_similar_image")),
+            use_mixed_mode=bool(current_config.get("use_mixed_mode", False)),
+            detect_duplicate_folders=bool(current_config.get("detect_duplicate_folders", False)),
+            incremental_rescan=bool(incremental_rescan),
+            baseline_session_id=int(baseline_session_id) if baseline_session_id > 0 else None,
+            similarity_threshold=float(current_config.get("similarity_threshold") or 0.9),
+        )
+        dep_error_key = validate_similar_image_dependency(scan_cfg)
+        if dep_error_key:
+            msg = strings.tr(dep_error_key)
+            if self._scheduled_run_context and self._scheduled_job_run_id:
+                self._finish_scheduled_run("failed", {}, message_override="similar_dependency_missing")
+                return
+            QMessageBox.warning(self, strings.tr("app_title"), msg)
+            return
+
         resumable = None
         if not force_new:
             resumable = self.cache_manager.find_resumable_session_by_hash(config_hash)
@@ -1106,30 +1144,11 @@ class DuplicateFinderApp(QMainWindow):
         self.tree_widget.clear()
         self.scan_results = {}
         self._current_result_meta = {}
+        self._current_baseline_delta_map = {}
         self._set_results_view(False)
         self._update_results_summary(0)
         self.toggle_ui_state(scanning=True)
         self._set_scan_stage_code("collecting")
-
-        scan_cfg = ScanConfig(
-            folders=list(effective_folders or []),
-            extensions=list(extensions or []),
-            min_size_kb=int(min_size or 0),
-            same_name=bool(current_config.get("same_name")),
-            name_only=bool(current_config.get("name_only")),
-            byte_compare=bool(current_config.get("byte_compare")),
-            protect_system=bool(current_config.get("protect_system", True)),
-            skip_hidden=bool(current_config.get("skip_hidden", False)),
-            follow_symlinks=bool(current_config.get("follow_symlinks", False)),
-            include_patterns=list(current_config.get("include_patterns") or []),
-            exclude_patterns=list(current_config.get("exclude_patterns") or []),
-            use_similar_image=bool(current_config.get("use_similar_image")),
-            use_mixed_mode=bool(current_config.get("use_mixed_mode", False)),
-            detect_duplicate_folders=bool(current_config.get("detect_duplicate_folders", False)),
-            incremental_rescan=bool(incremental_rescan),
-            baseline_session_id=int(baseline_session_id) if baseline_session_id > 0 else None,
-            similarity_threshold=float(current_config.get("similarity_threshold") or 0.9),
-        )
         self.worker = self.scan_controller.build_worker(
             config=scan_cfg,
             session_id=session_id,
@@ -1217,6 +1236,10 @@ class DuplicateFinderApp(QMainWindow):
             file_meta = dict(getattr(self.worker, "latest_file_meta", {}) or {})
         except Exception:
             file_meta = {}
+        try:
+            self._current_baseline_delta_map = dict(getattr(self.worker, "latest_baseline_delta_map", {}) or {})
+        except Exception:
+            self._current_baseline_delta_map = {}
         existence_map = {p: True for p in file_meta.keys()} if file_meta else None
         self._render_results(results, selected_paths=[], file_meta=file_meta, existence_map=existence_map, selected_count=0)
         # UX: bring user to focused results page after scan completes.
@@ -1315,6 +1338,7 @@ class DuplicateFinderApp(QMainWindow):
                 out_path=path,
                 selected_paths=selected,
                 file_meta=self._current_result_meta,
+                baseline_delta_map=self._current_baseline_delta_map,
             )
             QMessageBox.information(self, strings.tr("status_done"), strings.tr("status_done") + f":\n{path}")
         except Exception as e:
@@ -1481,12 +1505,6 @@ class DuplicateFinderApp(QMainWindow):
 
     def delete_selected_files(self):
         targets = []
-        # Store items to remove from UI *after* operation success
-        # But for async, we need a way to link targets back to UI items.
-        # Simplest: Reload the tree or just delete UI items if success.
-        # Better: Store targets and wait for signal.
-        
-        self.pending_delete_items = [] # temporary storage
         filter_active = bool(self.txt_result_filter.text().strip())
         visible_checked = 0
         group_rows = []
@@ -1500,7 +1518,6 @@ class DuplicateFinderApp(QMainWindow):
                 item = group.child(j)
                 if item.checkState(0) == Qt.Checked:
                     targets.append(item.data(0, Qt.UserRole))
-                    self.pending_delete_items.append(item)
                     group_sel += 1
                     try:
                         group_bytes += int(item.data(1, Qt.UserRole) or 0)
@@ -1527,8 +1544,6 @@ class DuplicateFinderApp(QMainWindow):
             )
             # 잠긴 파일 제외
             targets = [t for t in targets if t not in locked_files]
-            self.pending_delete_items = [item for item in self.pending_delete_items 
-                                         if item.data(0, Qt.UserRole) not in locked_files]
             if not targets:
                 return
 
@@ -1606,79 +1621,6 @@ class DuplicateFinderApp(QMainWindow):
 
     def perform_redo(self):
         self._start_operation(Operation("redo"))
-
-    def start_file_operation(self, op_type, data=None, use_trash=False):
-        # Disable UI
-        self.toggle_ui_state(scanning=True) # Re-use scanning state (disables interactions)
-        
-        # Show Progress Dialog
-        cancel_text = strings.tr("btn_cancel") if op_type == "delete" else None
-        self.file_op_dialog = QProgressDialog(strings.tr("status_analyzing"), cancel_text, 0, 0, self)
-        self.file_op_dialog.setWindowTitle(strings.tr("app_title"))
-        self.file_op_dialog.setWindowModality(Qt.WindowModal)
-        self.file_op_dialog.setMinimumDuration(0)
-        if op_type != "delete":
-            self.file_op_dialog.setCancelButton(None) # Keep undo/redo non-cancellable for safety
-        self.file_op_dialog.show()
-
-        self.file_worker = FileOperationWorker(self.history_manager, op_type, data, use_trash=use_trash)
-        self.file_worker.progress_updated.connect(lambda val, msg: self.file_op_dialog.setLabelText(msg))
-        self.file_worker.operation_finished.connect(lambda s, m: self.on_file_op_finished(op_type, s, m))
-        if op_type == "delete":
-            # Best-effort cancel: stops between file operations.
-            self.file_op_dialog.canceled.connect(self.file_worker.stop)
-        self.file_worker.start()
-
-    def on_file_op_finished(self, op_type, success, message):
-        self.file_op_dialog.close()
-        self.toggle_ui_state(scanning=False)
-        self.status_label.setText(message)
-        
-        if op_type == 'delete':
-            # Update UI/results based on actual filesystem state (supports partial success/cancel).
-            if hasattr(self, 'pending_delete_items'):
-                deleted_paths = set()
-                parents = {}
-                for item in list(self.pending_delete_items):
-                    path = item.data(0, Qt.UserRole)
-                    if path and not os.path.exists(path):
-                        deleted_paths.add(path)
-                        parent = item.parent()
-                        if parent:
-                            parents[id(parent)] = parent
-                            parent.removeChild(item)
-
-                for parent in parents.values():
-                    if parent.childCount() < 2:
-                        self.tree_widget.invisibleRootItem().removeChild(parent)
-
-                self._remove_paths_from_results(deleted_paths)
-                self.pending_delete_items = []
-                if self.current_session_id:
-                    self.cache_manager.save_scan_results(self.current_session_id, self.scan_results)
-                    self.cache_manager.save_selected_paths(
-                        self.current_session_id,
-                        self.tree_widget.get_checked_files()
-                    )
-
-        if success:
-            if op_type == 'undo':
-                # Issue #23: Recommend rescan after undo since restored files may not be in scan_results
-                if self.scan_results:
-                    self._render_results(self.scan_results, selected_paths=self.tree_widget.get_checked_files())
-                # Inform user that rescan may be needed for accurate results
-                undo_msg = message + "\n\n" + strings.tr("msg_rescan_recommended")
-                QMessageBox.information(self, strings.tr("app_title"), undo_msg)
-                
-            elif op_type == 'redo':
-                # For redo, just inform user - tree already reflects state
-                QMessageBox.information(self, strings.tr("app_title"), message)
-            
-            self.update_undo_redo_buttons()
-        else:
-             QMessageBox.warning(self, strings.tr("app_title"), message)
-             if op_type == 'delete':
-                 self.pending_delete_items = []
     
     def _remove_paths_from_results(self, deleted_paths):
         """Issue #13: Remove deleted paths from scan_results dict."""
@@ -1927,6 +1869,21 @@ class DuplicateFinderApp(QMainWindow):
         except Exception:
             pass
 
+        # Cache policy settings
+        try:
+            if hasattr(self, "spin_cache_session_keep_latest"):
+                self.settings.setValue(
+                    "cache/session_keep_latest",
+                    int(self.spin_cache_session_keep_latest.value()),
+                )
+            if hasattr(self, "spin_cache_hash_cleanup_days"):
+                self.settings.setValue(
+                    "cache/hash_cleanup_days",
+                    int(self.spin_cache_hash_cleanup_days.value()),
+                )
+        except Exception:
+            pass
+
         # Scheduler settings
         try:
             if hasattr(self, "chk_schedule_enabled"):
@@ -1936,7 +1893,11 @@ class DuplicateFinderApp(QMainWindow):
             if hasattr(self, "cmb_schedule_weekday"):
                 self.settings.setValue("schedule/weekday", int(self.cmb_schedule_weekday.currentData() or 0))
             if hasattr(self, "txt_schedule_time"):
-                self.settings.setValue("schedule/time_hhmm", str(self.txt_schedule_time.text() or "03:00").strip())
+                time_hhmm = str(self.txt_schedule_time.text() or "03:00").strip() or "03:00"
+                if self._validate_schedule_time_hhmm(time_hhmm):
+                    self.settings.setValue("schedule/time_hhmm", time_hhmm)
+                else:
+                    logger.warning("Skip saving invalid schedule time: %s", time_hhmm)
             if hasattr(self, "txt_schedule_output"):
                 self.settings.setValue("schedule/output_dir", str(self.txt_schedule_output.text() or "").strip())
             if hasattr(self, "chk_schedule_export_json"):
@@ -2093,6 +2054,20 @@ class DuplicateFinderApp(QMainWindow):
         except Exception:
             pass
 
+        # Cache policy settings load
+        try:
+            keep_latest = int(self.settings.value("cache/session_keep_latest", 20) or 20)
+        except Exception:
+            keep_latest = 20
+        try:
+            hash_cleanup_days = int(self.settings.value("cache/hash_cleanup_days", 30) or 30)
+        except Exception:
+            hash_cleanup_days = 30
+        if hasattr(self, "spin_cache_session_keep_latest"):
+            self.spin_cache_session_keep_latest.setValue(max(1, min(500, int(keep_latest))))
+        if hasattr(self, "spin_cache_hash_cleanup_days"):
+            self.spin_cache_hash_cleanup_days.setValue(max(1, min(3650, int(hash_cleanup_days))))
+
         # Scheduler settings load
         try:
             if hasattr(self, "chk_schedule_enabled"):
@@ -2119,7 +2094,19 @@ class DuplicateFinderApp(QMainWindow):
             pass
 
     def _restore_cached_session(self):
-        self.cache_manager.cleanup_old_sessions()
+        try:
+            keep_latest = int(self.settings.value("cache/session_keep_latest", 20) or 20)
+        except Exception:
+            keep_latest = 20
+        try:
+            hash_cleanup_days = int(self.settings.value("cache/hash_cleanup_days", 30) or 30)
+        except Exception:
+            hash_cleanup_days = 30
+        self.cache_manager.cleanup_old_sessions(keep_latest=max(1, int(keep_latest)))
+        try:
+            self.cache_manager.cleanup_old_entries(days_old=max(1, int(hash_cleanup_days)))
+        except Exception:
+            logger.warning("Failed to cleanup old file hash cache entries", exc_info=True)
         session = self.cache_manager.get_latest_session()
         if not session:
             return
@@ -2140,6 +2127,7 @@ class DuplicateFinderApp(QMainWindow):
             if results:
                 selected_paths = self.cache_manager.load_selected_paths(self.current_session_id)
                 self.scan_results = results
+                self._current_baseline_delta_map = {}
                 self._render_results(results, selected_paths=list(selected_paths), selected_count=len(selected_paths))
                 self.status_label.setText(strings.tr("msg_results_loaded").format(len(results)))
                 # Restore UX: bring the user to the focused results page when data is available.
@@ -2492,14 +2480,13 @@ class DuplicateFinderApp(QMainWindow):
             return
         
         try:
-            # 결과 직렬화 (키 튜플을 문자열로 변환)
-            serializable = {}
-            for key, paths in self.scan_results.items():
-                str_key = json.dumps(key)
-                serializable[str_key] = paths
-            
+            payload = dump_results_v2(
+                scan_results=self.scan_results,
+                folders=list(self.selected_folders or []),
+                source="gui",
+            )
             with open(path, 'w', encoding='utf-8') as f:
-                json.dump(serializable, f, ensure_ascii=False, indent=2)
+                json.dump(payload, f, ensure_ascii=False, indent=2)
             
             self.status_label.setText(strings.tr("msg_results_saved").format(path))
         except Exception as e:
@@ -2517,12 +2504,8 @@ class DuplicateFinderApp(QMainWindow):
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            
-            # 키 역변환
-            self.scan_results = {}
-            for str_key, paths in data.items():
-                key = tuple(json.loads(str_key))
-                self.scan_results[key] = paths
+            self.scan_results = load_results_any(data)
+            self._current_baseline_delta_map = {}
             
             self._render_results(self.scan_results, selected_paths=[], selected_count=0)
             self.status_label.setText(strings.tr("msg_results_loaded").format(len(self.scan_results)))
@@ -2775,6 +2758,29 @@ class DuplicateFinderApp(QMainWindow):
         if path and hasattr(self, "txt_schedule_output"):
             self.txt_schedule_output.setText(path)
 
+    @staticmethod
+    def _validate_schedule_time_hhmm(value: str) -> bool:
+        raw = str(value or "").strip()
+        return bool(re.match(r"^([01]\d|2[0-3]):([0-5]\d)$", raw))
+
+    def apply_cache_settings(self):
+        try:
+            keep_latest = int(self.spin_cache_session_keep_latest.value()) if hasattr(self, "spin_cache_session_keep_latest") else 20
+            hash_cleanup_days = int(self.spin_cache_hash_cleanup_days.value()) if hasattr(self, "spin_cache_hash_cleanup_days") else 30
+            keep_latest = max(1, min(500, keep_latest))
+            hash_cleanup_days = max(1, min(3650, hash_cleanup_days))
+
+            self.settings.setValue("cache/session_keep_latest", keep_latest)
+            self.settings.setValue("cache/hash_cleanup_days", hash_cleanup_days)
+
+            self.cache_manager.cleanup_old_sessions(keep_latest=keep_latest)
+            self.cache_manager.cleanup_old_entries(days_old=hash_cleanup_days)
+
+            if hasattr(self, "toast_manager") and self.toast_manager:
+                self.toast_manager.info(strings.tr("msg_settings_applied"), duration=2200)
+        except Exception as e:
+            QMessageBox.warning(self, strings.tr("app_title"), str(e))
+
     def _sync_schedule_ui(self):
         enabled = bool(hasattr(self, "chk_schedule_enabled") and self.chk_schedule_enabled.isChecked())
         weekly = bool(hasattr(self, "cmb_schedule_frequency") and str(self.cmb_schedule_frequency.currentData() or "daily") == "weekly")
@@ -2805,6 +2811,8 @@ class DuplicateFinderApp(QMainWindow):
 
     def _persist_schedule_job(self):
         cfg = self._build_schedule_config()
+        if not self._validate_schedule_time_hhmm(cfg.time_hhmm):
+            raise ValueError(strings.tr("err_schedule_time_hhmm").format(value=cfg.time_hhmm))
         scan_cfg = self._get_current_config()
         try:
             self.scheduler_controller.persist_job(
@@ -2817,9 +2825,16 @@ class DuplicateFinderApp(QMainWindow):
             )
         except Exception:
             logger.exception("Failed to persist scheduled scan job")
+            raise
 
     def apply_schedule_settings(self):
         try:
+            time_hhmm = str(self.txt_schedule_time.text() if hasattr(self, "txt_schedule_time") else "").strip()
+            if not self._validate_schedule_time_hhmm(time_hhmm):
+                msg = strings.tr("err_schedule_time_hhmm").format(value=time_hhmm or "")
+                QMessageBox.warning(self, strings.tr("app_title"), msg)
+                self.status_label.setText(msg)
+                return
             self.save_settings()
             self._sync_schedule_ui()
             self._persist_schedule_job()
@@ -2884,11 +2899,13 @@ class DuplicateFinderApp(QMainWindow):
         try:
             if bool(ctx.get("output_json")):
                 out_json = os.path.join(out_dir, f"scan_{stamp}.json")
-                payload = {}
-                for k, v in (results or {}).items():
-                    payload[str(tuple(k))] = list(v or [])
+                payload = dump_results_v2(
+                    scan_results=results or {},
+                    folders=list((ctx.get("snapshot_folders") or []) or []),
+                    source="gui",
+                )
                 with open(out_json, "w", encoding="utf-8") as f:
-                    json.dump({"results": payload}, f, ensure_ascii=False, indent=2)
+                    json.dump(payload, f, ensure_ascii=False, indent=2)
         except Exception:
             logger.warning("Scheduled JSON export failed", exc_info=True)
             out_json = ""
@@ -2902,6 +2919,7 @@ class DuplicateFinderApp(QMainWindow):
                     out_path=out_csv,
                     selected_paths=[],
                     file_meta=self._current_result_meta,
+                    baseline_delta_map=self._current_baseline_delta_map,
                 )
         except Exception:
             logger.warning("Scheduled CSV export failed", exc_info=True)

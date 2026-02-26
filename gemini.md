@@ -17,7 +17,8 @@ src/
 │   ├── scanner.py               # ScanWorker: QThread 기반 병렬 스캔/해싱 + 병렬 pHash
 │   ├── cache_manager.py         # SQLite 캐시 (WAL 모드, Thread-local, close_all())
 │   ├── history.py               # Undo/Redo 트랜잭션 + atexit 자동 정리 + 디스크 공간 체크
-│   ├── file_ops.py              # 비동기 파일 작업 워커 (stop() 지원)
+│   ├── operation_queue.py       # OperationWorker: 삭제/복구/하드링크 작업 큐
+│   ├── result_schema.py         # 결과 JSON v2 스키마 및 legacy 호환 로더
 │   ├── image_hash.py            # pHash 기반 유사 이미지 탐지 (BK-Tree + Union-Find)
 │   ├── file_lock_checker.py     # 파일 잠금 상태 확인
 │   ├── preset_manager.py        # 스캔 프리셋 JSON 관리 (기본값 병합)
@@ -122,3 +123,32 @@ psutil>=5.9.0        # 파일 잠금 프로세스 확인
   - `tests/test_exporting.py`
   - `tests/test_main_window_selection_perf.py`
   - `tests/benchmarks/bench_perf.py`
+
+## Update Memo (2026-02-26)
+
+- Removed legacy `src/core/file_ops.py` flow and unified operation execution via:
+  - `src/core/operation_queue.py`
+  - `src/ui/controllers/operation_flow_controller.py`
+- Added `src/core/result_schema.py`:
+  - canonical result JSON schema (`version=2`)
+  - backward-compatible loader for legacy GUI / legacy CLI / v2
+- Quarantine safety hardening:
+  - rollback moved file if `insert_quarantine_item` fails (`<=0`)
+  - explicit failure reason for rollback failure paths
+- Preview concurrency hardening:
+  - cache access guarded with `threading.RLock`
+  - `preview_ready` connected with `Qt.QueuedConnection` for main-thread UI updates
+- Preset schema alignment:
+  - save `schema_version=2`
+  - merge defaults when loading old presets
+- Scheduler/cache policy updates:
+  - strict `HH:MM (00:00-23:59)` validation blocks invalid schedule saves
+  - new settings: `cache/session_keep_latest`, `cache/hash_cleanup_days`
+  - startup cleanup respects those settings
+- Incremental export enhancement:
+  - `ScanWorker.latest_baseline_delta_map` added
+  - CSV `baseline_delta` filled per file with `new|changed|revalidated`
+- Similar-image dependency policy:
+  - GUI and CLI both fail fast when `imagehash`/`Pillow` are unavailable
+- i18n consistency cleanup:
+  - removed hardcoded UI text from `empty_folder_finder.py`, `preset_dialog.py`

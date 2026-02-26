@@ -22,7 +22,8 @@ duplicate_finder/
     │   ├── cache_manager.py       # CacheManager: SQLite 기반 해시 캐시 (WAL 모드, Thread-safe)
     │   ├── history.py             # HistoryManager: Undo/Redo 트랜잭션 및 안전한 임시 삭제 관리
     │   ├── empty_folder_finder.py # EmptyFolderFinder + EmptyFolderWorker: 비동기 빈 폴더 탐색
-    │   ├── file_ops.py            # FileOperationWorker: 비동기 파일 삭제/복구 처리 (stop 지원)
+    │   ├── operation_queue.py      # OperationWorker: 삭제/복구/하드링크 작업 큐 워커
+    │   ├── result_schema.py        # 결과 JSON v2 스키마 및 legacy 호환 로더
     │   ├── image_hash.py          # ImageHasher: pHash 기반 유사 이미지 탐지 (BK-Tree)
     │   ├── file_lock_checker.py   # FileLockChecker: 파일 잠금 상태 확인
     │   └── preset_manager.py      # PresetManager: 스캔 설정 프리셋 관리 (기본값 병합)
@@ -92,7 +93,7 @@ duplicate_finder/
 - **복구 로직 (`undo`)**: 백업 확인 -> 부모 폴더 재생성 -> 파일 이동.
 - **안전한 백업**: `UUID`와 타임스탬프를 결합한 고유 파일명 생성으로, 동시 삭제 시 파일명 충돌(데이터 유실) 방지.
 - **격리함 보존 정책**: Undo 가능한 삭제는 persistent 격리함으로 이동되며, 설정한 보존 기간/용량 정책에 따라 정리.
-- **비동기 처리**: `FileOperationWorker`를 통해 UI 프리징 없이 실행.
+- **비동기 처리**: `OperationWorker`(`src/core/operation_queue.py`)를 통해 UI 프리징 없이 실행.
 
 ### D. `src.core.empty_folder_finder.EmptyFolderFinder`
 - **알고리즘**: Bottom-Up 방식(`os.walk(topdown=False)`)으로 탐색.
@@ -179,3 +180,29 @@ duplicate_finder/
   - `tests/test_exporting.py`
   - `tests/test_main_window_selection_perf.py`
   - `tests/benchmarks/bench_perf.py`
+
+## Update Memo (2026-02-26)
+
+- Deleted legacy path: `src/core/file_ops.py` 제거 및 작업 실행 경로를 `operation_queue` + `operation_flow_controller`로 단일화.
+- Added `src/core/result_schema.py`:
+  - JSON 저장 포맷을 `version=2` canonical schema로 통합
+  - 로더는 legacy GUI / legacy CLI / v2를 모두 호환
+- Quarantine 안전성 강화:
+  - `insert_quarantine_item <= 0`이면 파일 이동 롤백
+  - 롤백 실패 시 명시적인 failure reason 기록
+- Preview 동시성 강화:
+  - preview cache get/put에 `threading.RLock` 적용
+  - `preview_ready`는 `Qt.QueuedConnection` 연결로 메인 스레드 UI 갱신 계약 명시
+- Preset 스키마 정합성:
+  - `schema_version=2` 저장
+  - 구버전 preset 로드 시 신규 키 기본값 자동 병합
+- Scheduler/Cache 정책 강화:
+  - 스케줄 시간 `HH:MM(00:00~23:59)` 엄격 검증, 실패 시 저장 차단
+  - `cache/session_keep_latest`, `cache/hash_cleanup_days` 설정 추가 및 startup cleanup 연동
+- Incremental 결과 확장:
+  - `ScanWorker.latest_baseline_delta_map` 도입 (`new|changed|revalidated`)
+  - CSV 내보내기에서 파일 단위 `baseline_delta` 기록
+- Similar-image 의존성 정책:
+  - GUI/CLI 모두 의존성(`imagehash`, `Pillow`) 누락 시 fail-fast
+- i18n 일관성 정리:
+  - `empty_folder_finder.py`, `preset_dialog.py` 하드코딩 문자열 제거

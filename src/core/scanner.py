@@ -95,6 +95,7 @@ class ScanWorker(QThread):
         self._current_scan_dirs = {}  # normalized dir path -> mtime
         self._base_scan_dirs = {}
         self.latest_file_meta = {}
+        self.latest_baseline_delta_map = {}
         self.incremental_stats = {}
         
         # 유사 이미지 탐지기
@@ -433,6 +434,7 @@ class ScanWorker(QThread):
         self._image_files = []
         self._current_scan_dirs = {}
         self._base_scan_dirs = {}
+        self.latest_baseline_delta_map = {}
 
         self._emit_progress(0, strings.tr("status_collecting_files"), force=True)
 
@@ -507,6 +509,7 @@ class ScanWorker(QThread):
         missing_count = 0
         db_batch = []
         DB_BATCH_SIZE = 1000
+        delta_map = {}
 
         base_known_paths = set()
         self._base_scan_dirs = self.cache_manager.load_scan_dirs(base_session_id)
@@ -548,8 +551,10 @@ class ScanWorker(QThread):
             mtime = float(stat.st_mtime)
             if int(cached_size or -1) != size or float(cached_mtime or -1.0) != mtime:
                 changed_count += 1
+                delta_map[path] = "changed"
             else:
                 revalidated_count += 1
+                delta_map[path] = "revalidated"
             self._track_file_record(path, size, mtime, size_map, db_batch)
             self._record_scan_dir(os.path.dirname(path))
 
@@ -594,6 +599,7 @@ class ScanWorker(QThread):
                     mtime = float(stat.st_mtime)
                     self._track_file_record(entry.path, size, mtime, size_map, db_batch)
                     new_count += 1
+                    delta_map[entry.path] = "new"
 
                     if self.session_id and len(db_batch) >= DB_BATCH_SIZE:
                         self.cache_manager.save_scan_files_batch(self.session_id, db_batch)
@@ -608,6 +614,7 @@ class ScanWorker(QThread):
         if self.session_id and db_batch:
             self.cache_manager.save_scan_files_batch(self.session_id, db_batch)
 
+        self.latest_baseline_delta_map = dict(delta_map)
         self.incremental_stats = {
             "revalidated": int(revalidated_count),
             "changed": int(changed_count),

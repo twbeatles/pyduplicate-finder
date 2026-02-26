@@ -30,7 +30,7 @@ def build_scan_worker_kwargs(
     *,
     session_id: Optional[int] = None,
     use_cached_files: bool = False,
-) -> Dict[str, Any]:
+    ) -> Dict[str, Any]:
     return {
         "check_name": bool(cfg.same_name),
         "min_size_kb": max(0, int(cfg.min_size_kb or 0)),
@@ -51,4 +51,17 @@ def build_scan_worker_kwargs(
         "session_id": int(session_id) if session_id else None,
         "use_cached_files": bool(use_cached_files),
     }
+
+
+def validate_similar_image_dependency(cfg: ScanConfig) -> Optional[str]:
+    requested = bool(cfg.use_similar_image) or bool(cfg.use_mixed_mode)
+    if not requested:
+        return None
+    try:
+        from src.core.scanner import IMAGE_HASH_AVAILABLE
+    except Exception:
+        return "err_similar_image_dependency"
+    if not bool(IMAGE_HASH_AVAILABLE):
+        return "err_similar_image_dependency"
+    return None
 

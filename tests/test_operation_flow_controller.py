@@ -45,6 +45,12 @@ def _build_host():
     host.refresh_operations_list = lambda: None
     host._remove_paths_from_results = lambda _removed: None
     host._render_results = lambda _results, selected_paths=None: None
+    host._undo_redo_sync_calls = 0
+
+    def _sync_undo_redo():
+        host._undo_redo_sync_calls += 1
+
+    host.update_undo_redo_buttons = _sync_undo_redo
     return host
 
 
@@ -99,6 +105,16 @@ def test_on_finished_clears_queue_on_failed_result():
     c.on_finished(host, res, allow_queue_continue=True)
 
     assert host._op_queue == []
+
+
+def test_on_finished_syncs_undo_redo_buttons():
+    c = OperationFlowController()
+    host = _build_host()
+    res = OperationResult(op_type="delete_quarantine", status="completed", message="done")
+
+    c.on_finished(host, res, allow_queue_continue=False)
+
+    assert host._undo_redo_sync_calls == 1
 
 
 def test_cancel_operation_stops_worker():

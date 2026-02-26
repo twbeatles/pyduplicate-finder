@@ -6,17 +6,11 @@ from typing import Any
 
 from PySide6.QtCore import QCoreApplication, QEventLoop
 
-from src.core.scan_engine import ScanConfig, build_scan_worker_kwargs
+from src.core.result_schema import dump_results_v2
+from src.core.scan_engine import ScanConfig, build_scan_worker_kwargs, validate_similar_image_dependency
 from src.core.scanner import ScanWorker
 from src.ui.exporting import export_scan_results_csv
 from src.utils.i18n import strings
-
-
-def _serialize_results(scan_results: dict[Any, list[str]]) -> dict[str, list[str]]:
-    out: dict[str, list[str]] = {}
-    for key, paths in (scan_results or {}).items():
-        out[str(tuple(key))] = list(paths or [])
-    return out
 
 
 def _similarity_threshold_type(raw: str) -> float:
@@ -108,6 +102,10 @@ def main() -> int:
         baseline_session_id=int(args.baseline_session) if int(args.baseline_session or 0) > 0 else None,
         similarity_threshold=float(args.similarity_threshold or 0.9),
     )
+    dep_error_key = validate_similar_image_dependency(cfg)
+    if dep_error_key:
+        print(strings.tr(dep_error_key), file=sys.stderr)
+        return 2
     worker = ScanWorker(folders, **build_scan_worker_kwargs(cfg, session_id=None, use_cached_files=False))
 
     def on_progress(v: int, msg: str) -> None:
@@ -148,25 +146,28 @@ def main() -> int:
 
     if args.output_json:
         out_json = os.path.abspath(args.output_json)
+        payload = dump_results_v2(
+            scan_results=results,
+            folders=folders,
+            source="cli",
+        )
         with open(out_json, "w", encoding="utf-8") as f:
-            json.dump(
-                {
-                    "meta": {
-                        "groups": group_count,
-                        "files": file_count,
-                        "folders": folders,
-                    },
-                    "results": _serialize_results(results),
-                },
-                f,
-                ensure_ascii=False,
-                indent=2,
-            )
+            json.dump(payload, f, ensure_ascii=False, indent=2)
         print(f"Saved JSON: {out_json}")
 
     if args.output_csv:
         out_csv = os.path.abspath(args.output_csv)
-        g, r = export_scan_results_csv(scan_results=results, out_path=out_csv, selected_paths=[])
+        baseline_delta_map = {}
+        try:
+            baseline_delta_map = dict(getattr(worker, "latest_baseline_delta_map", {}) or {})
+        except Exception:
+            baseline_delta_map = {}
+        g, r = export_scan_results_csv(
+            scan_results=results,
+            out_path=out_csv,
+            selected_paths=[],
+            baseline_delta_map=baseline_delta_map,
+        )
         print(f"Saved CSV: {out_csv} (groups={g}, rows={r})")
 
     # Keep app reference alive until end of function.

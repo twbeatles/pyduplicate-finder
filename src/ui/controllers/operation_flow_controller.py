@@ -201,6 +201,11 @@ class OperationFlowController:
         except Exception:
             pass
 
+        try:
+            host.update_undo_redo_buttons()
+        except Exception:
+            pass
+
         if allow_queue_continue and host._op_queue and getattr(result, "status", "") not in ("cancelled", "failed"):
             self.start_next_operation(host)
         else:

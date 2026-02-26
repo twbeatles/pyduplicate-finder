@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -57,6 +58,7 @@ class PreviewController(QObject):
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="preview")
         self._cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self._cache_bytes = 0
+        self._cache_lock = threading.RLock()
         self._max_items = int(max_items)
         self._max_bytes = int(max_bytes)
 
@@ -89,29 +91,34 @@ class PreviewController(QObject):
             self._cache_put(p, payload)
             out = dict(payload)
             out["request_id"] = int(request_id)
+            # Contract: UI binds this signal with Qt.QueuedConnection and updates widgets on the main thread.
             self.preview_ready.emit(out)
 
         fut.add_done_callback(_done)
 
     def _cache_get(self, path: str):
-        item = self._cache.get(path)
-        if item is None:
-            return None
-        self._cache.move_to_end(path)
-        return item
+        with self._cache_lock:
+            item = self._cache.get(path)
+            if item is None:
+                return None
+            self._cache.move_to_end(path)
+            return item
 
     def _cache_put(self, path: str, payload: dict[str, Any]) -> None:
-        existing = self._cache.pop(path, None)
-        if existing is not None:
-            self._cache_bytes -= self._estimate_payload_size(existing)
-        self._cache[path] = payload
-        self._cache_bytes += self._estimate_payload_size(payload)
-        self._cache.move_to_end(path)
+        with self._cache_lock:
+            existing = self._cache.pop(path, None)
+            if existing is not None:
+                self._cache_bytes -= self._estimate_payload_size(existing)
+            self._cache[path] = payload
+            self._cache_bytes += self._estimate_payload_size(payload)
+            self._cache.move_to_end(path)
 
-        while len(self._cache) > self._max_items or self._cache_bytes > self._max_bytes:
-            k, v = self._cache.popitem(last=False)
-            _ = k
-            self._cache_bytes -= self._estimate_payload_size(v)
+            while len(self._cache) > self._max_items or self._cache_bytes > self._max_bytes:
+                k, v = self._cache.popitem(last=False)
+                _ = k
+                self._cache_bytes -= self._estimate_payload_size(v)
+            if self._cache_bytes < 0:
+                self._cache_bytes = 0
 
     @staticmethod
     def _estimate_payload_size(payload: dict[str, Any]) -> int:

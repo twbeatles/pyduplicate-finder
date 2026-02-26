@@ -84,3 +84,26 @@ def test_export_scan_results_uses_fs_meta_helper_when_file_meta_missing(tmp_path
     assert rows == 1
     assert calls["n"] == 1
     assert out.exists()
+
+
+def test_export_scan_results_writes_file_level_baseline_delta(tmp_path):
+    p1 = _write_file(tmp_path / "a.bin", b"a")
+    p2 = _write_file(tmp_path / "b.bin", b"b")
+    scan_results = {("hash_x", 1): [p1, p2]}
+    out = tmp_path / "baseline.csv"
+
+    groups, rows = export_scan_results_csv(
+        scan_results=scan_results,
+        out_path=str(out),
+        selected_paths=[],
+        baseline_delta_map={p1: "new", p2: "changed"},
+    )
+
+    assert groups == 1
+    assert rows == 2
+
+    with out.open("r", encoding="utf-8-sig", newline="") as f:
+        r = list(csv.DictReader(f))
+    by_path = {row["path"]: row for row in r}
+    assert by_path[p1]["baseline_delta"] == "new"
+    assert by_path[p2]["baseline_delta"] == "changed"

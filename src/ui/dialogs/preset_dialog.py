@@ -88,7 +88,7 @@ class PresetDialog(QDialog):
             item = QListWidgetItem(preset['name'])
             item.setData(Qt.UserRole, preset['name'])
             if preset.get('created_at'):
-                item.setToolTip(f"Created: {preset['created_at']}")
+                item.setToolTip(strings.tr("preset_created_at").format(created=preset['created_at']))
             self.preset_list.addItem(item)
     
     def save_preset(self):

@@ -101,14 +101,38 @@ class QuarantineManager:
                 qpath = os.path.join(qdir, unique)
                 shutil.move(p, qpath)
 
-                item_id = self.cache_manager.insert_quarantine_item(
-                    orig_path=p,
-                    quarantine_path=qpath,
-                    size=size,
-                    mtime=mtime,
-                    status="quarantined",
+                item_id = int(
+                    self.cache_manager.insert_quarantine_item(
+                        orig_path=p,
+                        quarantine_path=qpath,
+                        size=size,
+                        mtime=mtime,
+                        status="quarantined",
+                    )
+                    or 0
                 )
-                moved.append(QuarantineMoveResult(item_id=item_id, orig_path=p, quarantine_path=qpath, size=size, mtime=mtime))
+                if item_id <= 0:
+                    rollback_reason = "db_insert_failed"
+                    try:
+                        parent = os.path.dirname(p)
+                        if parent and not os.path.exists(parent):
+                            os.makedirs(parent, exist_ok=True)
+                        shutil.move(qpath, p)
+                        rollback_reason = "db_insert_failed_rolled_back"
+                    except Exception:
+                        rollback_reason = "db_insert_failed_and_rollback_failed"
+                    failures.append((p, rollback_reason))
+                    continue
+
+                moved.append(
+                    QuarantineMoveResult(
+                        item_id=item_id,
+                        orig_path=p,
+                        quarantine_path=qpath,
+                        size=size,
+                        mtime=mtime,
+                    )
+                )
             except Exception as e:
                 failures.append((p, str(e)))
 

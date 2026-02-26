@@ -565,7 +565,7 @@ class CacheManager:
             logger.exception("Get latest session error")
         return None
 
-    def cleanup_old_sessions(self, keep_latest: int = 5):
+    def cleanup_old_sessions(self, keep_latest: int = 20):
         if keep_latest <= 0:
             keep_latest = 1
         try:

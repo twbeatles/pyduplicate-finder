@@ -111,6 +111,7 @@ def export_scan_results_csv(
     out_path: str,
     selected_paths: Optional[Iterable[str]] = None,
     file_meta: Optional[Dict[str, tuple[int, float]]] = None,
+    baseline_delta_map: Optional[Dict[str, str]] = None,
 ) -> Tuple[int, int]:
     """
     Export scan results to CSV robustly across group key shapes.
@@ -119,6 +120,8 @@ def export_scan_results_csv(
     """
     selected_set = set(selected_paths or [])
     meta_map = dict(file_meta or {})
+    delta_map = dict(baseline_delta_map or {})
+    allowed_delta = {"new", "changed", "revalidated"}
 
     groups = 0
     rows = 0
@@ -149,11 +152,18 @@ def export_scan_results_csv(
                 size = ""
                 mtime = ""
                 ext = ""
+                baseline_delta = ""
                 if p:
                     try:
                         ext = os.path.splitext(p)[1]
                     except Exception:
                         ext = ""
+                    try:
+                        baseline_delta = str(delta_map.get(p) or "")
+                    except Exception:
+                        baseline_delta = ""
+                    if baseline_delta not in allowed_delta:
+                        baseline_delta = ""
                     meta = meta_map.get(p)
                     if meta and len(meta) >= 2:
                         try:
@@ -173,7 +183,7 @@ def export_scan_results_csv(
                         gi.group_key_json,
                         "1" if gi.has_byte_compare else "0",
                         str(int(gi.bytes_reclaim_est or 0)),
-                        gi.baseline_delta,
+                        baseline_delta,
                         p or "",
                         "1" if (p in selected_set) else "0",
                         size,

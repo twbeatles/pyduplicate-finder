@@ -121,6 +121,29 @@ def build_settings_page(window) -> QWidget:
     row.addStretch()
     cache_layout.addLayout(row)
 
+    row_cache_policy = QHBoxLayout()
+    row_cache_policy.setSpacing(8)
+    window.lbl_cache_session_keep_latest = QLabel(strings.tr("settings_cache_session_keep_latest"))
+    row_cache_policy.addWidget(window.lbl_cache_session_keep_latest)
+    window.spin_cache_session_keep_latest = QSpinBox()
+    window.spin_cache_session_keep_latest.setRange(1, 500)
+    window.spin_cache_session_keep_latest.setValue(20)
+    row_cache_policy.addWidget(window.spin_cache_session_keep_latest)
+
+    window.lbl_cache_hash_cleanup_days = QLabel(strings.tr("settings_cache_hash_cleanup_days"))
+    row_cache_policy.addWidget(window.lbl_cache_hash_cleanup_days)
+    window.spin_cache_hash_cleanup_days = QSpinBox()
+    window.spin_cache_hash_cleanup_days.setRange(1, 3650)
+    window.spin_cache_hash_cleanup_days.setSuffix(strings.tr("term_days_suffix"))
+    window.spin_cache_hash_cleanup_days.setValue(30)
+    row_cache_policy.addWidget(window.spin_cache_hash_cleanup_days)
+    row_cache_policy.addStretch()
+    cache_layout.addLayout(row_cache_policy)
+
+    window.btn_cache_apply = QPushButton(strings.tr("btn_apply"))
+    window.btn_cache_apply.clicked.connect(window.apply_cache_settings)
+    cache_layout.addWidget(window.btn_cache_apply)
+
     settings_layout.addWidget(cache_card)
 
     # Quarantine settings card

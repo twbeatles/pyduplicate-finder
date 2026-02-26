@@ -30,6 +30,7 @@
 - **제외 패턴 (Exclude Patterns)**: `node_modules`, `.git`, `*.tmp` 등 원하지 않는 폴더나 파일을 스캔에서 제외할 수 있습니다.
 - **스캔 프리셋**: 자주 사용하는 스캔 설정(유사 이미지 모드, 특정 확장자 등)을 프리셋으로 저장하고 불러올 수 있습니다.
 - **결과 저장/로드**: 긴 시간 스캔한 결과를 JSON 파일로 저장했다가 나중에 다시 열어볼 수 있습니다.
+  - 신규 저장은 `version=2` 공통 스키마를 사용하며, 로더는 legacy GUI/CLI 포맷도 자동 호환합니다.
 - **자동 세션 복원**: 마지막 스캔 세션을 자동 감지하고 재개/새 스캔 여부를 선택할 수 있습니다.
 - **직관적인 트리 뷰**: 결과 트리를 전체 펼치거나 접을 수 있으며, 우클릭 메뉴로 다양한 작업을 수행합니다.
 - **실시간 결과 필터**: 이름/경로 기준으로 결과를 빠르게 필터링할 수 있습니다.
@@ -60,7 +61,7 @@ duplicate_finder/
 │   │   ├── scanner.py           # 멀티스레드 스캔 엔진
 │   │   ├── cache_manager.py     # SQLite 캐시 관리
 │   │   ├── history.py           # Undo/Redo 트랜잭션
-│   │   ├── file_ops.py          # 비동기 파일 작업
+│   │   ├── result_schema.py     # 결과 JSON v2 스키마/호환 로더
 │   │   ├── image_hash.py        # 유사 이미지 탐지 (pHash)
 │   │   ├── file_lock_checker.py # 파일 잠금 감지
 │   │   ├── preset_manager.py    # 스캔 프리셋 관리
@@ -149,6 +150,7 @@ python main.py
 python cli.py "D:/Data" "E:/Photos" --extensions jpg,png --output-json result.json --output-csv result.csv
 ```
 - `--similarity-threshold` 값은 `0.0`~`1.0`만 허용됩니다. 범위를 벗어나면 CLI는 에러(`SystemExit 2`)로 종료됩니다.
+- `--similar-image` 또는 `--mixed-mode` 사용 시 `imagehash`/`Pillow` 의존성이 없으면 CLI는 즉시 실패(fail-fast)합니다.
 
 ### 2. 검색 설정
 - **파일 위치 추가**: '폴더 추가' 혹은 드래그 앤 드롭으로 검색할 위치를 등록합니다.
@@ -192,6 +194,7 @@ python cli.py "D:/Data" "E:/Photos" --extensions jpg,png --output-json result.js
 | 작업 기록 | 삭제/복구/정리/하드링크 작업 기록 및 내보내기 |
 | 하드링크 통합 | (고급) 중복 파일을 하드링크로 통합하여 공간 절감 |
 | 예약 스캔 스냅샷 | 저장된 예약 설정(`scan_jobs.config_json`)으로 실행되며, 폴더 일부 누락 시 유효 폴더만 실행/전체 누락 시 `skipped(no_valid_folders)` 처리 |
+| 캐시 유지 정책 | 세션 보존 개수(`cache/session_keep_latest`)와 해시 캐시 보존 일수(`cache/hash_cleanup_days`)를 설정하고 즉시 적용 |
 | 헤드리스 CLI 스캔 | GUI 없이 폴더 스캔 후 JSON/CSV 결과 출력 |
 
 ---
@@ -226,7 +229,7 @@ pyinstaller PyDuplicateFinder.spec
 ## 📝 라이선스
 MIT License
 
-## ✅ 구현 상태 (2026-02-20)
+## ✅ 구현 상태 (2026-02-26)
 
 다음 항목은 현재 코드에 반영되었습니다.
 
@@ -239,6 +242,14 @@ MIT License
 - 예약 스캔(기본): 설정 화면에서 일/주 단위 스케줄 + 자동 JSON/CSV 출력
 - 예약 스캔 실행 정책: UI 현재 상태가 아닌 저장 스냅샷(`scan_jobs.config_json`) 기준 실행, 누락 폴더 정책은 `유효 폴더만 실행 / 전체 누락 시 skipped(no_valid_folders)`
 - 결과 뷰/내보내기 강화: `FOLDER_DUP` 그룹 라벨 개선, CSV에 `group_kind`, `bytes_reclaim_est`, `baseline_delta` 컬럼 추가
+- 결과 JSON 스키마 통합: GUI/CLI 저장은 `version=2` 포맷 사용, 로더는 legacy GUI/legacy CLI/v2를 모두 수용
+- 삭제 복구성 강화: Quarantine DB insert 실패 시 파일 이동 롤백 처리(고아 파일 방지)
+- 미리보기 동시성 강화: preview cache에 `RLock` 적용, 시그널 연결을 `Qt.QueuedConnection`으로 명시
+- 프리셋 스키마 정합성: `schema_version=2` 저장 및 구버전 preset 로드 시 누락 키 기본값 자동 병합
+- 스케줄 입력 검증 강화: `HH:MM(00:00~23:59)` 형식 검증 실패 시 저장 차단 + 오류 안내
+- 캐시 유지 정책 추가: `cache/session_keep_latest`, `cache/hash_cleanup_days` 설정과 startup cleanup 연동
+- 증분 CSV 확장: `baseline_delta`를 파일 단위(`new|changed|revalidated`)로 기록
+- 유사 이미지 의존성 정책: GUI/CLI 모두 의존성 누락 시 fail-fast
 - 구조 분리 2차 진행:
   - `src/core/scan_engine.py` + `src/ui/controllers/scan_controller.py` + `src/ui/controllers/scheduler_controller.py`
   - 작업 플로우 분리: `src/ui/controllers/operation_flow_controller.py`

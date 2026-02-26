@@ -1,5 +1,6 @@
 import os
 from PySide6.QtCore import QThread, Signal
+from src.utils.i18n import strings
 
 class EmptyFolderFinder:
     """빈 폴더 탐색기 (동기 버전)"""
@@ -68,7 +69,7 @@ class EmptyFolderFinder:
         
         # Final progress
         if progress_callback:
-            progress_callback(total_dirs, total_dirs, "Complete")
+            progress_callback(total_dirs, total_dirs, strings.tr("status_done"))
                     
         return empty_folders
 
@@ -140,5 +141,5 @@ class EmptyFolderWorker(QThread):
             self.search_finished.emit(results)
             
         except Exception as e:
-            self.progress_updated.emit(0, f"Error: {e}")
+            self.progress_updated.emit(0, strings.tr("err_scan_failed").format(e))
             self.search_finished.emit([])

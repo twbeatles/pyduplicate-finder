@@ -194,6 +194,7 @@ class I18n:
                     "btn_save_preset": "Save",
                     "btn_load_preset": "Load",
                     "btn_delete_preset": "Delete",
+                    "preset_created_at": "Created: {created}",
                     "btn_close": "Close",
                     "btn_add": "Add",
                     "btn_remove": "Remove Selected",
@@ -247,6 +248,7 @@ class I18n:
                     "msg_preview_folder": "Folder: {}",
                     "msg_rescan_recommended": "Rescan recommended for accurate results.",
                     "err_scan_failed": "Scan failed: {}",
+                    "err_similar_image_dependency": "Similar image scanning requires imagehash and Pillow. Install: pip install imagehash Pillow",
                     "err_critical_title": "Critical Error",
                     "msg_preview_folder_hint": "Folder selected. Preview is available for files only.",
                     "msg_preview_unavailable": "Preview unavailable for this file type.",
@@ -404,6 +406,8 @@ class I18n:
                     # Cache/DB settings
                     "settings_cache_title": "Cache / Database",
                     "settings_cache_desc": "Scan cache database location (should be user-writable).",
+                    "settings_cache_session_keep_latest": "Keep latest sessions:",
+                    "settings_cache_hash_cleanup_days": "Hash cache retention:",
 
                     # Hardlink settings
                     "settings_hardlink_title": "Hardlink Consolidation (Advanced)",
@@ -416,6 +420,7 @@ class I18n:
                     "settings_schedule_output": "Output folder:",
                     "settings_schedule_export_json": "Export JSON",
                     "settings_schedule_export_csv": "Export CSV",
+                    "err_schedule_time_hhmm": "Invalid schedule time '{value}'. Use HH:MM (00:00-23:59).",
 
                     # Purge confirms
                     "confirm_purge_items": "Permanently delete {} quarantined items? This cannot be undone.",
@@ -636,6 +641,7 @@ class I18n:
                     "btn_save_preset": "저장",
                     "btn_load_preset": "불러오기",
                     "btn_delete_preset": "삭제",
+                    "preset_created_at": "생성일: {created}",
                     "btn_close": "닫기",
                     "btn_add": "추가",
                     "btn_remove": "선택 삭제",
@@ -662,6 +668,7 @@ class I18n:
                     "msg_preview_folder": "폴더: {}",
                     "msg_rescan_recommended": "정확한 결과를 위해 재스캔을 권장합니다.",
                     "err_scan_failed": "스캔 실패: {}",
+                    "err_similar_image_dependency": "유사 이미지 스캔은 imagehash와 Pillow가 필요합니다. 설치: pip install imagehash Pillow",
                     "err_critical_title": "치명적 오류",
                     "msg_preview_folder_hint": "폴더가 선택되었습니다. 미리보기는 파일만 지원합니다.",
                     "msg_preview_unavailable": "이 파일 형식은 미리보기를 지원하지 않습니다.",
@@ -819,6 +826,8 @@ class I18n:
                     # Cache/DB settings
                     "settings_cache_title": "캐시 / DB",
                     "settings_cache_desc": "스캔 캐시 DB 저장 위치 (사용자 쓰기 가능 경로 권장).",
+                    "settings_cache_session_keep_latest": "세션 보존 개수:",
+                    "settings_cache_hash_cleanup_days": "해시 캐시 보존 기간:",
 
                     # Hardlink settings
                     "settings_hardlink_title": "하드링크 통합 (고급)",
@@ -833,6 +842,7 @@ class I18n:
                     "settings_schedule_output": "출력 폴더:",
                     "settings_schedule_export_json": "JSON 내보내기",
                     "settings_schedule_export_csv": "CSV 내보내기",
+                    "err_schedule_time_hhmm": "예약 시간 '{value}' 형식이 올바르지 않습니다. HH:MM(00:00~23:59) 형식으로 입력하세요.",
 
                     # Purge confirms
                     "confirm_purge_items": "격리함 항목 {}개를 영구 삭제할까요? 되돌릴 수 없습니다.",

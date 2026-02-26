@@ -13,6 +13,7 @@ class PresetManager:
     """스캔 프리셋 관리 클래스"""
     
     DEFAULT_PRESET_DIR = os.path.join(os.path.expanduser("~"), ".pyduplicatefinder", "presets")
+    SCHEMA_VERSION = 2
     
     def __init__(self, preset_dir: Optional[str] = None):
         """
@@ -43,6 +44,7 @@ class PresetManager:
             preset_data = {
                 'name': name,
                 'created_at': datetime.now().isoformat(),
+                'schema_version': self.SCHEMA_VERSION,
                 'config': config
             }
             
@@ -73,9 +75,10 @@ class PresetManager:
             with open(path, 'r', encoding='utf-8') as f:
                 preset_data = json.load(f)
             
-            loaded_config = preset_data.get('config', {})
-            
-            # Issue #16: Merge with defaults to ensure all keys exist
+            loaded_config = preset_data.get('config', {}) if isinstance(preset_data, dict) else {}
+            loaded_config = loaded_config if isinstance(loaded_config, dict) else {}
+
+            # Merge with defaults for schema upgrade/backward compatibility.
             default = get_default_config()
             default.update(loaded_config)
             return default
@@ -203,6 +206,10 @@ def get_default_config() -> Dict[str, Any]:
         'include_patterns': [],
         'exclude_patterns': [],
         'use_similar_image': False,
+        'use_mixed_mode': False,
+        'detect_duplicate_folders': False,
+        'incremental_rescan': False,
+        'baseline_session_id': 0,
         'similarity_threshold': 0.9,
         'use_trash': False
     }

@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import time
 
 from src.core.cache_manager import CacheManager
 
@@ -145,6 +146,73 @@ def test_save_selected_paths_delta_upsert_and_delete(tmp_path):
         assert cm.load_selected_paths(sid) == {"a", "b"}
         cm.save_selected_paths_delta(sid, add_paths=["c"], remove_paths=["a"])
         assert cm.load_selected_paths(sid) == {"b", "c"}
+    finally:
+        try:
+            cm.close_all()
+        except Exception:
+            pass
+
+
+def test_cleanup_old_entries_returns_deleted_count(tmp_path):
+    db_path = tmp_path / "scan_cache.db"
+    cm = CacheManager(db_path=str(db_path))
+    try:
+        conn = cm._get_conn()
+        now = time.time()
+        with conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO file_hashes (path, size, mtime, hash_partial, hash_full, last_seen)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                ("old.bin", 1, 1.0, "p1", "f1", now - (40 * 24 * 60 * 60)),
+            )
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO file_hashes (path, size, mtime, hash_partial, hash_full, last_seen)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                ("new.bin", 2, 2.0, "p2", "f2", now),
+            )
+
+        deleted = cm.cleanup_old_entries(days_old=30)
+        assert deleted == 1
+
+        row = conn.execute("SELECT COUNT(*) FROM file_hashes").fetchone()
+        assert int(row[0] or 0) == 1
+        remain = conn.execute("SELECT path FROM file_hashes").fetchone()
+        assert str(remain[0]) == "new.bin"
+    finally:
+        try:
+            cm.close_all()
+        except Exception:
+            pass
+
+
+def test_cleanup_old_sessions_respects_keep_latest(tmp_path):
+    db_path = tmp_path / "scan_cache.db"
+    cm = CacheManager(db_path=str(db_path))
+    try:
+        sid1 = cm.create_scan_session({"folders": ["a"]})
+        cm.save_scan_files_batch(sid1, [("a1.bin", 1, 1.0)])
+        time.sleep(0.01)
+        sid2 = cm.create_scan_session({"folders": ["b"]})
+        cm.save_scan_files_batch(sid2, [("b1.bin", 1, 1.0)])
+        time.sleep(0.01)
+        sid3 = cm.create_scan_session({"folders": ["c"]})
+        cm.save_scan_files_batch(sid3, [("c1.bin", 1, 1.0)])
+
+        cm.cleanup_old_sessions(keep_latest=2)
+
+        conn = cm._get_conn()
+        kept = conn.execute("SELECT id FROM scan_sessions ORDER BY updated_at DESC").fetchall()
+        kept_ids = [int(r[0]) for r in kept]
+        assert sid1 not in kept_ids
+        assert sid2 in kept_ids
+        assert sid3 in kept_ids
+
+        old_file_row = conn.execute("SELECT COUNT(*) FROM scan_files WHERE session_id=?", (sid1,)).fetchone()
+        assert int(old_file_row[0] or 0) == 0
     finally:
         try:
             cm.close_all()

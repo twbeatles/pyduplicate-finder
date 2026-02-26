@@ -30,6 +30,7 @@
 - **Exclude Patterns**: Skip unwanted folders/files like `node_modules`, `.git`, `*.tmp` using wildcard patterns (*, ?).
 - **Scan Presets**: Save and load frequently used scan configurations.
 - **Result Save/Load**: Export scan results to JSON and reload later.
+  - New saves use the common `version=2` schema, and the loader remains backward-compatible with legacy GUI/CLI JSON formats.
 - **Session Restore**: Detects the latest session and lets you resume or start a new scan.
 - **Intuitive Tree View**: Expand/collapse all groups, right-click context menu for quick actions.
 - **Custom Shortcuts**: Configure keyboard shortcuts for all functions.
@@ -58,7 +59,7 @@ duplicate_finder/
 │   │   ├── scanner.py           # Multi-threaded scan engine
 │   │   ├── cache_manager.py     # SQLite cache management
 │   │   ├── history.py           # Undo/Redo transactions
-│   │   ├── file_ops.py          # Async file operations
+│   │   ├── result_schema.py     # Result JSON v2 schema + compatibility loader
 │   │   ├── image_hash.py        # Similar image detection (pHash)
 │   │   ├── file_lock_checker.py # File lock detection
 │   │   ├── preset_manager.py    # Scan preset management
@@ -147,6 +148,7 @@ python main.py
 python cli.py "D:/Data" "E:/Photos" --extensions jpg,png --output-json result.json --output-csv result.csv
 ```
 - `--similarity-threshold` only accepts values in `0.0`~`1.0`. Out-of-range input is rejected with CLI error (`SystemExit 2`).
+- When `--similar-image` or `--mixed-mode` is requested, missing `imagehash`/`Pillow` dependencies cause immediate fail-fast exit.
 
 ### 2. Search Settings
 - **Add Location**: Use "Add Folder" or Drag & Drop to add search targets.
@@ -187,6 +189,7 @@ python cli.py "D:/Data" "E:/Photos" --extensions jpg,png --output-json result.js
 | Operations Log | Operation history with details + CSV/JSON export |
 | Hardlink Consolidation | (Advanced) Save disk space via hardlinks |
 | Scheduled Scan Snapshot | Scheduled runs use saved config snapshot (`scan_jobs.config_json`); if some folders are missing, run valid folders only; if all are missing, mark run as `skipped(no_valid_folders)` |
+| Cache Retention Policy | Configure session keep count (`cache/session_keep_latest`) and hash cache retention days (`cache/hash_cleanup_days`) and apply immediately |
 | Headless CLI Scan | Run scans without GUI and export JSON/CSV outputs |
 
 ---
@@ -220,7 +223,7 @@ Contributions are welcome! Performance improvements and bug reports are always a
 ## 📝 License
 MIT License
 
-## ✅ Implementation Status (2026-02-20)
+## ✅ Implementation Status (2026-02-26)
 
 The following items are now implemented in code:
 
@@ -233,6 +236,14 @@ The following items are now implemented in code:
 - Scheduled scan (baseline): daily/weekly scheduling from Settings with optional JSON/CSV auto-export
 - Scheduled execution policy: run from saved snapshot (`scan_jobs.config_json`) rather than current UI state; folder handling is `run valid folders only / all missing -> skipped(no_valid_folders)`
 - Results/export enhancements: better `FOLDER_DUP` labels and CSV columns `group_kind`, `bytes_reclaim_est`, `baseline_delta`
+- Unified result JSON schema: GUI/CLI now save `version=2`, while loader supports legacy GUI/legacy CLI/v2 formats
+- Safer quarantine path: DB insert failure now triggers rollback to original path (prevents orphaned files)
+- Preview concurrency hardening: cache updates are lock-protected (`RLock`) and preview signal is connected with `Qt.QueuedConnection`
+- Preset schema alignment: writes `schema_version=2` and upgrades old presets by merging missing defaults
+- Strict schedule validation: invalid `HH:MM (00:00-23:59)` input is blocked with user-facing error
+- Cache/session cleanup policy: startup cleanup now follows configurable `session_keep_latest` and `hash_cleanup_days`
+- Incremental CSV detail: file-level `baseline_delta` now records `new|changed|revalidated`
+- Similar-image dependency policy: GUI/CLI both fail fast when required deps are unavailable
 - Architecture split phase 2:
   - `src/core/scan_engine.py` + `src/ui/controllers/scan_controller.py` + `src/ui/controllers/scheduler_controller.py`
   - Operation flow extracted to `src/ui/controllers/operation_flow_controller.py`

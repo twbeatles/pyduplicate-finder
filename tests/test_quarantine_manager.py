@@ -53,6 +53,22 @@ class TestQuarantineManager(unittest.TestCase):
         items2 = self.cache.list_quarantine_items(status_filter="quarantined")
         self.assertEqual(len(items2), 0)
 
+    def test_move_rolls_back_when_quarantine_insert_fails(self):
+        f1 = os.path.join(self.tmp, "rollback.txt")
+        with open(f1, "w", encoding="utf-8") as f:
+            f.write("rollback")
+
+        with patch.object(self.cache, "insert_quarantine_item", return_value=0):
+            moved, failures = self.qm.move_to_quarantine([f1])
+
+        self.assertEqual(moved, [])
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(failures[0][0], f1)
+        self.assertIn("db_insert_failed", failures[0][1])
+        self.assertTrue(os.path.exists(f1))
+        items = self.cache.list_quarantine_items(status_filter="quarantined")
+        self.assertEqual(items, [])
+
     def test_retention_purges_by_size(self):
         # Create two files, quarantine both, then set max_bytes low to purge oldest.
         paths = []
