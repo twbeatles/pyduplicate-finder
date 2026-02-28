@@ -103,8 +103,8 @@ def main() -> int:
         incremental_rescan=bool(args.incremental_rescan),
         baseline_session_id=int(args.baseline_session) if int(args.baseline_session or 0) > 0 else None,
         similarity_threshold=float(args.similarity_threshold or 0.9),
-        strict_mode=bool(args.strict_mode),
-        strict_max_errors=max(0, int(args.strict_max_errors or 0)),
+        strict_mode=bool(getattr(args, "strict_mode", False)),
+        strict_max_errors=max(0, int(getattr(args, "strict_max_errors", 0) or 0)),
     )
     dep_error_key = validate_similar_image_dependency(cfg)
     if dep_error_key:
