@@ -286,3 +286,27 @@ MIT License
 ```bash
 python tests/benchmarks/bench_perf.py --files 200000 --groups 5000 --output bench_perf.json
 ```
+
+## Documentation Sync (2026-02-28)
+
+### CLI strict mode example
+```bash
+python cli.py "D:/Data" --strict-mode --strict-max-errors 0 --output-json result.json
+```
+
+### Result JSON compatibility
+- New save/export format: `{"meta": {...}, "results": {...}}`
+- Legacy format `{"<group_key>": [...]}` is still supported when loading results.
+- `meta` fields include:
+  - `scan_status` (`completed` or `partial`)
+  - `metrics` (`files_scanned`, `files_hashed`, `files_skipped_error`, `files_skipped_locked`, `errors_total`)
+  - `warnings` (for example `strict_mode_threshold_exceeded`)
+
+### Duplicate scan audit completion
+- Cancel reliability is now enforced across full-hash, folder-duplicate, and mixed-mode stages.
+- Protected roots are skipped at scan-root level.
+- Extension normalization now treats `.txt` and `txt` identically.
+- Error telemetry is exposed in UI/CLI/JSON meta.
+- Strict mode is available in both UI and CLI (`--strict-mode`, `--strict-max-errors`).
+- Config hash canonicalization is applied for better baseline reuse.
+- Baseline policy remains `completed`-only (`partial` excluded).

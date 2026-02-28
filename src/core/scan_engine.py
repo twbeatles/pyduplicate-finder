@@ -23,6 +23,8 @@ class ScanConfig:
     incremental_rescan: bool = False
     baseline_session_id: Optional[int] = None
     similarity_threshold: float = 0.9
+    strict_mode: bool = False
+    strict_max_errors: int = 0
 
 
 def build_scan_worker_kwargs(
@@ -48,6 +50,8 @@ def build_scan_worker_kwargs(
         "incremental_rescan": bool(cfg.incremental_rescan),
         "base_session_id": int(cfg.baseline_session_id) if cfg.baseline_session_id else None,
         "similarity_threshold": float(cfg.similarity_threshold or 0.9),
+        "strict_mode": bool(cfg.strict_mode),
+        "strict_max_errors": max(0, int(cfg.strict_max_errors or 0)),
         "session_id": int(session_id) if session_id else None,
         "use_cached_files": bool(use_cached_files),
     }

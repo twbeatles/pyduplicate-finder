@@ -44,6 +44,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--incremental-rescan", action="store_true")
     p.add_argument("--baseline-session", type=int, default=0)
     p.add_argument("--similarity-threshold", type=_similarity_threshold_type, default=0.9)
+    p.add_argument("--strict-mode", action="store_true")
+    p.add_argument("--strict-max-errors", type=int, default=0)
 
     p.add_argument("--no-protect-system", action="store_true")
     p.add_argument("--skip-hidden", action="store_true")
@@ -101,6 +103,8 @@ def main() -> int:
         incremental_rescan=bool(args.incremental_rescan),
         baseline_session_id=int(args.baseline_session) if int(args.baseline_session or 0) > 0 else None,
         similarity_threshold=float(args.similarity_threshold or 0.9),
+        strict_mode=bool(args.strict_mode),
+        strict_max_errors=max(0, int(args.strict_max_errors or 0)),
     )
     dep_error_key = validate_similar_image_dependency(cfg)
     if dep_error_key:
@@ -142,7 +146,12 @@ def main() -> int:
     results = dict(state["results"] or {})
     group_count = len(results)
     file_count = sum(len(v or []) for v in results.values())
-    print(f"Done. groups={group_count}, files={file_count}")
+    scan_status = str(getattr(worker, "latest_scan_status", "completed") or "completed")
+    metrics = dict(getattr(worker, "latest_scan_metrics", {}) or {})
+    warnings = list(getattr(worker, "latest_scan_warnings", []) or [])
+    if scan_status == "partial" and "strict_mode_threshold_exceeded" not in warnings:
+        warnings.append("strict_mode_threshold_exceeded")
+    print(f"Done. status={scan_status}, groups={group_count}, files={file_count}, errors={int(metrics.get('errors_total', 0) or 0)}")
 
     if args.output_json:
         out_json = os.path.abspath(args.output_json)
@@ -151,6 +160,12 @@ def main() -> int:
             folders=folders,
             source="cli",
         )
+        payload_meta = payload.setdefault("meta", {})
+        payload_meta["scan_status"] = scan_status
+        payload_meta["metrics"] = metrics
+        payload_meta["warnings"] = warnings
+        payload_meta["groups"] = group_count
+        payload_meta["files"] = file_count
         with open(out_json, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
         print(f"Saved JSON: {out_json}")

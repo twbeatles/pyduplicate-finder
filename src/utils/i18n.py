@@ -57,6 +57,9 @@ class I18n:
                     "msg_undo_complete": "Undo Complete.",
                     "msg_redo_complete": "Redo Complete: {} deleted again.",
                     "msg_scan_complete": "Done: {} duplicate groups found",
+                    "msg_scan_complete_partial": "Done (partial): {} duplicate groups found",
+                    "msg_scan_error_summary": "Errors: {errors}",
+                    "msg_scan_partial_warning": "Scan completed with warnings (partial). Review skipped/errored files.",
                     "err_no_folder": "Please add a folder or drive to scan.",
                     "err_save": "Error saving:\n{}",
                     "err_load": "Error loading:\n{}",
@@ -80,8 +83,10 @@ class I18n:
                     "status_done": "Done",
                     "status_error": "Error",
                     "status_abandoned": "Abandoned",
+                    "status_done_partial": "Done (partial)",
                     "status_stopped": "Stopped",
                     "status_stopping": "Stopping...",
+                    "status_skip_protected_root": "Skipped protected root: {}",
                     "dlg_empty_title": "Empty Folder Finder",
                     "lbl_search_target": "Target: {} locations",
                     "btn_scan_empty": "Find Empty Folders",
@@ -194,7 +199,6 @@ class I18n:
                     "btn_save_preset": "Save",
                     "btn_load_preset": "Load",
                     "btn_delete_preset": "Delete",
-                    "preset_created_at": "Created: {created}",
                     "btn_close": "Close",
                     "btn_add": "Add",
                     "btn_remove": "Remove Selected",
@@ -229,6 +233,9 @@ class I18n:
                     "tip_detect_folder_dup": "Detects folders with identical relative file structures and contents",
                     "chk_incremental_rescan": "Incremental rescan",
                     "tip_incremental_rescan": "Reuses previous completed scan snapshot and scans changed directories first",
+                    "chk_strict_mode": "Strict mode (mark partial on errors)",
+                    "tip_strict_mode": "If total scan errors exceed threshold, mark scan as partial but keep results.",
+                    "lbl_strict_max_errors": "Max errors:",
                     "opt_select": "-- Select --",
                     
                     # New Features (Live Filter & Adv Select)
@@ -248,7 +255,6 @@ class I18n:
                     "msg_preview_folder": "Folder: {}",
                     "msg_rescan_recommended": "Rescan recommended for accurate results.",
                     "err_scan_failed": "Scan failed: {}",
-                    "err_similar_image_dependency": "Similar image scanning requires imagehash and Pillow. Install: pip install imagehash Pillow",
                     "err_critical_title": "Critical Error",
                     "msg_preview_folder_hint": "Folder selected. Preview is available for files only.",
                     "msg_preview_unavailable": "Preview unavailable for this file type.",
@@ -406,8 +412,6 @@ class I18n:
                     # Cache/DB settings
                     "settings_cache_title": "Cache / Database",
                     "settings_cache_desc": "Scan cache database location (should be user-writable).",
-                    "settings_cache_session_keep_latest": "Keep latest sessions:",
-                    "settings_cache_hash_cleanup_days": "Hash cache retention:",
 
                     # Hardlink settings
                     "settings_hardlink_title": "Hardlink Consolidation (Advanced)",
@@ -420,7 +424,6 @@ class I18n:
                     "settings_schedule_output": "Output folder:",
                     "settings_schedule_export_json": "Export JSON",
                     "settings_schedule_export_csv": "Export CSV",
-                    "err_schedule_time_hhmm": "Invalid schedule time '{value}'. Use HH:MM (00:00-23:59).",
 
                     # Purge confirms
                     "confirm_purge_items": "Permanently delete {} quarantined items? This cannot be undone.",
@@ -477,6 +480,9 @@ class I18n:
                     "msg_undo_complete": "실행 취소 완료.",
                     "msg_redo_complete": "다시 실행 완료: {}개 재삭제됨.",
                     "msg_scan_complete": "완료: {}개의 중복 그룹 발견",
+                    "msg_scan_complete_partial": "부분 완료: {}개의 중복 그룹 발견",
+                    "msg_scan_error_summary": "오류: {errors}",
+                    "msg_scan_partial_warning": "오류 임계치 초과로 부분 완료(partial) 처리되었습니다. 건너뛴 파일을 확인하세요.",
                     "err_no_folder": "검색할 폴더나 드라이브를 추가해주세요.",
                     "err_save": "저장 중 오류가 발생했습니다:\n{}",
                     "err_load": "불러오기 중 오류가 발생했습니다:\n{}",
@@ -496,12 +502,14 @@ class I18n:
                     "status_similar_image_scan": "유사 이미지 스캔",
                     "status_hashing_image": "이미지 해시 계산 중 ({}/{})",
                     "status_grouping_images": "유사 이미지 그룹핑 중 ({}/{})",
+                    "status_error": "??",
+                    "status_abandoned": "???",
                     "status_grouping": "그룹핑 중...",
                     "status_done": "완료",
-                    "status_error": "오류",
-                    "status_abandoned": "중단됨",
+                    "status_done_partial": "부분 완료",
                     "status_stopped": "중지됨",
                     "status_stopping": "중지 중...",
+                    "status_skip_protected_root": "보호된 루트 경로를 건너뜀: {}",
                     "dlg_empty_title": "빈 폴더 정리기",
                     "lbl_search_target": "검색 대상: {}개 위치",
                     "btn_scan_empty": "빈 폴더 검색",
@@ -606,6 +614,9 @@ class I18n:
                     "tip_detect_folder_dup": "상대 경로 구조와 파일 내용이 같은 폴더를 탐지합니다",
                     "chk_incremental_rescan": "증분 재스캔",
                     "tip_incremental_rescan": "이전 완료 세션 스냅샷을 활용해 변경된 디렉터리부터 우선 스캔합니다",
+                    "chk_strict_mode": "엄격 모드 (오류 시 partial)",
+                    "tip_strict_mode": "총 오류 수가 임계치를 초과하면 결과는 제공하되 스캔 상태를 partial로 표시합니다.",
+                    "lbl_strict_max_errors": "최대 오류 수:",
                     "opt_select": "-- 선택 --",
                     "btn_clear_key": "지우기",
                     "btn_reset_defaults": "기본값으로 복원",
@@ -641,7 +652,6 @@ class I18n:
                     "btn_save_preset": "저장",
                     "btn_load_preset": "불러오기",
                     "btn_delete_preset": "삭제",
-                    "preset_created_at": "생성일: {created}",
                     "btn_close": "닫기",
                     "btn_add": "추가",
                     "btn_remove": "선택 삭제",
@@ -668,7 +678,6 @@ class I18n:
                     "msg_preview_folder": "폴더: {}",
                     "msg_rescan_recommended": "정확한 결과를 위해 재스캔을 권장합니다.",
                     "err_scan_failed": "스캔 실패: {}",
-                    "err_similar_image_dependency": "유사 이미지 스캔은 imagehash와 Pillow가 필요합니다. 설치: pip install imagehash Pillow",
                     "err_critical_title": "치명적 오류",
                     "msg_preview_folder_hint": "폴더가 선택되었습니다. 미리보기는 파일만 지원합니다.",
                     "msg_preview_unavailable": "이 파일 형식은 미리보기를 지원하지 않습니다.",
@@ -826,8 +835,6 @@ class I18n:
                     # Cache/DB settings
                     "settings_cache_title": "캐시 / DB",
                     "settings_cache_desc": "스캔 캐시 DB 저장 위치 (사용자 쓰기 가능 경로 권장).",
-                    "settings_cache_session_keep_latest": "세션 보존 개수:",
-                    "settings_cache_hash_cleanup_days": "해시 캐시 보존 기간:",
 
                     # Hardlink settings
                     "settings_hardlink_title": "하드링크 통합 (고급)",
@@ -842,7 +849,6 @@ class I18n:
                     "settings_schedule_output": "출력 폴더:",
                     "settings_schedule_export_json": "JSON 내보내기",
                     "settings_schedule_export_csv": "CSV 내보내기",
-                    "err_schedule_time_hhmm": "예약 시간 '{value}' 형식이 올바르지 않습니다. HH:MM(00:00~23:59) 형식으로 입력하세요.",
 
                     # Purge confirms
                     "confirm_purge_items": "격리함 항목 {}개를 영구 삭제할까요? 되돌릴 수 없습니다.",

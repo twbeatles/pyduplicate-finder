@@ -6,6 +6,7 @@ import platform
 import time
 import fnmatch
 import threading
+import errno
 from collections import defaultdict
 import concurrent.futures
 from src.core.cache_manager import CacheManager
@@ -47,13 +48,14 @@ class ScanWorker(QThread):
                  use_similar_image=False, similarity_threshold=0.9,
                  use_mixed_mode=False,
                  incremental_rescan=False, base_session_id=None,
-                 session_id=None, use_cached_files=False):
+                 session_id=None, use_cached_files=False,
+                 strict_mode=False, strict_max_errors=0):
         super().__init__()
         self.folders = folders
         self.check_name = check_name
         self.name_only = name_only  # 파일명만 비교 (내용 무시)
         self.min_size = min_size_kb * 1024  # KB to Bytes
-        self.extensions = set(ext.lower().strip() for ext in extensions) if extensions else None
+        self.extensions = self._normalize_extensions(extensions)
         self.protect_system = protect_system
         self.byte_compare = byte_compare
         self.exclude_patterns = exclude_patterns or []  # 제외 패턴 목록
@@ -68,6 +70,8 @@ class ScanWorker(QThread):
         self.similarity_threshold = similarity_threshold
         self.incremental_rescan = bool(incremental_rescan)
         self.base_session_id = int(base_session_id) if base_session_id else None
+        self.strict_mode = bool(strict_mode)
+        self.strict_max_errors = max(0, int(strict_max_errors or 0))
         self._stop_event = threading.Event() # Thread-safe cancellation signal
         self._init_protected_paths()
         self.cache_manager = CacheManager()
@@ -96,11 +100,122 @@ class ScanWorker(QThread):
         self._base_scan_dirs = {}
         self.latest_file_meta = {}
         self.latest_baseline_delta_map = {}
+        self.latest_scan_metrics = {}
+        self.latest_scan_status = "completed"
+        self.latest_scan_warnings = []
         self.incremental_stats = {}
+        self._metrics_lock = threading.Lock()
+        self._metrics = {
+            "files_scanned": 0,
+            "files_hashed": 0,
+            "files_skipped_error": 0,
+            "files_skipped_locked": 0,
+            "errors_total": 0,
+        }
+        self._error_sample_limit = 25
+        self._error_samples = []
         
         # 유사 이미지 탐지기
         if self.use_similar_image and _ImageHasher is not None:
             self.image_hasher = _ImageHasher()
+
+    def _normalize_extensions(self, extensions):
+        normalized = set()
+        for ext in extensions or []:
+            token = str(ext or "").strip().lower()
+            if not token:
+                continue
+            token = token.lstrip(".")
+            if token:
+                normalized.add(token)
+        return normalized or None
+
+    def _reset_metrics(self):
+        with self._metrics_lock:
+            self._metrics = {
+                "files_scanned": 0,
+                "files_hashed": 0,
+                "files_skipped_error": 0,
+                "files_skipped_locked": 0,
+                "errors_total": 0,
+            }
+            self._error_samples = []
+        self.latest_scan_metrics = {}
+        self.latest_scan_status = "completed"
+        self.latest_scan_warnings = []
+
+    def _is_lock_like_error(self, exc: Exception) -> bool:
+        if isinstance(exc, PermissionError):
+            return True
+        winerror = getattr(exc, "winerror", None)
+        if winerror in (32, 33):
+            return True
+        err_no = getattr(exc, "errno", None)
+        return err_no in {errno.EACCES, errno.EPERM, errno.EBUSY, errno.ETXTBSY}
+
+    def _record_scan_error(self, path: str, exc: Exception, *, stage: str = "", operation: str = "") -> None:
+        bucket = "files_skipped_locked" if self._is_lock_like_error(exc) else "files_skipped_error"
+        message = str(exc or "")
+        with self._metrics_lock:
+            self._metrics[bucket] = int(self._metrics.get(bucket, 0) or 0) + 1
+            self._metrics["errors_total"] = int(self._metrics.get("errors_total", 0) or 0) + 1
+            if len(self._error_samples) < self._error_sample_limit:
+                self._error_samples.append(
+                    {
+                        "path": str(path or ""),
+                        "stage": str(stage or ""),
+                        "operation": str(operation or ""),
+                        "error": message,
+                    }
+                )
+        if DEBUG_SCAN:
+            logger.warning(
+                "[scan] %s/%s path=%s error=%s",
+                stage or "unknown",
+                operation or "unknown",
+                path,
+                message,
+            )
+
+    def _inc_metric(self, key: str, value: int = 1) -> None:
+        if not key:
+            return
+        with self._metrics_lock:
+            self._metrics[key] = int(self._metrics.get(key, 0) or 0) + int(value or 0)
+
+    def _snapshot_metrics(self):
+        with self._metrics_lock:
+            out = dict(self._metrics or {})
+            if self._error_samples:
+                out["error_samples"] = list(self._error_samples)
+        return out
+
+    def _finalize_scan_status(self) -> str:
+        metrics = self._snapshot_metrics()
+        warnings = []
+        status = "completed"
+        if self.strict_mode and int(metrics.get("errors_total", 0) or 0) > int(self.strict_max_errors or 0):
+            status = "partial"
+            warnings.append("strict_mode_threshold_exceeded")
+        self.latest_scan_metrics = metrics
+        self.latest_scan_status = status
+        self.latest_scan_warnings = warnings
+        return status
+
+    def _handle_cancel(self, stage_hint=None) -> bool:
+        if not self._stop_event.is_set():
+            return False
+        if self.session_id:
+            try:
+                self.cache_manager.update_scan_session(
+                    self.session_id,
+                    status="paused",
+                    stage=stage_hint or self._stage or "collecting",
+                )
+            except Exception:
+                pass
+        self.scan_cancelled.emit()
+        return True
 
     def _init_protected_paths(self):
         self.protected_paths = []
@@ -335,7 +450,8 @@ class ScanWorker(QThread):
             # Note: We do NOT update cache here inside the thread anymore.
             # We return it and let the main thread batch update it.
             return digest, True
-        except OSError:
+        except OSError as e:
+            self._record_scan_error(filepath, e, stage="hashing", operation="read_hash")
             return None, False
 
     def compare_files_byte_by_byte(self, file1, file2):
@@ -404,6 +520,7 @@ class ScanWorker(QThread):
                             continue
                         yield entry
         except OSError as e:
+            self._record_scan_error(path, e, stage="collecting", operation="scandir")
             if DEBUG_SCAN:
                 logger.warning("[scan] Scandir error: %s", e)
             return
@@ -421,6 +538,7 @@ class ScanWorker(QThread):
     def _track_file_record(self, path: str, size: int, mtime: float, size_map, db_batch) -> None:
         self._file_meta[path] = (size, mtime)
         self._collect_image_candidate(path)
+        self._inc_metric("files_scanned", 1)
 
         if size >= self.min_size and size > 0:
             size_map[size].append(path)
@@ -455,6 +573,9 @@ class ScanWorker(QThread):
         db_batch = []
         DB_BATCH_SIZE = 1000
         for folder in self.folders:
+            if self.protect_system and self.is_protected(folder):
+                self._emit_progress(0, strings.tr("status_skip_protected_root").format(folder), force=True)
+                continue
             self._record_scan_dir(folder)
             if self.follow_symlinks:
                 try:
@@ -490,7 +611,8 @@ class ScanWorker(QThread):
                     file_count += 1
                     if file_count % 1000 == 0:
                         self._emit_progress(0, f"{strings.tr('status_collecting_files')}: {file_count}")
-                except OSError:
+                except OSError as e:
+                    self._record_scan_error(entry.path, e, stage="collecting", operation="stat")
                     continue
 
         if self.session_id and db_batch:
@@ -537,8 +659,9 @@ class ScanWorker(QThread):
 
             try:
                 stat = os.stat(path, follow_symlinks=self.follow_symlinks)
-            except OSError:
+            except OSError as e:
                 missing_count += 1
+                self._record_scan_error(path, e, stage="incremental_index", operation="stat_known")
                 continue
 
             if stat.st_ino:
@@ -568,6 +691,9 @@ class ScanWorker(QThread):
 
         # 2) Walk only changed directories to discover new paths.
         for folder in self.folders:
+            if self.protect_system and self.is_protected(folder):
+                self._emit_progress(0, strings.tr("status_skip_protected_root").format(folder), force=True)
+                continue
             self._record_scan_dir(folder)
             if self.follow_symlinks:
                 try:
@@ -608,7 +734,8 @@ class ScanWorker(QThread):
                     file_count += 1
                     if file_count % 1000 == 0:
                         self._emit_progress(0, f"{strings.tr('status_collecting_files')}: {file_count}")
-                except OSError:
+                except OSError as e:
+                    self._record_scan_error(entry.path, e, stage="incremental_index", operation="stat_new")
                     continue
 
         if self.session_id and db_batch:
@@ -648,7 +775,8 @@ class ScanWorker(QThread):
                 continue
             try:
                 stat = os.stat(path, follow_symlinks=self.follow_symlinks)
-            except OSError:
+            except OSError as e:
+                self._record_scan_error(path, e, stage="collecting", operation="stat_cached")
                 missing_paths.append(path)
                 continue
 
@@ -669,6 +797,7 @@ class ScanWorker(QThread):
             self._file_meta[path] = (int(size), float(mtime))
             self._collect_image_candidate(path)
             self._record_scan_dir(os.path.dirname(path))
+            self._inc_metric("files_scanned", 1)
 
             file_count += 1
             if file_count % 1000 == 0:
@@ -766,6 +895,7 @@ class ScanWorker(QThread):
                         digest = cached[0]
                         if digest:
                             hash_map[(size, digest, type_str)].append(filepath)
+                            self._inc_metric("files_hashed", 1)
                             if self.session_id:
                                 session_hash_batch[(filepath, type_str)] = (filepath, size, mtime, type_str, digest)
                         processed += 1
@@ -791,12 +921,15 @@ class ScanWorker(QThread):
                     )
                     for future in done:
                         active_futures.remove(future)
+                        path_hint = ""
                         try:
                             filepath, size, mtime, partial, result_tuple = future.result()
+                            path_hint = filepath
                             digest, is_newly_calculated = result_tuple
                             if digest:
                                 type_str = "PARTIAL" if partial else "FULL"
                                 hash_map[(size, digest, type_str)].append(filepath)
+                                self._inc_metric("files_hashed", 1)
                                 if self.session_id:
                                     session_hash_batch[(filepath, type_str)] = (filepath, size, mtime, type_str, digest)
                                 if is_newly_calculated:
@@ -809,8 +942,13 @@ class ScanWorker(QThread):
                                             digest if not partial else None,
                                         )
                                     )
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            self._record_scan_error(
+                                path=path_hint,
+                                exc=e,
+                                stage="hashing",
+                                operation="future_result",
+                            )
 
                         if len(db_batch) >= BATCH_SIZE:
                             self.cache_manager.update_cache_batch(db_batch)
@@ -833,6 +971,7 @@ class ScanWorker(QThread):
     def run(self):
         try:
             start_time = time.time()
+            self._reset_metrics()
             self.seen_inodes.clear()
             self._set_stage(
                 "collecting",
@@ -851,15 +990,7 @@ class ScanWorker(QThread):
 
             # 1. File Collection
             size_map = self._scan_files()
-            if self._stop_event.is_set():
-                # Issue #3: Emit None to indicate cancellation (preserve previous results)
-                if self.session_id:
-                    self.cache_manager.update_scan_session(
-                        self.session_id,
-                        status="paused",
-                        stage=self._stage or "collecting",
-                    )
-                self.scan_cancelled.emit()
+            if self._handle_cancel("collecting"):
                 return
             self._set_stage("collected")
 
@@ -868,14 +999,7 @@ class ScanWorker(QThread):
             if self.name_only:
                 name_groups = defaultdict(list)
                 for paths in size_map.values():
-                    if self._stop_event.is_set():
-                        if self.session_id:
-                            self.cache_manager.update_scan_session(
-                                self.session_id,
-                                status="paused",
-                                stage=self._stage or "collecting",
-                            )
-                        self.scan_cancelled.emit()
+                    if self._handle_cancel("collected"):
                         return
                     for path in paths:
                         name = os.path.basename(path)
@@ -912,14 +1036,7 @@ class ScanWorker(QThread):
                         is_quick_scan=True,
                         seed_session_id=self.base_session_id if self.incremental_rescan else None,
                     )
-                    if self._stop_event.is_set():
-                        if self.session_id:
-                            self.cache_manager.update_scan_session(
-                                self.session_id,
-                                status="paused",
-                                stage=self._stage or "hashing",
-                            )
-                        self.scan_cancelled.emit()
+                    if self._handle_cancel("hashing"):
                         return
                     self._set_stage("hashing")
 
@@ -947,6 +1064,8 @@ class ScanWorker(QThread):
                             is_quick_scan=False,
                             seed_session_id=self.base_session_id if self.incremental_rescan else None,
                         )
+                        if self._handle_cancel("hashing"):
+                            return
 
                         for key, paths in full_hash_results.items():
                             if len(paths) < 2:
@@ -957,6 +1076,8 @@ class ScanWorker(QThread):
             if self.detect_duplicate_folders and self._file_meta:
                 self._set_stage("folder_dup")
                 folder_groups = self._detect_duplicate_folders()
+                if self._handle_cancel("folder_dup"):
+                    return
                 if folder_groups:
                     final_duplicates.update(folder_groups)
 
@@ -966,19 +1087,25 @@ class ScanWorker(QThread):
                     image_files=list(self._image_files),
                     emit_result=False,
                 )
+                if self._handle_cancel("similar_image"):
+                    return
                 if similar_groups:
                     final_duplicates.update(similar_groups)
 
-            self._emit_progress(100, f"{strings.tr('status_done')}! ({time.time() - start_time:.2f}s)", force=True)
+            final_status = self._finalize_scan_status()
+            done_msg = strings.tr("status_done")
+            if final_status == "partial":
+                done_msg = strings.tr("status_done_partial")
+            self._emit_progress(100, f"{done_msg}! ({time.time() - start_time:.2f}s)", force=True)
             self._trim_file_meta_for_results(final_duplicates)
             self.latest_file_meta = dict(self._file_meta or {})
             if self.session_id:
                 self.cache_manager.update_scan_session(
                     self.session_id,
-                    status="completed",
+                    status=final_status,
                     stage="completed",
                     progress=100,
-                    progress_message=strings.tr("status_done")
+                    progress_message=done_msg
                 )
             self._set_stage("completed")
             self.scan_finished.emit(final_duplicates)
@@ -995,6 +1122,9 @@ class ScanWorker(QThread):
                     progress_message=f"Error: {e}"
                 )
             self._emit_progress(0, strings.tr("err_scan_failed").format(e), force=True)
+            self.latest_scan_metrics = self._snapshot_metrics()
+            self.latest_scan_status = "failed"
+            self.latest_scan_warnings = []
             self.scan_failed.emit(str(e))
         finally:
             # 스레드 종료 시 CacheManager 커넥션 정리
@@ -1021,6 +1151,9 @@ class ScanWorker(QThread):
                 self._emit_progress(0, strings.tr("status_collecting_files"), force=True)
                 image_files = []
                 for folder in self.folders:
+                    if self.protect_system and self.is_protected(folder):
+                        self._emit_progress(0, strings.tr("status_skip_protected_root").format(folder), force=True)
+                        continue
                     for entry in self._scandir_recursive(folder):
                         if self._stop_event.is_set():
                             if self.session_id:
@@ -1038,13 +1171,17 @@ class ScanWorker(QThread):
             image_files = [p for p in (image_files or []) if p]
             if len(image_files) < 2:
                 if emit_result:
+                    final_status = self._finalize_scan_status()
+                    done_msg = strings.tr("status_done")
+                    if final_status == "partial":
+                        done_msg = strings.tr("status_done_partial")
                     if self.session_id:
                         self.cache_manager.update_scan_session(
                             self.session_id,
-                            status="completed",
+                            status=final_status,
                             stage="completed",
                             progress=100,
-                            progress_message=strings.tr("status_done"),
+                            progress_message=done_msg,
                         )
                     self._set_stage("completed")
                     self.scan_finished.emit({})
@@ -1089,7 +1226,8 @@ class ScanWorker(QThread):
                         stat = os.stat(path, follow_symlinks=self.follow_symlinks)
                         size = int(stat.st_size)
                         mtime = float(stat.st_mtime)
-                    except OSError:
+                    except OSError as e:
+                        self._record_scan_error(path, e, stage="similar_image", operation="stat")
                         processed += 1
                         return True
 
@@ -1101,6 +1239,7 @@ class ScanWorker(QThread):
                         h = cached[0]
                         if h:
                             hash_results[path] = h
+                            self._inc_metric("files_hashed", 1)
                             if self.session_id:
                                 session_hash_batch[(path, "PHASH")] = (path, size, mtime, "PHASH", h)
                         processed += 1
@@ -1139,10 +1278,11 @@ class ScanWorker(QThread):
                             hash_val = future.result()
                             if hash_val and path:
                                 hash_results[path] = hash_val
+                                self._inc_metric("files_hashed", 1)
                                 if self.session_id:
                                     session_hash_batch[(path, "PHASH")] = (path, size, mtime, "PHASH", hash_val)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            self._record_scan_error(path, e, stage="similar_image", operation="phash_future")
 
                         processed += 1
                         if processed % 10 == 0:
@@ -1190,15 +1330,19 @@ class ScanWorker(QThread):
                     final_duplicates[key] = list(group)
 
             if emit_result:
-                self._emit_progress(100, f"{strings.tr('status_done')}! ({time.time() - start_time:.2f}s)", force=True)
+                final_status = self._finalize_scan_status()
+                done_msg = strings.tr("status_done")
+                if final_status == "partial":
+                    done_msg = strings.tr("status_done_partial")
+                self._emit_progress(100, f"{done_msg}! ({time.time() - start_time:.2f}s)", force=True)
                 self.latest_file_meta = dict(self._file_meta or {})
                 if self.session_id:
                     self.cache_manager.update_scan_session(
                         self.session_id,
-                        status="completed",
+                        status=final_status,
                         stage="completed",
                         progress=100,
-                        progress_message=strings.tr("status_done"),
+                        progress_message=done_msg,
                     )
                 self._set_stage("completed")
                 self.scan_finished.emit(final_duplicates)
@@ -1219,6 +1363,9 @@ class ScanWorker(QThread):
                 )
             if emit_result:
                 self._emit_progress(0, strings.tr("err_scan_failed").format(e), force=True)
+                self.latest_scan_metrics = self._snapshot_metrics()
+                self.latest_scan_status = "failed"
+                self.latest_scan_warnings = []
                 self.scan_failed.emit(str(e))
             return {}
 

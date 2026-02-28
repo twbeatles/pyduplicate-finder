@@ -243,6 +243,20 @@ def build_scan_page(window) -> QWidget:
     row4_layout.addWidget(window.lbl_baseline_session)
     row4_layout.addWidget(window.cmb_baseline_session)
 
+    row4_layout.addWidget(_create_separator())
+    window.chk_strict_mode = QCheckBox(strings.tr("chk_strict_mode"))
+    window.chk_strict_mode.setToolTip(strings.tr("tip_strict_mode"))
+    row4_layout.addWidget(window.chk_strict_mode)
+
+    window.lbl_strict_max_errors = QLabel(strings.tr("lbl_strict_max_errors"))
+    window.spin_strict_max_errors = QSpinBox()
+    window.spin_strict_max_errors.setRange(0, 1000000)
+    window.spin_strict_max_errors.setValue(0)
+    window.spin_strict_max_errors.setMinimumWidth(90)
+    window.spin_strict_max_errors.setEnabled(False)
+    row4_layout.addWidget(window.lbl_strict_max_errors)
+    row4_layout.addWidget(window.spin_strict_max_errors)
+
     row4_layout.addStretch()
     filter_main_layout.addLayout(row4_layout)
 
@@ -251,6 +265,8 @@ def build_scan_page(window) -> QWidget:
     window.chk_mixed_mode.toggled.connect(window._sync_filter_states)
     window.chk_incremental_rescan.toggled.connect(window._sync_filter_states)
     window.chk_incremental_rescan.toggled.connect(window.refresh_incremental_baselines)
+    window.chk_strict_mode.toggled.connect(window._sync_filter_states)
+    window.chk_strict_mode.toggled.connect(window.refresh_incremental_baselines)
     window.chk_same_name.toggled.connect(window.refresh_incremental_baselines)
     window.chk_name_only.toggled.connect(window.refresh_incremental_baselines)
     window.chk_byte_compare.toggled.connect(window.refresh_incremental_baselines)
@@ -261,6 +277,7 @@ def build_scan_page(window) -> QWidget:
     window.chk_follow_symlinks.toggled.connect(window.refresh_incremental_baselines)
     window.txt_extensions.textChanged.connect(window.refresh_incremental_baselines)
     window.spin_min_size.valueChanged.connect(window.refresh_incremental_baselines)
+    window.spin_strict_max_errors.valueChanged.connect(window.refresh_incremental_baselines)
 
     top_main_layout.addWidget(window.filter_container)
     window._sync_filter_states()

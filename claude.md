@@ -206,3 +206,25 @@ duplicate_finder/
   - GUI/CLI 모두 의존성(`imagehash`, `Pillow`) 누락 시 fail-fast
 - i18n 일관성 정리:
   - `empty_folder_finder.py`, `preset_dialog.py` 하드코딩 문자열 제거
+
+## Update Memo (2026-02-28)
+
+- Duplicate scan reliability hardening is implemented end-to-end.
+  - Added consistent cancel checkpoints after file collection, quick/full hash, folder-duplicate stage, and mixed similar-image stage.
+  - On cancel, session state is persisted as `paused`, and `scan_cancelled` is emitted instead of `scan_finished`.
+- Root-level system-protection guard is enforced.
+  - If a selected scan root is protected, the root is skipped entirely.
+- Extension normalization is unified.
+  - Input extensions are canonicalized to lowercase dotless tokens (so `.txt` and `txt` behave the same).
+- Scan telemetry is now first-class output.
+  - Metrics: `files_scanned`, `files_hashed`, `files_skipped_error`, `files_skipped_locked`, `errors_total`
+  - Metrics and warnings are exposed to UI and CLI, and exported in JSON `meta`.
+- Strict mode is now supported in UI and CLI.
+  - UI: strict mode toggle + max errors input.
+  - CLI: `--strict-mode`, `--strict-max-errors`.
+  - Threshold breach marks scan `partial` while still returning results.
+- Config hash canonicalization is applied before baseline lookup.
+  - Normalizes and sorts folders/extensions/include/exclude patterns for stable hash reuse.
+- Session/baseline policy:
+  - `partial` sessions are restorable as completed-like results.
+  - Baseline candidates remain `completed`-only by design.

@@ -9,6 +9,8 @@ def test_build_scan_worker_kwargs_includes_new_flags():
         detect_duplicate_folders=True,
         incremental_rescan=True,
         baseline_session_id=99,
+        strict_mode=True,
+        strict_max_errors=3,
     )
     kwargs = build_scan_worker_kwargs(cfg, session_id=12, use_cached_files=True)
     assert kwargs["use_similar_image"] is True
@@ -16,6 +18,8 @@ def test_build_scan_worker_kwargs_includes_new_flags():
     assert kwargs["detect_duplicate_folders"] is True
     assert kwargs["incremental_rescan"] is True
     assert kwargs["base_session_id"] == 99
+    assert kwargs["strict_mode"] is True
+    assert kwargs["strict_max_errors"] == 3
     assert kwargs["session_id"] == 12
     assert kwargs["use_cached_files"] is True
 

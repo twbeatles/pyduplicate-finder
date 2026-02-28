@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QLabel, QProgressBar, QCheckBox, QMessageBox, QGroupBox, QTreeWidget, QTreeWidgetItem, QToolBar, QSpinBox, QLineEdit, QMenu, QSplitter, QTextEdit, QScrollArea, QStyle, QToolButton, QSizePolicy, QListWidget, QDoubleSpinBox, QInputDialog, QStackedWidget, QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView)
+﻿from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QLabel, QProgressBar, QCheckBox, QMessageBox, QGroupBox, QTreeWidget, QTreeWidgetItem, QToolBar, QSpinBox, QLineEdit, QMenu, QSplitter, QTextEdit, QScrollArea, QStyle, QToolButton, QSizePolicy, QListWidget, QDoubleSpinBox, QInputDialog, QStackedWidget, QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView)
 from PySide6.QtCore import Qt, Slot, QSize, QSettings, QTimer
 from PySide6.QtGui import QAction, QKeySequence, QIcon, QPixmap, QFont, QCursor
 
@@ -74,7 +74,7 @@ class DuplicateFinderApp(QMainWindow):
         self._result_filter_timer.timeout.connect(self._apply_result_filter)
         self._pending_filter_text = ""
         
-        # 새 기능 관련 인스턴스 변수
+        # ??疫꿸퀡???온???紐꾨뮞??곷뮞 癰궰??
         self.preset_manager = PresetManager()
         self.file_lock_checker = FileLockChecker()
         self.exclude_patterns = []
@@ -96,6 +96,9 @@ class DuplicateFinderApp(QMainWindow):
         self._preview_request_id = 0
         self._current_result_meta = {}
         self._current_baseline_delta_map = {}
+        self._last_scan_metrics = {}
+        self._last_scan_status = "completed"
+        self._last_scan_warnings = []
 
         self._op_worker = None
         self._op_progress = None
@@ -136,7 +139,7 @@ class DuplicateFinderApp(QMainWindow):
 
         self._current_scan_stage_code = None
 
-        # Drag & Drop 활성화
+        # Drag & Drop ??뽮쉐??
         self.setAcceptDrops(True)
 
         # UX: warn once when enabling system trash (Undo not available)
@@ -380,6 +383,11 @@ class DuplicateFinderApp(QMainWindow):
         if hasattr(self, "chk_incremental_rescan"):
             self.chk_incremental_rescan.setText(strings.tr("chk_incremental_rescan"))
             self.chk_incremental_rescan.setToolTip(strings.tr("tip_incremental_rescan"))
+        if hasattr(self, "chk_strict_mode"):
+            self.chk_strict_mode.setText(strings.tr("chk_strict_mode"))
+            self.chk_strict_mode.setToolTip(strings.tr("tip_strict_mode"))
+        if hasattr(self, "lbl_strict_max_errors"):
+            self.lbl_strict_max_errors.setText(strings.tr("lbl_strict_max_errors"))
         if hasattr(self, "lbl_baseline_session"):
             self.lbl_baseline_session.setText(strings.tr("lbl_baseline_session"))
         if hasattr(self, "cmb_baseline_session"):
@@ -406,7 +414,7 @@ class DuplicateFinderApp(QMainWindow):
         
         # New Feature: Filter Placeholder
         if hasattr(self, 'txt_result_filter'):
-            self.txt_result_filter.setPlaceholderText("🔍 " + strings.tr("ph_filter_results"))
+            self.txt_result_filter.setPlaceholderText("?뵇 " + strings.tr("ph_filter_results"))
 
         self.tree_widget.setHeaderLabels([strings.tr("col_path"), strings.tr("col_size"), strings.tr("col_mtime"), strings.tr("col_ext")])
         self.lbl_preview_header.setText(strings.tr("lbl_preview"))
@@ -597,7 +605,7 @@ class DuplicateFinderApp(QMainWindow):
         self.btn_export.setText(strings.tr("btn_export"))
         self.btn_delete.setText(strings.tr("btn_delete_selected"))
         
-        if self.status_label.text() in ["Ready", "준비됨"]:
+        if self.status_label.text() in ["Ready", "以鍮꾨맖"]:
              self.status_label.setText(strings.tr("status_ready"))
              
         # Toolbar Actions
@@ -722,7 +730,7 @@ class DuplicateFinderApp(QMainWindow):
         
         toolbar.addSeparator()
         
-        # 결과 저장/불러오기
+        # 野껉퀗???????븍뜄???븍┛
         self.action_save_results = QAction(strings.tr("action_save_results"), self)
         self.action_save_results.setShortcut(QKeySequence.Save)
         self.action_save_results.triggered.connect(self.save_scan_results)
@@ -746,7 +754,7 @@ class DuplicateFinderApp(QMainWindow):
         
         toolbar.addSeparator()
         
-        # 프리셋 메뉴
+        # ?袁ⓥ봺??筌롫뗀??
         self.btn_preset = QToolButton(self)
         self.btn_preset.setText(strings.tr("action_preset"))
         self.btn_preset.setPopupMode(QToolButton.InstantPopup)
@@ -763,7 +771,7 @@ class DuplicateFinderApp(QMainWindow):
         self.btn_preset.setMenu(self.menu_preset)
         toolbar.addWidget(self.btn_preset)
         
-        # 단축키 설정
+        # ??ν뀧????쇱젟
         self.action_shortcut_settings = QAction(strings.tr("action_shortcut_settings"), self)
         self.action_shortcut_settings.triggered.connect(self.open_shortcut_settings)
         toolbar.addAction(self.action_shortcut_settings)
@@ -834,7 +842,7 @@ class DuplicateFinderApp(QMainWindow):
     def _toggle_filter_panel(self, checked):
         """Toggle visibility of the filter panel with animation"""
         self.filter_container.setVisible(checked)
-        arrow = "▼" if checked else "▶"
+        arrow = "▲" if checked else "▼"
         self.btn_filter_toggle.setText(strings.tr("lbl_filter_options") + " " + arrow)
 
     def _sync_filter_states(self, *_):
@@ -861,6 +869,11 @@ class DuplicateFinderApp(QMainWindow):
         if hasattr(self, "chk_detect_folder_dup"):
             self.chk_detect_folder_dup.setEnabled(not name_only)
         self.spin_similarity.setEnabled(self.chk_similar_image.isChecked() and not name_only)
+        if hasattr(self, "chk_strict_mode") and hasattr(self, "spin_strict_max_errors"):
+            use_strict = bool(self.chk_strict_mode.isChecked())
+            self.spin_strict_max_errors.setEnabled(use_strict)
+            if hasattr(self, "lbl_strict_max_errors"):
+                self.lbl_strict_max_errors.setEnabled(use_strict)
 
         if hasattr(self, "chk_incremental_rescan") and hasattr(self, "cmb_baseline_session"):
             use_incremental = self.chk_incremental_rescan.isChecked()
@@ -883,11 +896,11 @@ class DuplicateFinderApp(QMainWindow):
             for s in sessions:
                 sid = int(s.get("id") or 0)
                 ts = float(s.get("updated_at") or 0.0)
-                dt = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M") if ts else "—"
+                dt = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M") if ts else "-"
                 msg = str(s.get("progress_message") or "").strip()
-                label = f"#{sid} • {dt}"
+                label = f"#{sid} - {dt}"
                 if msg:
-                    label = f"{label} • {msg}"
+                    label = f"{label} - {msg}"
                 self.cmb_baseline_session.addItem(label, sid)
         except Exception:
             pass
@@ -942,7 +955,7 @@ class DuplicateFinderApp(QMainWindow):
         label = stage_map.get(code, code or strings.tr("status_ready"))
         self.lbl_scan_stage.setText(strings.tr("msg_scan_stage").format(stage=label))
 
-    # --- 기능 구현: 드라이브 및 폴더 ---
+    # --- 疫꿸퀡???닌뗭겱: ??뺤뵬????獄?????---
 
     def add_path_to_list(self, path):
         path = os.path.normpath(path)
@@ -993,8 +1006,8 @@ class DuplicateFinderApp(QMainWindow):
             # Issue #12: Show feedback when no folder is selected
             self.status_label.setText(strings.tr("lbl_no_selection"))
 
-    # --- 기능 구현: 스캔 ---
-    # --- 기능 구현: 스캔 ---
+    # --- 湲곕뒫 援ы쁽: ?ㅼ틪 ---
+    # --- 湲곕뒫 援ы쁽: ?ㅼ틪 ---
     def start_scan(
         self,
         force_new=False,
@@ -1082,6 +1095,8 @@ class DuplicateFinderApp(QMainWindow):
             incremental_rescan=bool(incremental_rescan),
             baseline_session_id=int(baseline_session_id) if baseline_session_id > 0 else None,
             similarity_threshold=float(current_config.get("similarity_threshold") or 0.9),
+            strict_mode=bool(current_config.get("strict_mode", False)),
+            strict_max_errors=int(current_config.get("strict_max_errors") or 0),
         )
         dep_error_key = validate_similar_image_dependency(scan_cfg)
         if dep_error_key:
@@ -1214,10 +1229,16 @@ class DuplicateFinderApp(QMainWindow):
         self.scan_results = results
         self._previous_results = None
         self._previous_selected_paths = []
+        scan_status = str(getattr(self.worker, "latest_scan_status", "completed") or "completed")
+        self._last_scan_status = scan_status
+        self._last_scan_metrics = dict(getattr(self.worker, "latest_scan_metrics", {}) or {})
+        self._last_scan_warnings = list(getattr(self.worker, "latest_scan_warnings", []) or [])
         self._set_scan_stage_code("completed")
         self.toggle_ui_state(scanning=False)
         self.progress_bar.setValue(100)
         base_msg = strings.tr("msg_scan_complete").format(len(results))
+        if scan_status == "partial":
+            base_msg = strings.tr("msg_scan_complete_partial").format(len(results))
         delta_msg = ""
         try:
             stats = dict(getattr(self.worker, "incremental_stats", {}) or {})
@@ -1229,7 +1250,19 @@ class DuplicateFinderApp(QMainWindow):
                 )
         except Exception:
             delta_msg = ""
-        self.status_label.setText(base_msg if not delta_msg else f"{base_msg} • {delta_msg}")
+        metric_msg = ""
+        try:
+            errs = int(self._last_scan_metrics.get("errors_total", 0) or 0)
+            if errs > 0:
+                metric_msg = strings.tr("msg_scan_error_summary").format(errors=errs)
+        except Exception:
+            metric_msg = ""
+        parts = [base_msg]
+        if delta_msg:
+            parts.append(delta_msg)
+        if metric_msg:
+            parts.append(metric_msg)
+        self.status_label.setText(" / ".join(parts))
         self._set_scan_stage_code("completed")
         file_meta = {}
         try:
@@ -1252,7 +1285,9 @@ class DuplicateFinderApp(QMainWindow):
             self.cache_manager.clear_selected_paths(self.current_session_id)
 
         # Scheduler post-actions (auto export + job run bookkeeping).
-        self._finish_scheduled_run("completed", results)
+        self._finish_scheduled_run(scan_status, results)
+        if scan_status == "partial" and hasattr(self, "toast_manager") and self.toast_manager:
+            self.toast_manager.warning(strings.tr("msg_scan_partial_warning"), duration=4000)
 
     @Slot()
     def on_scan_cancelled(self):
@@ -1344,7 +1379,7 @@ class DuplicateFinderApp(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, strings.tr("app_title"), strings.tr("err_save").format(e))
 
-    # --- 기능 구현: 선택 및 삭제 (Undo/Redo 포함) ---
+    # --- 疫꿸퀡???닌뗭겱: ?醫뤾문 獄?????(Undo/Redo ??釉? ---
     def _group_entries_with_items(self, group):
         entries = []
         for j in range(group.childCount()):
@@ -1532,7 +1567,7 @@ class DuplicateFinderApp(QMainWindow):
             QMessageBox.information(self, strings.tr("app_title"), strings.tr("msg_no_files_selected"))
             return
 
-        # 파일 잠금 체크
+        # ???뵬 ?醫됲닊 筌ｋ똾寃?
         locked_files = self.file_lock_checker.get_locked_files(targets)
         if locked_files:
             locked_list = "\n".join(locked_files[:5])
@@ -1542,12 +1577,12 @@ class DuplicateFinderApp(QMainWindow):
                 self, strings.tr("app_title"),
                 f"{strings.tr('msg_file_locked')}\n\n{locked_list}"
             )
-            # 잠긴 파일 제외
+            # ?醫됰┸ ???뵬 ??뽰뇚
             targets = [t for t in targets if t not in locked_files]
             if not targets:
                 return
 
-        # 휴지통 옵션 확인
+        # ??????????類ㅼ뵥
         use_trash = self.chk_use_trash.isChecked()
 
         # Use persistent quarantine for undoable deletes if enabled.
@@ -1672,7 +1707,7 @@ class DuplicateFinderApp(QMainWindow):
         self.action_undo.setEnabled(bool(self.history_manager.undo_stack))
         self.action_redo.setEnabled(bool(self.history_manager.redo_stack))
 
-    # --- 기능 구현: 미리보기 ---
+    # --- 疫꿸퀡???닌뗭겱: 沃섎챶?곮퉪?용┛ ---
     def update_preview(self, current, previous):
         if not current:
             return
@@ -1809,7 +1844,7 @@ class DuplicateFinderApp(QMainWindow):
         self.lbl_preview_meta.setText(strings.tr("msg_preview_meta").format(size=size_str, mtime=mtime_str))
         self.preview_info.show()
 
-    # --- 기능 구현: 설정 저장/로드 ---
+    # --- 疫꿸퀡???닌뗭겱: ??쇱젟 ????嚥≪뮆諭?---
     def save_settings(self):
         self.settings.setValue("app/geometry", self.saveGeometry())
         self.settings.setValue("app/splitter", self.splitter.saveState())
@@ -1833,14 +1868,18 @@ class DuplicateFinderApp(QMainWindow):
             self.settings.setValue("filter/incremental_rescan", self.chk_incremental_rescan.isChecked())
         if hasattr(self, "cmb_baseline_session"):
             self.settings.setValue("filter/baseline_session_id", int(self._get_selected_baseline_session_id() or 0))
+        if hasattr(self, "chk_strict_mode"):
+            self.settings.setValue("filter/strict_mode", self.chk_strict_mode.isChecked())
+        if hasattr(self, "spin_strict_max_errors"):
+            self.settings.setValue("filter/strict_max_errors", int(self.spin_strict_max_errors.value()))
         self.settings.setValue("filter/similarity_threshold", self.spin_similarity.value())
         self.settings.setValue("folders", self.selected_folders)
         
-        # 단축키 저장
+        # ??ν뀧??????
         if self.custom_shortcuts:
             self.settings.setValue("app/shortcuts", json.dumps(self.custom_shortcuts))
         
-        # 패턴 저장 (빈 목록도 저장해서 이전 값을 확실히 지움)
+        # ???쉘 ????(??筌뤴뫖以?????館鍮????곸읈 揶쏅????類ㅻ뼄??筌왖??)
         try:
             self.settings.setValue("filter/exclude_patterns", json.dumps(self.exclude_patterns or []))
             self.settings.setValue("filter/include_patterns", json.dumps(self.include_patterns or []))
@@ -1935,6 +1974,14 @@ class DuplicateFinderApp(QMainWindow):
             self.chk_detect_folder_dup.setChecked(str(self.settings.value("filter/detect_duplicate_folders", False)).lower() == 'true')
         if hasattr(self, "chk_incremental_rescan"):
             self.chk_incremental_rescan.setChecked(str(self.settings.value("filter/incremental_rescan", False)).lower() == 'true')
+        if hasattr(self, "chk_strict_mode"):
+            self.chk_strict_mode.setChecked(str(self.settings.value("filter/strict_mode", False)).lower() == 'true')
+        if hasattr(self, "spin_strict_max_errors"):
+            try:
+                strict_max = int(self.settings.value("filter/strict_max_errors", 0) or 0)
+            except Exception:
+                strict_max = 0
+            self.spin_strict_max_errors.setValue(max(0, strict_max))
         similarity = self.settings.value("filter/similarity_threshold", 0.9)
         try:
             self.spin_similarity.setValue(float(similarity))
@@ -1953,7 +2000,7 @@ class DuplicateFinderApp(QMainWindow):
         self._sync_filter_states()
         
         folders = self.settings.value("folders", [])
-        # 리스트가 아니라 단일 문자열로 저장되는 경우가 있어 타입 체크
+        # ?귐딅뮞?硫? ?袁⑤빍????μ뵬 ?얜챷???以????貫由??野껋럩??첎? ??됰선 ????筌ｋ똾寃?
         if isinstance(folders, str): folders = [folders]
         elif not isinstance(folders, list): folders = []
         
@@ -1974,7 +2021,7 @@ class DuplicateFinderApp(QMainWindow):
         lang = self.settings.value("app/language", "ko")
         strings.set_language(lang)
         
-        # 단축키 로드
+        # ??ν뀧??嚥≪뮆諭?
         shortcuts_json = self.settings.value("app/shortcuts", "")
         if shortcuts_json:
             try:
@@ -1983,7 +2030,7 @@ class DuplicateFinderApp(QMainWindow):
             except:
                 pass
         
-        # 제외 패턴 로드
+        # ??뽰뇚 ???쉘 嚥≪뮆諭?
         patterns_json = self.settings.value("filter/exclude_patterns", "")
         if patterns_json:
             try:
@@ -1995,7 +2042,7 @@ class DuplicateFinderApp(QMainWindow):
             except:
                 self.exclude_patterns = []
 
-        # 포함 패턴 로드
+        # ??釉????쉘 嚥≪뮆諭?
         include_json = self.settings.value("filter/include_patterns", "")
         if include_json:
             try:
@@ -2122,7 +2169,7 @@ class DuplicateFinderApp(QMainWindow):
 
         self.current_session_id = session.get("id")
 
-        if session.get("status") == "completed":
+        if session.get("status") in ("completed", "partial"):
             results = self.cache_manager.load_scan_results(self.current_session_id)
             if results:
                 selected_paths = self.cache_manager.load_selected_paths(self.current_session_id)
@@ -2173,14 +2220,14 @@ class DuplicateFinderApp(QMainWindow):
             if updated_at:
                 dt = datetime.fromtimestamp(float(updated_at)).strftime("%Y-%m-%d %H:%M")
             else:
-                dt = "—"
+                dt = "-"
 
             msg = str(session.get("progress_message") or "").strip()
             prog = session.get("progress")
             if isinstance(prog, int) and prog:
                 msg = f"{msg}\n{prog}%" if msg else f"{prog}%"
             if not msg:
-                msg = "—"
+                msg = "-"
 
             box.setInformativeText(
                 strings.tr("msg_resume_scan_details").format(stage=stage_label, time=dt, message=msg)
@@ -2206,11 +2253,54 @@ class DuplicateFinderApp(QMainWindow):
                 self.current_session_id = None
             QTimer.singleShot(0, lambda: self.start_scan(force_new=True))
 
+    def _normalize_extension_tokens(self, value):
+        if value is None:
+            return []
+        if isinstance(value, str):
+            raw = [x.strip() for x in value.split(",")]
+        elif isinstance(value, (list, tuple, set)):
+            raw = [str(x or "").strip() for x in value]
+        else:
+            raw = [str(value).strip()]
+        out = set()
+        for token in raw:
+            if not token:
+                continue
+            token = token.lower().lstrip(".")
+            if token:
+                out.add(token)
+        return sorted(out)
+
+    def _normalize_path_list(self, values):
+        out = set()
+        for path in values or []:
+            p = str(path or "").strip()
+            if not p:
+                continue
+            p = os.path.normcase(os.path.normpath(os.path.abspath(p)))
+            out.add(p)
+        return sorted(out)
+
+    def _normalize_pattern_list(self, values):
+        out = set()
+        for token in values or []:
+            p = str(token or "").strip()
+            if not p:
+                continue
+            out.add(p)
+        return sorted(out)
+
     def _get_scan_hash_config(self, config: dict) -> dict:
-        hash_config = dict(config)
+        hash_config = dict(config or {})
         hash_config.pop("use_trash", None)
         hash_config.pop("baseline_session_id", None)
         hash_config.pop("incremental_rescan", None)
+
+        hash_config["folders"] = self._normalize_path_list(hash_config.get("folders") or [])
+        hash_config["extensions"] = self._normalize_extension_tokens(hash_config.get("extensions"))
+        hash_config["include_patterns"] = self._normalize_pattern_list(hash_config.get("include_patterns") or [])
+        hash_config["exclude_patterns"] = self._normalize_pattern_list(hash_config.get("exclude_patterns") or [])
+
         if not hash_config.get("use_similar_image"):
             hash_config.pop("similarity_threshold", None)
             hash_config.pop("use_mixed_mode", None)
@@ -2464,48 +2554,64 @@ class DuplicateFinderApp(QMainWindow):
         if db_path:
             self.copy_to_clipboard(db_path)
 
-    # === 새 기능 메서드들 ===
+    # === ??疫꿸퀡??筌롫뗄苑??뺣굶 ===
     
     def save_scan_results(self):
-        """스캔 결과를 JSON으로 저장"""
+        """Save current scan results to JSON."""
         if not self.scan_results:
             QMessageBox.information(self, strings.tr("app_title"), strings.tr("msg_no_files_selected"))
             return
-        
+
         path, _ = QFileDialog.getSaveFileName(
-            self, strings.tr("action_save_results"),
-            "scan_results.json", "JSON Files (*.json)"
+            self,
+            strings.tr("action_save_results"),
+            "scan_results.json",
+            "JSON Files (*.json)",
         )
         if not path:
             return
-        
+
         try:
             payload = dump_results_v2(
                 scan_results=self.scan_results,
                 folders=list(self.selected_folders or []),
                 source="gui",
             )
-            with open(path, 'w', encoding='utf-8') as f:
+            payload_meta = payload.setdefault("meta", {})
+            payload_meta["scan_status"] = str(self._last_scan_status or "completed")
+            payload_meta["metrics"] = dict(self._last_scan_metrics or {})
+            payload_meta["warnings"] = list(self._last_scan_warnings or [])
+            payload_meta["groups"] = int(len(self.scan_results or {}))
+            payload_meta["files"] = int(sum(len(v or []) for v in (self.scan_results or {}).values()))
+            with open(path, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
             
             self.status_label.setText(strings.tr("msg_results_saved").format(path))
         except Exception as e:
             QMessageBox.critical(self, strings.tr("app_title"), strings.tr("err_save").format(e))
-    
+
     def load_scan_results(self):
-        """저장된 스캔 결과를 불러오기"""
+        """Load scan results from JSON (new and legacy formats)."""
         path, _ = QFileDialog.getOpenFileName(
-            self, strings.tr("action_load_results"),
-            "", "JSON Files (*.json)"
+            self,
+            strings.tr("action_load_results"),
+            "",
+            "JSON Files (*.json)",
         )
         if not path:
             return
-        
+
         try:
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             self.scan_results = load_results_any(data)
             self._current_baseline_delta_map = {}
+            meta = data.get("meta") if isinstance(data, dict) else {}
+            if not isinstance(meta, dict):
+                meta = {}
+            self._last_scan_status = str(meta.get("scan_status") or "completed")
+            self._last_scan_metrics = dict(meta.get("metrics") or {})
+            self._last_scan_warnings = list(meta.get("warnings") or [])
             
             self._render_results(self.scan_results, selected_paths=[], selected_count=0)
             self.status_label.setText(strings.tr("msg_results_loaded").format(len(self.scan_results)))
@@ -2515,16 +2621,16 @@ class DuplicateFinderApp(QMainWindow):
                 pass
         except Exception as e:
             QMessageBox.critical(self, strings.tr("app_title"), strings.tr("err_load").format(e))
-    
+
     def open_preset_dialog(self):
-        """프리셋 관리 다이얼로그 열기"""
+        """?袁ⓥ봺???온????쇱뵠??곗쨮域???용┛"""
         current_config = self._get_current_config()
         dlg = PresetDialog(self.preset_manager, current_config, self)
         if dlg.exec() and dlg.selected_config:
             self._apply_config(dlg.selected_config)
     
     def open_exclude_patterns_dialog(self):
-        """제외 패턴 설정 다이얼로그 열기"""
+        """??뽰뇚 ???쉘 ??쇱젟 ??쇱뵠??곗쨮域???용┛"""
         dlg = ExcludePatternsDialog(
             self.exclude_patterns,
             self,
@@ -2535,7 +2641,7 @@ class DuplicateFinderApp(QMainWindow):
         )
         if dlg.exec():
             self.exclude_patterns = dlg.get_patterns()
-            # 제외 패턴 수 표시
+            # ??뽰뇚 ???쉘 ????뽯뻻
             if self.exclude_patterns:
                 self.btn_exclude_patterns.setText(
                     f"{strings.tr('btn_exclude_patterns')} ({len(self.exclude_patterns)})"
@@ -2544,7 +2650,7 @@ class DuplicateFinderApp(QMainWindow):
                 self.btn_exclude_patterns.setText(strings.tr("btn_exclude_patterns"))
 
     def open_include_patterns_dialog(self):
-        """포함 패턴 설정 다이얼로그 열기"""
+        """??釉????쉘 ??쇱젟 ??쇱뵠??곗쨮域???용┛"""
         dlg = ExcludePatternsDialog(
             self.include_patterns,
             self,
@@ -2564,14 +2670,14 @@ class DuplicateFinderApp(QMainWindow):
                     self.btn_include_patterns.setText(strings.tr("btn_include_patterns"))
     
     def open_shortcut_settings(self):
-        """단축키 설정 다이얼로그 열기"""
+        """??ν뀧????쇱젟 ??쇱뵠??곗쨮域???용┛"""
         dlg = ShortcutSettingsDialog(self.custom_shortcuts, self)
         if dlg.exec():
             self.custom_shortcuts = dlg.get_shortcuts()
             self._apply_shortcuts(self.custom_shortcuts)
     
     def _get_current_config(self) -> dict:
-        """현재 스캔 설정을 딕셔너리로 반환"""
+        """Return current scan settings from UI controls."""
         return {
             'folders': self.selected_folders.copy(),
             'extensions': self.txt_extensions.text(),
@@ -2590,12 +2696,14 @@ class DuplicateFinderApp(QMainWindow):
             'detect_duplicate_folders': self.chk_detect_folder_dup.isChecked() if hasattr(self, 'chk_detect_folder_dup') else False,
             'incremental_rescan': self.chk_incremental_rescan.isChecked() if hasattr(self, 'chk_incremental_rescan') else False,
             'baseline_session_id': self._get_selected_baseline_session_id() or 0,
-            'similarity_threshold': self.spin_similarity.value()
+            'similarity_threshold': self.spin_similarity.value(),
+            'strict_mode': self.chk_strict_mode.isChecked() if hasattr(self, 'chk_strict_mode') else False,
+            'strict_max_errors': self.spin_strict_max_errors.value() if hasattr(self, 'spin_strict_max_errors') else 0,
         }
     
     def _apply_config(self, config: dict):
-        """딕셔너리 설정을 UI에 적용"""
-        # 폴더
+        """?類ㅻ??댿봺 ??쇱젟??UI???怨몄뒠"""
+        # ????
         if 'folders' in config:
             self.selected_folders = config['folders']
             self.list_folders.clear()
@@ -2603,13 +2711,13 @@ class DuplicateFinderApp(QMainWindow):
                 self.list_folders.addItem(f)
             self._on_folders_changed()
         
-        # 필터
+        # ?袁り숲
         if 'extensions' in config:
             self.txt_extensions.setText(config['extensions'])
         if 'min_size_kb' in config:
             self.spin_min_size.setValue(config['min_size_kb'])
         
-        # 체크박스
+        # 筌ｋ똾寃뺠쳸類ㅻ뮞
         if 'protect_system' in config:
             self.chk_protect_system.setChecked(config['protect_system'])
         if 'byte_compare' in config:
@@ -2632,10 +2740,17 @@ class DuplicateFinderApp(QMainWindow):
             self.chk_detect_folder_dup.setChecked(bool(config['detect_duplicate_folders']))
         if 'incremental_rescan' in config and hasattr(self, 'chk_incremental_rescan'):
             self.chk_incremental_rescan.setChecked(bool(config['incremental_rescan']))
+        if 'strict_mode' in config and hasattr(self, 'chk_strict_mode'):
+            self.chk_strict_mode.setChecked(bool(config['strict_mode']))
+        if 'strict_max_errors' in config and hasattr(self, 'spin_strict_max_errors'):
+            try:
+                self.spin_strict_max_errors.setValue(max(0, int(config['strict_max_errors'])))
+            except Exception:
+                self.spin_strict_max_errors.setValue(0)
         if 'similarity_threshold' in config:
             self.spin_similarity.setValue(config['similarity_threshold'])
         
-        # 제외 패턴
+        # ??뽰뇚 ???쉘
         if 'exclude_patterns' in config:
             self.exclude_patterns = config['exclude_patterns']
             if self.exclude_patterns:
@@ -2645,7 +2760,7 @@ class DuplicateFinderApp(QMainWindow):
             else:
                 self.btn_exclude_patterns.setText(strings.tr("btn_exclude_patterns"))
 
-        # 포함 패턴
+        # ??釉????쉘
         if 'include_patterns' in config:
             self.include_patterns = config['include_patterns']
             if hasattr(self, 'btn_include_patterns'):
@@ -2669,7 +2784,7 @@ class DuplicateFinderApp(QMainWindow):
         self._sync_filter_states()
     
     def _apply_shortcuts(self, shortcuts: dict):
-        """커스텀 단축키를 액션에 적용"""
+        """?뚣끉??? ??ν뀧??? ??る???怨몄뒠"""
         shortcut_map = {
             'start_scan': self.action_start_scan,
             'stop_scan': self.action_stop_scan,
@@ -2904,6 +3019,12 @@ class DuplicateFinderApp(QMainWindow):
                     folders=list((ctx.get("snapshot_folders") or []) or []),
                     source="gui",
                 )
+                payload_meta = payload.setdefault("meta", {})
+                payload_meta["scan_status"] = str(self._last_scan_status or "completed")
+                payload_meta["metrics"] = dict(self._last_scan_metrics or {})
+                payload_meta["warnings"] = list(self._last_scan_warnings or [])
+                payload_meta["groups"] = int(len(results or {}))
+                payload_meta["files"] = int(sum(len(v or []) for v in (results or {}).values()))
                 with open(out_json, "w", encoding="utf-8") as f:
                     json.dump(payload, f, ensure_ascii=False, indent=2)
         except Exception:
@@ -2932,7 +3053,7 @@ class DuplicateFinderApp(QMainWindow):
         cfg = self._build_schedule_config_from_context()
         out_json = ""
         out_csv = ""
-        if status == "completed":
+        if status in ("completed", "partial"):
             out_json, out_csv = self._scheduled_export_results(results or {})
         groups = len(results or {})
         files = sum(len(v or []) for v in (results or {}).values()) if results else 0
@@ -2981,7 +3102,7 @@ class DuplicateFinderApp(QMainWindow):
         for r, it in enumerate(items):
             item_id = int(it.get("id") or 0)
             created = it.get("created_at") or 0
-            dt = datetime.fromtimestamp(float(created)).strftime("%Y-%m-%d %H:%M") if created else "—"
+            dt = datetime.fromtimestamp(float(created)).strftime("%Y-%m-%d %H:%M") if created else "-"
 
             i0 = QTableWidgetItem(it.get("orig_path") or "")
             i0.setData(Qt.UserRole, item_id)
@@ -3078,7 +3199,7 @@ class DuplicateFinderApp(QMainWindow):
         for r, op in enumerate(ops):
             op_id = int(op.get("id") or 0)
             created = op.get("created_at") or 0
-            dt = datetime.fromtimestamp(float(created)).strftime("%Y-%m-%d %H:%M") if created else "—"
+            dt = datetime.fromtimestamp(float(created)).strftime("%Y-%m-%d %H:%M") if created else "-"
 
             i0 = QTableWidgetItem(str(op_id))
             try:

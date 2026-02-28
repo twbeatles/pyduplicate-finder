@@ -150,6 +150,11 @@ python cli.py "D:/Data" "E:/Photos" --extensions jpg,png --output-json result.js
 - `--similarity-threshold` only accepts values in `0.0`~`1.0`. Out-of-range input is rejected with CLI error (`SystemExit 2`).
 - When `--similar-image` or `--mixed-mode` is requested, missing `imagehash`/`Pillow` dependencies cause immediate fail-fast exit.
 
+### (Optional) Run strict-mode CLI scan with telemetry
+```bash
+python cli.py "D:/Data" --strict-mode --strict-max-errors 0 --output-json result.json
+```
+
 ### 2. Search Settings
 - **Add Location**: Use "Add Folder" or Drag & Drop to add search targets.
 - **Filter Options**:
@@ -157,6 +162,7 @@ python cli.py "D:/Data" "E:/Photos" --extensions jpg,png --output-json result.js
     |--------|-------------|
     | Filename Only | Compare names only, skip content hashing (ultra-fast) |
     | Similar Image Detection | Analyze visual similarity (0.1~1.0 threshold) |
+    | Strict Mode | Marks scan as `partial` when error count exceeds threshold |
     | Use Recycle Bin | Move to Recycle Bin instead of permanent delete |
     | Skip hidden/system files | Skips dotfiles and OS metadata files |
     | Follow symlinks | Follows symbolic links (loop detection enabled) |
@@ -191,6 +197,14 @@ python cli.py "D:/Data" "E:/Photos" --extensions jpg,png --output-json result.js
 | Scheduled Scan Snapshot | Scheduled runs use saved config snapshot (`scan_jobs.config_json`); if some folders are missing, run valid folders only; if all are missing, mark run as `skipped(no_valid_folders)` |
 | Cache Retention Policy | Configure session keep count (`cache/session_keep_latest`) and hash cache retention days (`cache/hash_cleanup_days`) and apply immediately |
 | Headless CLI Scan | Run scans without GUI and export JSON/CSV outputs |
+
+### Result JSON format (manual/scheduled/CLI)
+- New format: `{"meta": {...}, "results": {...}}`
+- Backward compatible loading: legacy `{"<group_key>": [...]}` is still accepted.
+- `meta` includes:
+  - `scan_status` (`completed` or `partial`)
+  - `metrics` (`files_scanned`, `files_hashed`, `files_skipped_error`, `files_skipped_locked`, `errors_total`)
+  - `warnings` (for example `strict_mode_threshold_exceeded`)
 
 ---
 
@@ -253,6 +267,27 @@ Planned follow-up refactors:
 
 - Further decomposition of heavy logic from `src/core/scanner.py`
 - Broader controller extraction from `src/ui/main_window.py`
+
+## ✅ Implementation Status (2026-02-28)
+
+The duplicate scan audit plan is now fully implemented:
+
+- Cancel reliability hardened across full-hash, folder-duplicate, and mixed-mode stages.
+  - Cancel now consistently emits `scan_cancelled`, stores session as `paused`, and avoids false `scan_finished`.
+- Protected root folder guard added at scan-root level.
+  - Protected roots are skipped entirely with explicit progress/status message.
+- Extension normalization fixed.
+  - `.txt` and `txt` now behave identically.
+- Error telemetry added and exposed to UI/CLI/exported JSON.
+  - Hashing and similar-image worker errors are no longer silently swallowed.
+- Strict mode added (UI + CLI).
+  - `--strict-mode`, `--strict-max-errors`
+  - threshold exceeded => scan status `partial` (results still returned, CLI exit code remains `0`).
+- Scan config hash canonicalization added for better baseline reuse.
+  - normalized/sorted folders, extensions, include/exclude patterns.
+- Baseline policy unchanged by design.
+  - only `completed` sessions are baseline candidates (`partial` excluded).
+- Manual/scheduled JSON export updated with `meta` while preserving backward compatibility on load.
 
 ## Performance Refactor Notes (2026-02)
 
