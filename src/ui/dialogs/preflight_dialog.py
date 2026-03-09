@@ -62,10 +62,10 @@ class PreflightDialog(QDialog):
             ]
         )
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Fixed)
-        header.setSectionResizeMode(1, QHeaderView.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.Fixed)
-        header.setSectionResizeMode(3, QHeaderView.Stretch)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         self.table.setColumnWidth(0, 90)
         self.table.setColumnWidth(2, 140)
         layout.addWidget(self.table, 1)
@@ -125,23 +125,23 @@ class PreflightDialog(QDialog):
             msg = getattr(it, "message", "") or ""
 
             i0 = QTableWidgetItem(sev)
-            i0.setFlags(i0.flags() & ~Qt.ItemIsEditable)
+            i0.setFlags(i0.flags() & ~Qt.ItemFlag.ItemIsEditable)
             if str(getattr(it, "severity", "")).lower() == "block":
-                i0.setForeground(Qt.red)
+                i0.setForeground(Qt.GlobalColor.red)
             elif str(getattr(it, "severity", "")).lower() == "warn":
-                i0.setForeground(Qt.darkYellow)
+                i0.setForeground(Qt.GlobalColor.darkYellow)
             self.table.setItem(r, 0, i0)
 
             i1 = QTableWidgetItem(path)
-            i1.setFlags(i1.flags() & ~Qt.ItemIsEditable)
+            i1.setFlags(i1.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(r, 1, i1)
 
             i2 = QTableWidgetItem(code)
-            i2.setFlags(i2.flags() & ~Qt.ItemIsEditable)
+            i2.setFlags(i2.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(r, 2, i2)
 
             i3 = QTableWidgetItem(msg)
-            i3.setFlags(i3.flags() & ~Qt.ItemIsEditable)
+            i3.setFlags(i3.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(r, 3, i3)
 
         self.btn_ok.setEnabled(self.can_proceed)

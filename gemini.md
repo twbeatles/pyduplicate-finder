@@ -24,9 +24,25 @@ src/
 │   ├── preset_manager.py        # 스캔 프리셋 JSON 관리 (기본값 병합)
 │   └── empty_folder_finder.py   # 빈 폴더 탐색 + EmptyFolderWorker (비동기)
 ├── ui/                      [PySide6 GUI]
-│   ├── main_window.py           # 메인 화면 + scan_results 동기화 + 언어/테마 유지
+│   ├── main_window.py           # 조립/호환 레이어(공개 import 경로 유지)
+│   ├── main_window_parts/       # 메인 윈도우 책임별 분리 모듈(SOLID)
+│   │   ├── ui_shell.py              # init_ui/toolbar/retranslate/theme/nav/dragdrop
+│   │   ├── scan_flow.py             # 폴더 선택/스캔 시작-진행-완료-취소-실패
+│   │   ├── results_flow.py          # 결과 렌더/필터/자동선택/삭제/내보내기/미리보기
+│   │   ├── settings_flow.py         # QSettings 저장/복원/세션 복원/config hash
+│   │   ├── tools_flow.py            # 격리함/작업로그/룰/하드링크
+│   │   ├── schedule_flow.py         # 스케줄 검증/tick/자동 export/실행기록
+│   │   └── typing_contract.py       # 동적 속성 타입 계약 + host protocol
 │   ├── theme.py                 # 라이트/다크 테마 스타일시트
 │   ├── empty_folder_dialog.py   # 빈 폴더 정리 다이얼로그 (비동기)
+│   ├── controllers/
+│   │   ├── scan_controller.py
+│   │   ├── scheduler_controller.py
+│   │   ├── ops_controller.py
+│   │   ├── operation_flow_controller.py
+│   │   ├── navigation_controller.py
+│   │   ├── results_controller.py
+│   │   └── preview_controller.py
 │   ├── components/
 │   │   ├── results_tree.py      # 결과 트리 위젯 (배치 렌더링)
 │   │   ├── sidebar.py           # 사이드바 네비게이션
@@ -152,3 +168,21 @@ psutil>=5.9.0        # 파일 잠금 프로세스 확인
   - GUI and CLI both fail fast when `imagehash`/`Pillow` are unavailable
 - i18n consistency cleanup:
   - removed hardcoded UI text from `empty_folder_finder.py`, `preset_dialog.py`
+
+## Update Memo (2026-03-09)
+
+- Main-window SOLID split completed while preserving compatibility:
+  - Public import path remains `src.ui.main_window.DuplicateFinderApp`.
+  - Behavior moved to `src/ui/main_window_parts/*` mixin modules.
+- Typing contract introduced for dynamic UI attributes:
+  - `src/ui/main_window_parts/typing_contract.py` adds `TYPE_CHECKING` attributes and host protocols.
+  - Reduced `Any` dependence in controller-host interactions without relaxing diagnostics.
+- Pylance/Pyright regression prevention:
+  - Added `pyrightconfig.json` (Python `3.14`, scoped to `src`, `tests`, `cli.py`, `main.py`).
+  - Key diagnostics pinned to `error` (`reportAttributeAccessIssue` included).
+- Encoding regression prevention:
+  - Added `.editorconfig` UTF-8/LF/final-newline policy.
+  - Added `tests/test_source_encoding_integrity.py` checks:
+    - UTF-8 decode validity
+    - no replacement char (`U+FFFD`)
+    - known mojibake pattern absence.

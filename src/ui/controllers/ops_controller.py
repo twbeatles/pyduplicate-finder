@@ -21,9 +21,9 @@ class OpsController:
             item_ids = [int(x) for x in (meta.get("failed_item_ids") or []) if x]
             if not item_ids:
                 return None
-            opts = {"item_ids": item_ids}
+            opts: dict[str, object] = {"item_ids": item_ids}
             if op_type == "restore" and meta.get("allow_replace_hardlink_to"):
-                opts["allow_replace_hardlink_to"] = meta.get("allow_replace_hardlink_to")
+                opts["allow_replace_hardlink_to"] = str(meta.get("allow_replace_hardlink_to"))
             return Operation(op_type, options=opts)
 
         if op_type == "hardlink_consolidate":

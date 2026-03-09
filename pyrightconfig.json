@@ -1,0 +1,27 @@
+{
+  "include": [
+    "src",
+    "tests",
+    "cli.py",
+    "main.py"
+  ],
+  "exclude": [
+    "**/.git",
+    "**/__pycache__",
+    "**/.pytest_cache",
+    "build",
+    "dist",
+    "backup"
+  ],
+  "pythonVersion": "3.14",
+  "pythonPlatform": "Windows",
+  "typeCheckingMode": "standard",
+  "reportGeneralTypeIssues": "error",
+  "reportAttributeAccessIssue": "error",
+  "reportOptionalMemberAccess": "error",
+  "reportArgumentType": "error",
+  "reportAssignmentType": "error",
+  "reportCallIssue": "error",
+  "reportMissingImports": true,
+  "reportMissingTypeStubs": false
+}

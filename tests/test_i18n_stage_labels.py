@@ -7,10 +7,13 @@ from src.utils.i18n import strings
 
 
 class _DummyMessageBox:
-    Question = 1
-    AcceptRole = 2
-    DestructiveRole = 3
-    RejectRole = 4
+    class Icon:
+        Question = 1
+
+    class ButtonRole:
+        AcceptRole = 2
+        DestructiveRole = 3
+        RejectRole = 4
 
     last_instance = None
 
@@ -33,7 +36,7 @@ class _DummyMessageBox:
 
     def addButton(self, _text, role):
         btn = object()
-        if role == self.RejectRole:
+        if role == self.ButtonRole.RejectRole:
             self._clicked = btn
         return btn
 
@@ -92,10 +95,12 @@ def test_resume_dialog_stage_label_uses_i18n_keys(tmp_path, monkeypatch, qapp):
         strings.set_language("ko")
         monkeypatch.setattr(main_window_module, "QMessageBox", _DummyMessageBox)
         w._prompt_resume_session({"stage": "abandoned", "updated_at": None, "progress_message": ""})
+        assert _DummyMessageBox.last_instance is not None
         assert "중단됨" in _DummyMessageBox.last_instance.informative_text
 
         strings.set_language("en")
         w._prompt_resume_session({"stage": "error", "updated_at": None, "progress_message": ""})
+        assert _DummyMessageBox.last_instance is not None
         assert "Error" in _DummyMessageBox.last_instance.informative_text
     finally:
         strings.set_language(prev_lang)

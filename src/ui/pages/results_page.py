@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QToolButton,
     QMenu,
+    QFrame,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
@@ -30,7 +31,7 @@ def build_results_page(window) -> QWidget:
     results_layout.setContentsMargins(16, 12, 16, 12)
 
     # === Results Splitter: Tree | Preview ===
-    window.splitter = QSplitter(Qt.Horizontal)
+    window.splitter = QSplitter(Qt.Orientation.Horizontal)
     window.splitter.setHandleWidth(12)
 
     # [Left] Tree Widget Container
@@ -53,7 +54,7 @@ def build_results_page(window) -> QWidget:
     # Quick link back to Scan options.
     window.btn_show_options = QPushButton(strings.tr("btn_show_options"))
     window.btn_show_options.setMinimumHeight(28)
-    window.btn_show_options.setCursor(Qt.PointingHandCursor)
+    window.btn_show_options.setCursor(Qt.CursorShape.PointingHandCursor)
     window.btn_show_options.setObjectName("btn_icon")
     window.btn_show_options.clicked.connect(lambda: window._navigate_to("scan"))
     results_header.addWidget(window.btn_show_options)
@@ -95,7 +96,7 @@ def build_results_page(window) -> QWidget:
     empty_layout = QVBoxLayout(empty_wrap)
     empty_layout.setContentsMargins(24, 24, 24, 24)
     window.lbl_results_empty = QLabel("\n📂\n\n" + strings.tr("msg_no_results"))
-    window.lbl_results_empty.setAlignment(Qt.AlignCenter)
+    window.lbl_results_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
     window.lbl_results_empty.setWordWrap(True)
     window.lbl_results_empty.setObjectName("empty_state")
     empty_layout.addStretch()
@@ -106,13 +107,13 @@ def build_results_page(window) -> QWidget:
     empty_btn_row.setSpacing(10)
     window.btn_results_empty_add_folder = QPushButton(strings.tr("btn_add_folder"))
     window.btn_results_empty_add_folder.setMinimumHeight(40)
-    window.btn_results_empty_add_folder.setCursor(Qt.PointingHandCursor)
+    window.btn_results_empty_add_folder.setCursor(Qt.CursorShape.PointingHandCursor)
     window.btn_results_empty_add_folder.clicked.connect(lambda: window._navigate_to("scan"))
     empty_btn_row.addWidget(window.btn_results_empty_add_folder)
 
     window.btn_results_empty_start_scan = QPushButton(strings.tr("btn_start_scan"))
     window.btn_results_empty_start_scan.setMinimumHeight(40)
-    window.btn_results_empty_start_scan.setCursor(Qt.PointingHandCursor)
+    window.btn_results_empty_start_scan.setCursor(Qt.CursorShape.PointingHandCursor)
     window.btn_results_empty_start_scan.setObjectName("btn_primary")
     window.btn_results_empty_start_scan.clicked.connect(lambda: window._navigate_to("scan"))
     empty_btn_row.addWidget(window.btn_results_empty_start_scan)
@@ -133,7 +134,7 @@ def build_results_page(window) -> QWidget:
     preview_layout.setSpacing(0)
 
     window.lbl_preview_header = QLabel(strings.tr("lbl_preview"))
-    window.lbl_preview_header.setAlignment(Qt.AlignCenter)
+    window.lbl_preview_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
     window.lbl_preview_header.setObjectName("preview_header")
     preview_layout.addWidget(window.lbl_preview_header)
 
@@ -159,7 +160,7 @@ def build_results_page(window) -> QWidget:
 
     window.preview_scroll = QScrollArea()
     window.preview_scroll.setWidgetResizable(True)
-    window.preview_scroll.setFrameShape(QScrollArea.NoFrame)
+    window.preview_scroll.setFrameShape(QFrame.Shape.NoFrame)
 
     scroll_content = QWidget()
     scroll_content.setObjectName("preview_content")
@@ -168,7 +169,7 @@ def build_results_page(window) -> QWidget:
     scroll_layout.setSpacing(12)
 
     window.lbl_image_preview = QLabel()
-    window.lbl_image_preview.setAlignment(Qt.AlignCenter)
+    window.lbl_image_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
     window.lbl_image_preview.hide()
     scroll_layout.addWidget(window.lbl_image_preview)
 
@@ -178,7 +179,7 @@ def build_results_page(window) -> QWidget:
     scroll_layout.addWidget(window.txt_text_preview)
 
     window.lbl_info_preview = QLabel(strings.tr("msg_select_file"))
-    window.lbl_info_preview.setAlignment(Qt.AlignCenter)
+    window.lbl_info_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
     window.lbl_info_preview.setWordWrap(True)
     window.lbl_info_preview.setObjectName("preview_placeholder")
     scroll_layout.addWidget(window.lbl_info_preview)
@@ -206,8 +207,8 @@ def build_results_page(window) -> QWidget:
     window.btn_select_smart.setToolTip(strings.tr("tip_smart_select"))
     window.btn_select_smart.setMinimumHeight(44)
     window.btn_select_smart.setObjectName("btn_secondary")
-    window.btn_select_smart.setCursor(Qt.PointingHandCursor)
-    window.btn_select_smart.setPopupMode(QToolButton.MenuButtonPopup)
+    window.btn_select_smart.setCursor(Qt.CursorShape.PointingHandCursor)
+    window.btn_select_smart.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
     window.btn_select_smart.clicked.connect(window.select_duplicates_smart)
 
     window.menu_smart_select = QMenu(window)
@@ -235,19 +236,19 @@ def build_results_page(window) -> QWidget:
 
     window.btn_select_rules = QPushButton(strings.tr("btn_auto_select_rules"))
     window.btn_select_rules.setMinimumHeight(44)
-    window.btn_select_rules.setCursor(Qt.PointingHandCursor)
+    window.btn_select_rules.setCursor(Qt.CursorShape.PointingHandCursor)
     window.btn_select_rules.setObjectName("btn_secondary")
     window.btn_select_rules.clicked.connect(window.select_duplicates_by_rules)
 
     window.btn_export = QPushButton(strings.tr("btn_export"))
     window.btn_export.setMinimumHeight(44)
-    window.btn_export.setCursor(Qt.PointingHandCursor)
+    window.btn_export.setCursor(Qt.CursorShape.PointingHandCursor)
     window.btn_export.clicked.connect(window.export_results)
 
     window.btn_delete = QPushButton(strings.tr("btn_delete_selected"))
     window.btn_delete.setObjectName("btn_danger")
     window.btn_delete.setMinimumHeight(44)
-    window.btn_delete.setCursor(Qt.PointingHandCursor)
+    window.btn_delete.setCursor(Qt.CursorShape.PointingHandCursor)
     window.btn_delete.clicked.connect(window.delete_selected_files)
 
     bottom_layout.addWidget(window.btn_select_smart)

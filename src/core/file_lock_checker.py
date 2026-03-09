@@ -55,8 +55,14 @@ class FileLockChecker:
                 import fcntl
                 with open(path, 'r+b') as f:
                     try:
-                        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                        flock = getattr(fcntl, "flock", None)
+                        lock_ex = getattr(fcntl, "LOCK_EX", 0)
+                        lock_nb = getattr(fcntl, "LOCK_NB", 0)
+                        lock_un = getattr(fcntl, "LOCK_UN", 0)
+                        if flock is None:
+                            return False
+                        flock(f.fileno(), lock_ex | lock_nb)
+                        flock(f.fileno(), lock_un)
                         return False
                     except (IOError, OSError):
                         return True

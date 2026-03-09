@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QComboBox,
     QMessageBox,
+    QAbstractItemView,
 )
 from PySide6.QtCore import Qt
 
@@ -70,11 +71,11 @@ class SelectionRulesDialog(QDialog):
         self.table.setColumnCount(2)
         self.table.setHorizontalHeaderLabels([strings.tr("col_pattern"), strings.tr("col_action")])
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.Fixed)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
         self.table.setColumnWidth(1, 140)
-        self.table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.table.setSelectionMode(QTableWidget.SingleSelection)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         layout.addWidget(self.table, 1)
 
         # Add row controls
@@ -147,11 +148,11 @@ class SelectionRulesDialog(QDialog):
             pat = str(rule.get("pattern") or "")
             act = str(rule.get("action") or "keep")
             i0 = QTableWidgetItem(pat)
-            i0.setFlags(i0.flags() & ~Qt.ItemIsEditable)
+            i0.setFlags(i0.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(r, 0, i0)
             i1 = QTableWidgetItem(strings.tr("rule_keep") if act == "keep" else strings.tr("rule_delete"))
-            i1.setData(Qt.UserRole, act)
-            i1.setFlags(i1.flags() & ~Qt.ItemIsEditable)
+            i1.setData(Qt.ItemDataRole.UserRole, act)
+            i1.setFlags(i1.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(r, 1, i1)
 
     def _add_rule(self):
@@ -218,4 +219,3 @@ class SelectionRulesDialog(QDialog):
 
     def get_rules(self) -> list:
         return list(self.rules)
-

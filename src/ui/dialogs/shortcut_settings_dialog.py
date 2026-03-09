@@ -5,7 +5,7 @@
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
-    QPushButton, QLabel, QMessageBox, QHeaderView, QKeySequenceEdit
+    QPushButton, QLabel, QMessageBox, QHeaderView, QKeySequenceEdit, QAbstractItemView
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence
@@ -75,14 +75,14 @@ class ShortcutSettingsDialog(QDialog):
         ])
         
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.Fixed)
-        header.setSectionResizeMode(2, QHeaderView.Fixed)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
         self.table.setColumnWidth(1, 150)
         self.table.setColumnWidth(2, 100)
         
-        self.table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.table.setSelectionMode(QTableWidget.SingleSelection)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         
         layout.addWidget(self.table)
         
@@ -133,20 +133,20 @@ class ShortcutSettingsDialog(QDialog):
             # 액션 이름
             action_name = strings.tr(label_key)
             name_item = QTableWidgetItem(action_name)
-            name_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable)
-            name_item.setData(Qt.UserRole, action_id)
+            name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            name_item.setData(Qt.ItemDataRole.UserRole, action_id)
             self.table.setItem(row, 0, name_item)
             
             # 현재 단축키
             shortcut_item = QTableWidgetItem(shortcut)
-            shortcut_item.setFlags(shortcut_item.flags() & ~Qt.ItemIsEditable)
+            shortcut_item.setFlags(shortcut_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(row, 1, shortcut_item)
             
             # 기본값
             default_shortcut = self.DEFAULT_SHORTCUTS.get(action_id, ('', ''))[0]
             default_item = QTableWidgetItem(default_shortcut)
-            default_item.setFlags(default_item.flags() & ~Qt.ItemIsEditable)
-            default_item.setForeground(Qt.gray)
+            default_item.setFlags(default_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            default_item.setForeground(Qt.GlobalColor.gray)
             self.table.setItem(row, 2, default_item)
     
     def on_selection_changed(self, row, col, prev_row, prev_col):
@@ -168,9 +168,13 @@ class ShortcutSettingsDialog(QDialog):
         if new_key:
             for r in range(self.table.rowCount()):
                 if r != row:
-                    existing = self.table.item(r, 1).text()
+                    shortcut_item = self.table.item(r, 1)
+                    if shortcut_item is None:
+                        continue
+                    existing = shortcut_item.text()
                     if existing == new_key:
-                        action_name = self.table.item(r, 0).text()
+                        action_item = self.table.item(r, 0)
+                        action_name = action_item.text() if action_item is not None else ""
                         QMessageBox.warning(
                             self, strings.tr("app_title"),
                             strings.tr("err_shortcut_conflict").format(action_name)
@@ -178,9 +182,13 @@ class ShortcutSettingsDialog(QDialog):
                         return
         
         # 테이블 및 데이터 업데이트
-        self.table.item(row, 1).setText(new_key)
+        row_shortcut_item = self.table.item(row, 1)
+        row_action_item = self.table.item(row, 0)
+        if row_shortcut_item is None or row_action_item is None:
+            return
+        row_shortcut_item.setText(new_key)
         
-        action_id = self.table.item(row, 0).data(Qt.UserRole)
+        action_id = row_action_item.data(Qt.ItemDataRole.UserRole)
         old_data = self.shortcuts.get(action_id)
         if old_data:
             self.shortcuts[action_id] = (new_key, old_data[1])
@@ -189,10 +197,14 @@ class ShortcutSettingsDialog(QDialog):
         """선택된 단축키 지우기"""
         row = self.table.currentRow()
         if row >= 0:
-            self.table.item(row, 1).setText("")
+            row_shortcut_item = self.table.item(row, 1)
+            row_action_item = self.table.item(row, 0)
+            if row_shortcut_item is None or row_action_item is None:
+                return
+            row_shortcut_item.setText("")
             self.key_edit.clear()
             
-            action_id = self.table.item(row, 0).data(Qt.UserRole)
+            action_id = row_action_item.data(Qt.ItemDataRole.UserRole)
             old_data = self.shortcuts.get(action_id)
             if old_data:
                 self.shortcuts[action_id] = ("", old_data[1])
@@ -202,10 +214,10 @@ class ShortcutSettingsDialog(QDialog):
         res = QMessageBox.question(
             self, strings.tr("app_title"),
             strings.tr("confirm_reset_shortcuts"),
-            QMessageBox.Yes | QMessageBox.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         
-        if res == QMessageBox.Yes:
+        if res == QMessageBox.StandardButton.Yes:
             self.shortcuts = {k: v for k, v in self.DEFAULT_SHORTCUTS.items()}
             self.populate_table()
     

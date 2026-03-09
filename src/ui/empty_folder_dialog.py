@@ -66,19 +66,19 @@ class EmptyFolderDialog(QDialog):
         
         self.btn_scan = QPushButton(strings.tr("btn_scan_empty"))
         self.btn_scan.setMinimumHeight(44)
-        self.btn_scan.setCursor(Qt.PointingHandCursor)
+        self.btn_scan.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_scan.setObjectName("btn_primary")
         self.btn_scan.clicked.connect(self.scan_folders)
         
         self.btn_stop = QPushButton(strings.tr("action_stop_scan"))
         self.btn_stop.setMinimumHeight(44)
-        self.btn_stop.setCursor(Qt.PointingHandCursor)
+        self.btn_stop.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_stop.setEnabled(False)
         self.btn_stop.clicked.connect(self.stop_scan)
         
         self.btn_delete = QPushButton(strings.tr("btn_delete_all"))
         self.btn_delete.setMinimumHeight(44)
-        self.btn_delete.setCursor(Qt.PointingHandCursor)
+        self.btn_delete.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_delete.setObjectName("btn_danger")
         self.btn_delete.setEnabled(False)
         self.btn_delete.clicked.connect(self.delete_folders)
@@ -137,9 +137,9 @@ class EmptyFolderDialog(QDialog):
             self, 
             strings.tr("confirm_delete_title"), 
             strings.tr("confirm_empty_delete").format(count), 
-            QMessageBox.Yes | QMessageBox.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
-        if res != QMessageBox.Yes:
+        if res != QMessageBox.StandardButton.Yes:
             return
         
         # Extract paths (remove the folder emoji prefix)

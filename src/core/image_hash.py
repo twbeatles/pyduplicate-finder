@@ -5,9 +5,11 @@
 
 import os
 from collections import defaultdict
-from typing import Dict, List, Tuple, Optional, Set
+from typing import Dict, List, Tuple, Optional, Set, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+imagehash: Any = None
+Image: Any = None
 try:
     import imagehash
     from PIL import Image
@@ -108,6 +110,8 @@ class ImageHasher:
     
     def calculate_phash(self, image_path: str) -> Optional[str]:
         """이미지의 Perceptual Hash 계산"""
+        if Image is None or imagehash is None:
+            return None
         try:
             with Image.open(image_path) as img:
                 if img.mode in ('RGBA', 'P'):
@@ -119,6 +123,8 @@ class ImageHasher:
     
     def calculate_distance(self, hash1_str: str, hash2_str: str) -> int:
         """두 해시 문자열 간의 해밍 거리 계산"""
+        if imagehash is None:
+            return self.max_distance
         try:
             h1 = imagehash.hex_to_hash(hash1_str)
             h2 = imagehash.hex_to_hash(hash2_str)
@@ -206,6 +212,8 @@ class ImageHasher:
         return final_groups
     
     def get_image_info(self, path: str) -> Optional[Dict]:
+        if Image is None:
+            return None
         try:
             with Image.open(path) as img:
                 return {

@@ -4,6 +4,7 @@ import shutil
 import unittest
 import tempfile
 import time
+from typing import cast
 
 # Add src to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -68,6 +69,7 @@ class TestBackupCollision(unittest.TestCase):
         else:
             restored_paths, failed_count = restored, 0
         self.assertEqual(failed_count, 0)
+        restored_paths = cast(list[str], restored_paths)
         self.assertEqual(len(restored_paths), 20)
         
         for f in files_to_delete:

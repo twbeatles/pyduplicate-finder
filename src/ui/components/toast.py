@@ -51,8 +51,8 @@ class ToastNotification(QFrame):
         self.icon = self.ICONS.get(self.toast_type, self.ICONS["info"])
         
         # Window setup for floating notification
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Tool | Qt.WindowStaysOnTopHint)
-        self.setAttribute(Qt.WA_DeleteOnClose)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         
         self._setup_ui(message)
         self._setup_timer()

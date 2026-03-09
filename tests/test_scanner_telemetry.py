@@ -63,7 +63,7 @@ def test_similar_image_hash_errors_are_counted_in_telemetry(tmp_path):
 
     worker = ScanWorker([str(tmp_path)], protect_system=False, max_workers=1)
     worker.use_similar_image = True
-    worker.image_hasher = DummyHasher()
+    setattr(worker, "image_hasher", DummyHasher())
     try:
         worker._run_similar_image_scan(image_files=[str(ok), str(bad)], emit_result=False)
         metrics = worker._snapshot_metrics()

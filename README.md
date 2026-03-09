@@ -54,6 +54,8 @@ duplicate_finder/
 ├── main.py                  # 애플리케이션 진입점
 ├── requirements.txt         # 의존성 목록
 ├── PyDuplicateFinder.spec   # PyInstaller 빌드 설정
+├── pyrightconfig.json       # Pylance/Pyright 정적 타입 검사 설정 (Python 3.14)
+├── .editorconfig            # UTF-8/EOL 규칙
 ├── claude.md                # AI 컨텍스트 (Claude)
 ├── gemini.md                # AI 컨텍스트 (Gemini)
 ├── src/
@@ -68,6 +70,14 @@ duplicate_finder/
 │   │   └── empty_folder_finder.py # 빈 폴더 탐색
 │   ├── ui/                  # GUI 레이어
 │   │   ├── main_window.py       # 메인 윈도우
+│   │   ├── main_window_parts/   # 메인 윈도우 책임 분리 모듈(SOLID)
+│   │   │   ├── ui_shell.py
+│   │   │   ├── scan_flow.py
+│   │   │   ├── results_flow.py
+│   │   │   ├── settings_flow.py
+│   │   │   ├── tools_flow.py
+│   │   │   ├── schedule_flow.py
+│   │   │   └── typing_contract.py
 │   │   ├── theme.py             # 테마 스타일시트
 │   │   ├── empty_folder_dialog.py
 │   │   ├── controllers/         # UI 오케스트레이션 컨트롤러
@@ -75,7 +85,9 @@ duplicate_finder/
 │   │   │   ├── scheduler_controller.py
 │   │   │   ├── ops_controller.py
 │   │   │   ├── operation_flow_controller.py
-│   │   │   └── navigation_controller.py
+│   │   │   ├── navigation_controller.py
+│   │   │   ├── results_controller.py
+│   │   │   └── preview_controller.py
 │   │   ├── components/
 │   │   │   ├── results_tree.py  # 결과 트리 위젯
 │   │   │   ├── sidebar.py       # 사이드바 네비게이션
@@ -90,7 +102,7 @@ duplicate_finder/
 │   │       ├── exclude_patterns_dialog.py
 │   │       ├── selection_rules_dialog.py
 │   │       ├── preflight_dialog.py
-│   │       └── operation_log_dialog.py
+│   │       ├── operation_log_dialog.py
 │   │       └── shortcut_settings_dialog.py
 │   └── utils/
 │       └── i18n.py              # 다국어 문자열 관리
@@ -258,7 +270,24 @@ MIT License
 아래 항목은 후속 리팩터링으로 유지됩니다.
 
 - `src/core/scanner.py` 본문 로직의 추가 분해(엔진 완전 분리)
-- `src/ui/main_window.py` 대규모 오케스트레이션의 컨트롤러 레벨 분리 확대
+- `src/ui/main_window_parts/*` 내부 로직의 서비스 단위 추가 추출(필요 시)
+
+## ✅ 구현 상태 (2026-03-09)
+
+- UI 메인 윈도우를 SOLID 기준으로 분리:
+  - `src/ui/main_window.py`는 조립/호환 레이어로 축소
+  - 기능 구현은 `src/ui/main_window_parts/{ui_shell,scan_flow,results_flow,settings_flow,tools_flow,schedule_flow}.py`로 이동
+- 동적 위젯 속성 타입 계약 추가:
+  - `src/ui/main_window_parts/typing_contract.py`에서 `TYPE_CHECKING` 기반 계약 + host protocol 정의
+  - `reportAttributeAccessIssue`를 완화하지 않고 코드로 해결
+- Pylance 재발 방지 설정 고정:
+  - `pyrightconfig.json` 추가 (범위: `src`, `tests`, `cli.py`, `main.py`; Python 3.14, 핵심 진단 `error` 고정)
+- 인코딩 재발 방지:
+  - `.editorconfig`로 UTF-8/EOL 규칙 고정
+  - `tests/test_source_encoding_integrity.py`로 UTF-8 decode/`U+FFFD`/대표 깨짐 패턴 검사
+- 기준선 검증:
+  - `pyright src tests cli.py main.py` 결과 `0 errors`
+  - 전체 `pytest`의 `-1073740791` 종료는 기존 사전 존재 이슈로 분리 관리
 
 ## Performance Refactor Notes (2026-02)
 

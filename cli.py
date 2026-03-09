@@ -118,7 +118,10 @@ def main() -> int:
         print(f"[{v:3d}%] {msg}")
 
     def on_finished(results: object) -> None:
-        state["results"] = dict(results or {})
+        if isinstance(results, dict):
+            state["results"] = results
+        else:
+            state["results"] = {}
         loop.quit()
 
     def on_failed(message: str) -> None:

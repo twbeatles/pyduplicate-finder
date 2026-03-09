@@ -26,6 +26,14 @@ a = Analysis(
 
         # UI
         'src.ui.main_window',
+        'src.ui.main_window_parts',
+        'src.ui.main_window_parts.ui_shell',
+        'src.ui.main_window_parts.scan_flow',
+        'src.ui.main_window_parts.results_flow',
+        'src.ui.main_window_parts.settings_flow',
+        'src.ui.main_window_parts.tools_flow',
+        'src.ui.main_window_parts.schedule_flow',
+        'src.ui.main_window_parts.typing_contract',
         'src.ui.theme',
         'src.ui.empty_folder_dialog',
         'src.ui.pages.scan_page',

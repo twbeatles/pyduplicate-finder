@@ -47,6 +47,8 @@ class TestQuarantineManager(unittest.TestCase):
 
         ok, _msg, restored_path = self.qm.restore_item(item_id)
         self.assertTrue(ok)
+        self.assertIsNotNone(restored_path)
+        assert restored_path is not None
         self.assertTrue(os.path.exists(restored_path))
 
         # After restore, it is not quarantined anymore.
@@ -135,6 +137,10 @@ class TestQuarantineManager(unittest.TestCase):
         self.assertTrue(ok1)
         self.assertTrue(ok2)
         self.assertTrue(path1 and path2)
+        self.assertIsNotNone(path1)
+        self.assertIsNotNone(path2)
+        assert path1 is not None
+        assert path2 is not None
         self.assertNotEqual(path1, path2)
         self.assertTrue(os.path.exists(path1))
         self.assertTrue(os.path.exists(path2))

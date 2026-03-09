@@ -44,9 +44,11 @@ def test_strict_mode_threshold_status_persisted(
             worker._metrics["files_skipped_error"] = int(errors_total)
             return {1: ["a.bin", "b.bin"]}
 
-        worker._scan_files = fake_scan_files
-        worker._calculate_hashes_parallel = (
-            lambda _candidates, is_quick_scan=True, seed_session_id=None: {(1, "full", "FULL"): ["a.bin", "b.bin"]}
+        setattr(worker, "_scan_files", fake_scan_files)
+        setattr(
+            worker,
+            "_calculate_hashes_parallel",
+            lambda _candidates, is_quick_scan=True, seed_session_id=None: {(1, "full", "FULL"): ["a.bin", "b.bin"]},
         )
 
         finished = {"flag": False}

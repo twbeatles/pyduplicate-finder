@@ -14,6 +14,13 @@ env/
 .idea/
 *.swp
 
+# Type checking / test cache
+.pyright/
+.pyrightcache/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
 # Distribution / Build
 build/
 dist/
@@ -24,6 +31,13 @@ dist_build/
 
 # Logs
 *.log
+
+# Coverage / benchmark artifacts
+.coverage
+.coverage.*
+htmlcov/
+coverage/
+bench_perf.json
 
 # Temp
 tmp/

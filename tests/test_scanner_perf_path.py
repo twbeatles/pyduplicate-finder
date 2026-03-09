@@ -46,7 +46,7 @@ def test_cancelled_run_marks_session_paused(tmp_path, monkeypatch):
             worker.stop()
             return {}
 
-        worker._scan_files = fake_scan_files
+        setattr(worker, "_scan_files", fake_scan_files)
         worker.run()
 
         session = cm.get_latest_session()
@@ -68,7 +68,7 @@ def test_progress_session_writes_are_throttled(monkeypatch):
     def fake_update_scan_session(_sid, **_fields):
         calls["count"] += 1
 
-    worker.cache_manager.update_scan_session = fake_update_scan_session
+    setattr(worker.cache_manager, "update_scan_session", fake_update_scan_session)
 
     t = {"v": 0.0}
 

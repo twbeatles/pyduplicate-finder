@@ -31,3 +31,12 @@ python tests/verify_image_hash.py
    - 설정 화면의 세션 보존 개수/해시 보존 일수 변경 후 앱 재시작 시 cleanup 정책 반영 확인
 4. Preview stability under rapid selection:
    - 결과 트리에서 빠르게 파일 선택을 바꿔도 UI 예외/멈춤 없이 미리보기 갱신 확인
+
+## Static Quality Checks (2026-03-09)
+
+1. Pyright/Pylance baseline:
+   - `pyright src tests cli.py main.py`
+   - 기대값: `0 errors`
+2. Encoding integrity:
+   - `pytest -q tests/test_source_encoding_integrity.py`
+   - 기대값: UTF-8 decode/`U+FFFD`/known mojibake pattern 검사 통과

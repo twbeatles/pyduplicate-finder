@@ -1,9 +1,10 @@
 import os
 import shutil
-from typing import List, Tuple, Optional, Dict, Any
+from typing import List, Tuple, Optional, Dict, Any, Callable
 from src.utils.i18n import strings
 
 # send2trash 라이브러리 (선택적)
+send_to_trash: Optional[Callable[[str], None]] = None
 try:
     from send2trash import send2trash as send_to_trash
     TRASH_AVAILABLE = True
@@ -96,6 +97,9 @@ class HistoryManager:
         Returns:
             tuple: (success: bool, message: str)
         """
+        if send_to_trash is None:
+            return (False, strings.tr("op_trash_unavailable"))
+
         success_count = 0
         failed_files = []
         total_files = len(file_paths)
@@ -276,6 +280,14 @@ class HistoryManager:
             self.undo_stack.append(
                 {"paths": [m.orig_path for m in moved_results], "item_ids": [m.item_id for m in moved_results]}
             )
+            self.redo_stack.clear()
+        except Exception:
+            pass
+
+    def cleanup(self) -> None:
+        """Release in-memory stacks and close owned cache manager when applicable."""
+        try:
+            self.undo_stack.clear()
             self.redo_stack.clear()
         except Exception:
             pass

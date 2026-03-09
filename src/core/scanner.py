@@ -9,6 +9,7 @@ import threading
 import errno
 from collections import defaultdict
 import concurrent.futures
+from typing import Any
 from src.core.cache_manager import CacheManager
 from src.utils.i18n import strings
 
@@ -100,12 +101,12 @@ class ScanWorker(QThread):
         self._base_scan_dirs = {}
         self.latest_file_meta = {}
         self.latest_baseline_delta_map = {}
-        self.latest_scan_metrics = {}
+        self.latest_scan_metrics: dict[str, Any] = {}
         self.latest_scan_status = "completed"
         self.latest_scan_warnings = []
         self.incremental_stats = {}
         self._metrics_lock = threading.Lock()
-        self._metrics = {
+        self._metrics: dict[str, int] = {
             "files_scanned": 0,
             "files_hashed": 0,
             "files_skipped_error": 0,
@@ -113,7 +114,7 @@ class ScanWorker(QThread):
             "errors_total": 0,
         }
         self._error_sample_limit = 25
-        self._error_samples = []
+        self._error_samples: list[dict[str, str]] = []
         
         # 유사 이미지 탐지기
         if self.use_similar_image and _ImageHasher is not None:
@@ -185,7 +186,7 @@ class ScanWorker(QThread):
 
     def _snapshot_metrics(self):
         with self._metrics_lock:
-            out = dict(self._metrics or {})
+            out: dict[str, Any] = dict(self._metrics or {})
             if self._error_samples:
                 out["error_samples"] = list(self._error_samples)
         return out

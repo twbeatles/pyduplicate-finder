@@ -41,7 +41,7 @@ def test_incremental_scan_builds_file_level_baseline_delta_map(tmp_path):
         base_session_id=123,
         session_id=None,
     )
-    worker.cache_manager = _DummyCache(base_rows)
+    setattr(worker, "cache_manager", _DummyCache(base_rows))
 
     _ = worker._scan_files_incremental(123)
     delta = dict(worker.latest_baseline_delta_map or {})

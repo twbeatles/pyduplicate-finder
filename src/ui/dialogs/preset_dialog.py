@@ -86,7 +86,7 @@ class PresetDialog(QDialog):
         
         for preset in self.preset_manager.list_presets():
             item = QListWidgetItem(preset['name'])
-            item.setData(Qt.UserRole, preset['name'])
+            item.setData(Qt.ItemDataRole.UserRole, preset['name'])
             if preset.get('created_at'):
                 item.setToolTip(strings.tr("preset_created_at").format(created=preset['created_at']))
             self.preset_list.addItem(item)
@@ -104,9 +104,9 @@ class PresetDialog(QDialog):
             res = QMessageBox.question(
                 self, strings.tr("app_title"),
                 strings.tr("confirm_overwrite_preset").format(name),
-                QMessageBox.Yes | QMessageBox.No
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
-            if res != QMessageBox.Yes:
+            if res != QMessageBox.StandardButton.Yes:
                 return
         
         if self.preset_manager.save_preset(name, self.current_config):
@@ -124,7 +124,7 @@ class PresetDialog(QDialog):
         if not item:
             return
         
-        name = item.data(Qt.UserRole)
+        name = item.data(Qt.ItemDataRole.UserRole)
         config = self.preset_manager.load_preset(name)
         
         if config:
@@ -140,15 +140,15 @@ class PresetDialog(QDialog):
         if not item:
             return
         
-        name = item.data(Qt.UserRole)
+        name = item.data(Qt.ItemDataRole.UserRole)
         
         res = QMessageBox.question(
             self, strings.tr("app_title"),
             strings.tr("confirm_delete_preset").format(name),
-            QMessageBox.Yes | QMessageBox.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         
-        if res == QMessageBox.Yes:
+        if res == QMessageBox.StandardButton.Yes:
             if self.preset_manager.delete_preset(name):
                 self.refresh_list()
             else:

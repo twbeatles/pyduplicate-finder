@@ -45,7 +45,7 @@ def build_settings_page(window) -> QWidget:
     window.btn_theme_settings = QPushButton(strings.tr("action_theme"))
     window.btn_theme_settings.setCheckable(True)
     window.btn_theme_settings.setMinimumHeight(44)
-    window.btn_theme_settings.setCursor(Qt.PointingHandCursor)
+    window.btn_theme_settings.setCursor(Qt.CursorShape.PointingHandCursor)
     window.btn_theme_settings.clicked.connect(window.toggle_theme)
     theme_card_layout.addWidget(window.btn_theme_settings)
     settings_layout.addWidget(theme_card)
@@ -63,7 +63,7 @@ def build_settings_page(window) -> QWidget:
 
     window.btn_shortcuts_settings = QPushButton(strings.tr("action_shortcut_settings"))
     window.btn_shortcuts_settings.setMinimumHeight(44)
-    window.btn_shortcuts_settings.setCursor(Qt.PointingHandCursor)
+    window.btn_shortcuts_settings.setCursor(Qt.CursorShape.PointingHandCursor)
     window.btn_shortcuts_settings.clicked.connect(window.open_shortcut_settings)
     shortcut_card_layout.addWidget(window.btn_shortcuts_settings)
     settings_layout.addWidget(shortcut_card)
@@ -81,7 +81,7 @@ def build_settings_page(window) -> QWidget:
 
     window.btn_preset_settings = QPushButton(strings.tr("btn_manage_presets"))
     window.btn_preset_settings.setMinimumHeight(44)
-    window.btn_preset_settings.setCursor(Qt.PointingHandCursor)
+    window.btn_preset_settings.setCursor(Qt.CursorShape.PointingHandCursor)
     window.btn_preset_settings.clicked.connect(window.open_preset_dialog)
     preset_card_layout.addWidget(window.btn_preset_settings)
     settings_layout.addWidget(preset_card)

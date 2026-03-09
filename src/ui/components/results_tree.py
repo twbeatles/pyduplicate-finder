@@ -27,7 +27,7 @@ _ROLE_LOWER_PATH = _ROLE_BASE + 4
 _ROLE_MTIME = _ROLE_BASE + 5
 _ROLE_GROUP_ID = _ROLE_BASE + 6
 
-# Kept on column=1 with Qt.UserRole for backward compatibility with main_window.
+# Kept on column=1 with Qt.ItemDataRole.UserRole for backward compatibility with main_window.
 _ROLE_SIZE_BYTES = _ROLE_BASE
 
 
@@ -221,7 +221,7 @@ class ResultsTreeWidget(QTreeWidget):
         if missing > 0:
             suffix_parts.append(strings.tr("badge_missing_count").format(count=missing))
 
-        suffix = "" if not suffix_parts else "  ?? " + "  |  ".join(suffix_parts)
+        suffix = "" if not suffix_parts else "  |  " + "  |  ".join(suffix_parts)
         group_item.setText(0, base + suffix)
 
     def _process_batch(self):
@@ -251,7 +251,7 @@ class ResultsTreeWidget(QTreeWidget):
                 self._update_group_summary(root.child(i))
 
     def _add_group_item(self, key, paths):
-        hash_str = "???"
+        hash_str = "N/A"
         is_name_only = False
         is_similar = False
         is_folder_dup = False
@@ -273,7 +273,7 @@ class ResultsTreeWidget(QTreeWidget):
                         group_id = part.split("_", 1)[1] if "_" in part else part
                         hash_str = strings.tr("label_similar_group").format(id=group_id)
                         break
-                if hash_str == "???":
+                if hash_str == "N/A":
                     for part in key:
                         if not isinstance(part, int):
                             hash_str = str(part)
@@ -303,7 +303,7 @@ class ResultsTreeWidget(QTreeWidget):
                     sizes.append(None)
 
             valid_sizes = [s for s in sizes if s is not None]
-            size_str = "??"
+            size_str = "N/A"
             if valid_sizes:
                 first_size = valid_sizes[0]
                 if all(s == first_size for s in valid_sizes):
@@ -349,7 +349,7 @@ class ResultsTreeWidget(QTreeWidget):
                     bytes_total = int(key[2] or 0)
                 if len(key) > 3 and isinstance(key[3], int):
                     folder_file_count = int(key[3] or 0)
-            size_tag = self._format_size(bytes_total) if bytes_total > 0 else "??"
+            size_tag = self._format_size(bytes_total) if bytes_total > 0 else "N/A"
             count_tag = f"{folder_file_count} {label_files}" if folder_file_count > 0 else f"{len(paths)} {label_files}"
             group_item.setText(0, f"[GROUP] {label_group} ({len(paths)} dirs / {count_tag} / {size_tag}){badge_text}")
         else:
@@ -395,7 +395,7 @@ class ResultsTreeWidget(QTreeWidget):
             child.setToolTip(0, p)
 
             file_size = sizes[idx] if idx < len(sizes) else None
-            child.setText(1, self._format_size(file_size) if file_size is not None else "??")
+            child.setText(1, self._format_size(file_size) if file_size is not None else "N/A")
             child.setData(1, _ROLE_SIZE_BYTES, int(file_size or 0))
             child.setText(3, os.path.splitext(p)[1].upper())
 
@@ -408,12 +408,12 @@ class ResultsTreeWidget(QTreeWidget):
                     dt = datetime.fromtimestamp(float(mtime)).strftime("%Y-%m-%d %H:%M")
                     child.setText(2, dt)
                 except Exception:
-                    child.setText(2, "??")
+                    child.setText(2, "N/A")
             else:
-                child.setText(2, "??")
+                child.setText(2, "N/A")
             mtime_value = float(mtime or 0.0) if mtime is not None else 0.0
             child.setData(2, _ROLE_MTIME, mtime_value)
-            child.setData(2, Qt.UserRole, mtime_value)
+            child.setData(2, Qt.ItemDataRole.UserRole, mtime_value)
 
             if not exists:
                 state["missing"] += 1
@@ -489,7 +489,7 @@ class ResultsTreeWidget(QTreeWidget):
 
     def _format_size(self, size):
         if size is None:
-            return "??"
+            return "N/A"
         size = float(size)
         for unit in ["B", "KB", "MB", "GB"]:
             if size < 1024:

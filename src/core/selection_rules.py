@@ -48,13 +48,13 @@ def _fallback_keep_oldest(paths: List[str]) -> Optional[str]:
     if not paths:
         return None
     best = None
-    best_mtime = None
+    best_mtime: float | None = None
     for p in paths:
         try:
             mt = os.path.getmtime(p)
         except Exception:
             mt = 0.0
-        if best is None or mt < best_mtime:
+        if best is None or best_mtime is None or mt < best_mtime:
             best = p
             best_mtime = mt
     return best

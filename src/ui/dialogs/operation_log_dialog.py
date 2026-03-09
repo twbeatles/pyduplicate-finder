@@ -63,12 +63,12 @@ class OperationLogDialog(QDialog):
             ]
         )
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.Fixed)
-        header.setSectionResizeMode(2, QHeaderView.Fixed)
-        header.setSectionResizeMode(3, QHeaderView.Stretch)
-        header.setSectionResizeMode(4, QHeaderView.Fixed)
-        header.setSectionResizeMode(5, QHeaderView.Stretch)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
         self.table.setColumnWidth(1, 140)
         self.table.setColumnWidth(2, 80)
         self.table.setColumnWidth(4, 110)
@@ -125,29 +125,29 @@ class OperationLogDialog(QDialog):
             qpath = it.get("quarantine_path") or ""
 
             i0 = QTableWidgetItem(path)
-            i0.setFlags(i0.flags() & ~Qt.ItemIsEditable)
+            i0.setFlags(i0.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(r, 0, i0)
 
             i1 = QTableWidgetItem(action)
-            i1.setFlags(i1.flags() & ~Qt.ItemIsEditable)
+            i1.setFlags(i1.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(r, 1, i1)
 
             i2 = QTableWidgetItem(result)
-            i2.setFlags(i2.flags() & ~Qt.ItemIsEditable)
+            i2.setFlags(i2.flags() & ~Qt.ItemFlag.ItemIsEditable)
             if result == "fail":
-                i2.setForeground(Qt.red)
+                i2.setForeground(Qt.GlobalColor.red)
             self.table.setItem(r, 2, i2)
 
             i3 = QTableWidgetItem(detail)
-            i3.setFlags(i3.flags() & ~Qt.ItemIsEditable)
+            i3.setFlags(i3.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(r, 3, i3)
 
             i4 = QTableWidgetItem(str(size))
-            i4.setFlags(i4.flags() & ~Qt.ItemIsEditable)
+            i4.setFlags(i4.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(r, 4, i4)
 
             i5 = QTableWidgetItem(qpath)
-            i5.setFlags(i5.flags() & ~Qt.ItemIsEditable)
+            i5.setFlags(i5.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(r, 5, i5)
 
         # Hardlink undo supported when op is hardlink and we have detail=canonical recorded.

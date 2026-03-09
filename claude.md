@@ -28,7 +28,15 @@ duplicate_finder/
     │   ├── file_lock_checker.py   # FileLockChecker: 파일 잠금 상태 확인
     │   └── preset_manager.py      # PresetManager: 스캔 설정 프리셋 관리 (기본값 병합)
     ├── ui/                  [Presentation Layer]
-    │   ├── main_window.py         # DuplicateFinderApp: 메인 GUI, scan_results 동기화
+    │   ├── main_window.py         # DuplicateFinderApp: 조립/호환 레이어
+    │   ├── main_window_parts/     # 메인 윈도우 책임 분리 모듈
+    │   │   ├── ui_shell.py            # init_ui/create_toolbar/retranslate/theme/nav/dragdrop
+    │   │   ├── scan_flow.py           # 폴더/스캔 시작-종료-취소-실패/진행
+    │   │   ├── results_flow.py        # 결과 렌더/필터/자동선택/삭제/내보내기/미리보기
+    │   │   ├── settings_flow.py       # QSettings 저장/복원/세션 복구/config hash
+    │   │   ├── tools_flow.py          # 격리함/작업로그/룰/하드링크
+    │   │   ├── schedule_flow.py       # 스케줄 검증/tick/자동 export/실행 기록
+    │   │   └── typing_contract.py     # 동적 위젯 속성 계약 + host protocol
     │   ├── theme.py               # ModernTheme: 라이트/다크 테마 스타일시트
     │   ├── empty_folder_dialog.py # EmptyFolderDialog: 빈 폴더 정리용 모달 다이얼로그
     │   ├── controllers/
@@ -36,7 +44,9 @@ duplicate_finder/
     │   │   ├── scheduler_controller.py  # 예약 스캔 구성/실행 기록 관리
     │   │   ├── ops_controller.py        # 실패 재시도 Operation 생성
     │   │   ├── operation_flow_controller.py # 작업 큐/프로그레스/완료 처리 오케스트레이션
-    │   │   └── navigation_controller.py # Sidebar/QStackedWidget 네비게이션 제어
+    │   │   ├── navigation_controller.py # Sidebar/QStackedWidget 네비게이션 제어
+    │   │   ├── results_controller.py    # 결과 선택/적용 계산
+    │   │   └── preview_controller.py    # 미리보기 비동기 로딩/LRU
     │   ├── components/
     │   │   ├── results_tree.py    # ResultsTreeWidget: 결과 목록 UI 및 배치 렌더링
     │   │   ├── sidebar.py         # Sidebar: 페이지 네비게이션
@@ -118,13 +128,15 @@ duplicate_finder/
 - **기능**: 저장, 불러오기, 삭제, 내보내기/가져오기.
 
 ### H. `src.ui.main_window.DuplicateFinderApp` (QMainWindow)
+- **조립/호환 레이어**: 공개 import 경로(`src.ui.main_window.DuplicateFinderApp`)와 메서드/설정 키 호환성을 유지.
 - **UI 구성**: QSplitter(트리 뷰 | 미리보기 패널). `ResultsTreeWidget` 컴포넌트 사용.
 - **최적화**: `QTimer`를 이용한 배치 처리로 UI 프리징 방지.
 - **설정 지속성**: `QSettings`를 사용하여 윈도우 크기, 옵션 등 저장.
 - **세션 복원**: 마지막 스캔 세션을 감지하고 재개/새 스캔 선택을 제공.
 - **페이지 네비게이션**: `Sidebar` + `QStackedWidget`으로 스캔/결과/도구/설정 화면 구성.
 - **알림 UX**: `ToastManager`로 페이지 이동/상태 알림 제공.
-- **컨트롤러 위임**: 스캔/예약/작업플로우/네비게이션 로직을 `src.ui.controllers.*`로 분리하여 오케스트레이션 책임을 축소.
+- **책임 분리**: 실동작 메서드는 `src.ui.main_window_parts.*` mixin으로 이동해 단일 책임을 강화.
+- **타입 안정성**: 동적 UI 속성은 `typing_contract.py`의 `TYPE_CHECKING` 계약으로 관리.
 
 ## 4. 코딩 컨벤션 및 규칙 (Coding Conventions & Rules)
 
@@ -228,3 +240,17 @@ duplicate_finder/
 - Session/baseline policy:
   - `partial` sessions are restorable as completed-like results.
   - Baseline candidates remain `completed`-only by design.
+
+## Update Memo (2026-03-09)
+
+- Main-window SOLID split completed:
+  - `src/ui/main_window.py` is now a small assembly/compat layer.
+  - Behavior moved to `src/ui/main_window_parts/{ui_shell,scan_flow,results_flow,settings_flow,tools_flow,schedule_flow}.py`.
+- Added typing contract and host protocols:
+  - `src/ui/main_window_parts/typing_contract.py` documents dynamic widget attributes and protocolized host interfaces.
+- Pylance guardrails locked (no diagnostic relaxation):
+  - `pyrightconfig.json` added with Python `3.14`, standard mode, and key diagnostics pinned to `error`.
+  - `pyright src tests cli.py main.py` baseline is `0 errors`.
+- Encoding regression guardrails:
+  - `.editorconfig` enforces UTF-8/LF/final newline.
+  - `tests/test_source_encoding_integrity.py` validates UTF-8 decode + no replacement char + known mojibake pattern absence.

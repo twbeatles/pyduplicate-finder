@@ -24,7 +24,7 @@ class SidebarButton(QPushButton):
         self.label_text = label
         self.setObjectName(name)
         self.setCheckable(True)
-        self.setCursor(Qt.PointingHandCursor)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip(label)
 
         self._expanded = True
@@ -114,10 +114,10 @@ class Sidebar(QFrame):
         self.btn_toggle = QPushButton(self._get_toggle_text())
         self.btn_toggle.setObjectName("sidebar_toggle")
         self.btn_toggle.setFixedHeight(26)
-        self.btn_toggle.setCursor(Qt.PointingHandCursor)
+        self.btn_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_toggle.setToolTip(strings.tr("sidebar_toggle_tooltip"))
         self.btn_toggle.clicked.connect(self.toggle_expand)
-        layout.addWidget(self.btn_toggle, alignment=Qt.AlignRight)
+        layout.addWidget(self.btn_toggle, alignment=Qt.AlignmentFlag.AlignRight)
 
         layout.addSpacing(12)
 
@@ -133,7 +133,7 @@ class Sidebar(QFrame):
             btn.clicked.connect(lambda checked, n=name: self._on_nav_clicked(n))
             self.button_group.addButton(btn)
             self.buttons[name] = btn
-            layout.addWidget(btn, alignment=Qt.AlignCenter)
+            layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
         layout.addStretch()
 
@@ -144,7 +144,7 @@ class Sidebar(QFrame):
             btn.clicked.connect(lambda checked, n=name: self._on_nav_clicked(n))
             self.button_group.addButton(btn)
             self.buttons[name] = btn
-            layout.addWidget(btn, alignment=Qt.AlignCenter)
+            layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # Default selection
         if "scan" in self.buttons:

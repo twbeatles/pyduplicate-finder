@@ -52,6 +52,8 @@ duplicate_finder/
 ├── main.py                  # Application entry point
 ├── requirements.txt         # Dependencies
 ├── PyDuplicateFinder.spec   # PyInstaller build config
+├── pyrightconfig.json       # Pylance/Pyright static type-check config (Python 3.14)
+├── .editorconfig            # UTF-8/EOL guardrails
 ├── claude.md                # AI context (Claude)
 ├── gemini.md                # AI context (Gemini)
 ├── src/
@@ -66,6 +68,14 @@ duplicate_finder/
 │   │   └── empty_folder_finder.py # Empty folder detection
 │   ├── ui/                  # GUI layer
 │   │   ├── main_window.py       # Main window
+│   │   ├── main_window_parts/   # SOLID split modules for main window responsibilities
+│   │   │   ├── ui_shell.py
+│   │   │   ├── scan_flow.py
+│   │   │   ├── results_flow.py
+│   │   │   ├── settings_flow.py
+│   │   │   ├── tools_flow.py
+│   │   │   ├── schedule_flow.py
+│   │   │   └── typing_contract.py
 │   │   ├── theme.py             # Theme stylesheets
 │   │   ├── empty_folder_dialog.py
 │   │   ├── controllers/         # UI orchestration controllers
@@ -73,7 +83,9 @@ duplicate_finder/
 │   │   │   ├── scheduler_controller.py
 │   │   │   ├── ops_controller.py
 │   │   │   ├── operation_flow_controller.py
-│   │   │   └── navigation_controller.py
+│   │   │   ├── navigation_controller.py
+│   │   │   ├── results_controller.py
+│   │   │   └── preview_controller.py
 │   │   ├── components/
 │   │   │   ├── results_tree.py  # Results tree widget
 │   │   │   ├── sidebar.py       # Sidebar navigation
@@ -88,7 +100,7 @@ duplicate_finder/
 │   │       ├── exclude_patterns_dialog.py
 │   │       ├── selection_rules_dialog.py
 │   │       ├── preflight_dialog.py
-│   │       └── operation_log_dialog.py
+│   │       ├── operation_log_dialog.py
 │   │       └── shortcut_settings_dialog.py
 │   └── utils/
 │       └── i18n.py              # Internationalization strings
@@ -266,7 +278,7 @@ The following items are now implemented in code:
 Planned follow-up refactors:
 
 - Further decomposition of heavy logic from `src/core/scanner.py`
-- Broader controller extraction from `src/ui/main_window.py`
+- Additional service-level extraction from `src/ui/main_window_parts/*` when needed
 
 ## ✅ Implementation Status (2026-02-28)
 
@@ -288,6 +300,23 @@ The duplicate scan audit plan is now fully implemented:
 - Baseline policy unchanged by design.
   - only `completed` sessions are baseline candidates (`partial` excluded).
 - Manual/scheduled JSON export updated with `meta` while preserving backward compatibility on load.
+
+## ✅ Implementation Status (2026-03-09)
+
+- Main window was split by SOLID responsibilities while preserving public compatibility:
+  - `src/ui/main_window.py` is now a lightweight assembly/compat layer.
+  - Feature logic moved to `src/ui/main_window_parts/{ui_shell,scan_flow,results_flow,settings_flow,tools_flow,schedule_flow}.py`.
+- Dynamic widget typing contract was added:
+  - `src/ui/main_window_parts/typing_contract.py` defines `TYPE_CHECKING` attributes and host protocols.
+  - `reportAttributeAccessIssue` remains strict; issues are fixed in code rather than relaxed in config.
+- Pylance regression guardrails were locked:
+  - Added `pyrightconfig.json` (scope: `src`, `tests`, `cli.py`, `main.py`; Python 3.14; key diagnostics set to `error`).
+- Encoding regression guardrails were strengthened:
+  - Added `.editorconfig` UTF-8/EOL rules.
+  - `tests/test_source_encoding_integrity.py` checks UTF-8 decode, replacement-char bans, and known mojibake patterns.
+- Baseline checks:
+  - `pyright src tests cli.py main.py` remains at `0 errors`.
+  - Full `pytest` may still terminate with `-1073740791`; this remains a pre-existing baseline issue.
 
 ## Performance Refactor Notes (2026-02)
 

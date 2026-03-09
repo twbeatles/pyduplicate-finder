@@ -91,7 +91,7 @@ class PreviewController(QObject):
             self._cache_put(p, payload)
             out = dict(payload)
             out["request_id"] = int(request_id)
-            # Contract: UI binds this signal with Qt.QueuedConnection and updates widgets on the main thread.
+            # Contract: UI binds this signal with Qt.ConnectionType.QueuedConnection and updates widgets on the main thread.
             self.preview_ready.emit(out)
 
         fut.add_done_callback(_done)

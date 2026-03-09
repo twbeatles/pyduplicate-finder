@@ -18,7 +18,7 @@ def _base_worker(**kwargs) -> ScanWorker:
         }
         return {1: ["a.bin", "b.bin"]}
 
-    worker._scan_files = fake_scan_files
+    setattr(worker, "_scan_files", fake_scan_files)
     return worker
 
 
@@ -33,7 +33,7 @@ def test_cancel_during_full_hash_emits_cancel_only():
         worker.stop()
         return {}
 
-    worker._calculate_hashes_parallel = fake_hashes
+    setattr(worker, "_calculate_hashes_parallel", fake_hashes)
     worker.run()
 
     assert state["cancelled"] is True
@@ -43,15 +43,17 @@ def test_cancel_during_full_hash_emits_cancel_only():
 def test_cancel_during_folder_dup_emits_cancel_only():
     worker = _base_worker(detect_duplicate_folders=True)
     state = _connect_signals(worker)
-    worker._calculate_hashes_parallel = (
-        lambda _candidates, is_quick_scan=True, seed_session_id=None: {(1, "full", "FULL"): ["a.bin", "b.bin"]}
+    setattr(
+        worker,
+        "_calculate_hashes_parallel",
+        lambda _candidates, is_quick_scan=True, seed_session_id=None: {(1, "full", "FULL"): ["a.bin", "b.bin"]},
     )
 
     def fake_detect_folder_dup():
         worker.stop()
         return {}
 
-    worker._detect_duplicate_folders = fake_detect_folder_dup
+    setattr(worker, "_detect_duplicate_folders", fake_detect_folder_dup)
     worker.run()
 
     assert state["cancelled"] is True
@@ -63,8 +65,10 @@ def test_cancel_during_mixed_mode_emits_cancel_only():
     # Ensure mixed branch runs even if optional image backend is unavailable in test env.
     worker.use_similar_image = True
     state = _connect_signals(worker)
-    worker._calculate_hashes_parallel = (
-        lambda _candidates, is_quick_scan=True, seed_session_id=None: {(1, "full", "FULL"): ["a.bin", "b.bin"]}
+    setattr(
+        worker,
+        "_calculate_hashes_parallel",
+        lambda _candidates, is_quick_scan=True, seed_session_id=None: {(1, "full", "FULL"): ["a.bin", "b.bin"]},
     )
 
     def fake_mixed_similar_scan(image_files=None, emit_result=True):
@@ -72,7 +76,7 @@ def test_cancel_during_mixed_mode_emits_cancel_only():
         worker.stop()
         return {}
 
-    worker._run_similar_image_scan = fake_mixed_similar_scan
+    setattr(worker, "_run_similar_image_scan", fake_mixed_similar_scan)
     worker.run()
 
     assert state["cancelled"] is True

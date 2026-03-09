@@ -159,3 +159,11 @@ All proposed items in this audit are now implemented.
 - `tests/test_scanner_strict_mode.py`
 - `tests/test_scan_hash_config_canonicalization.py`
 - `tests/test_cli_strict_and_meta.py`
+
+## 8) Post-Refactor Note (2026-03-09)
+
+- UI main window was refactored into `src/ui/main_window_parts/*`.
+- Historical line references in this audit that point into `src/ui/main_window.py` are pre-refactor snapshots.
+- Current config/session-related logic now resides primarily in:
+  - `src/ui/main_window_parts/settings_flow.py`
+  - `src/ui/main_window_parts/schedule_flow.py`
