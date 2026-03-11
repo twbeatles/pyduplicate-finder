@@ -1,8 +1,6 @@
 import json
 import sys
 
-from PySide6.QtCore import QTimer
-
 import cli
 
 
@@ -28,9 +26,9 @@ class _FakeWorker:
         self.latest_scan_metrics = {"errors_total": 2, "files_scanned": 10}
         self.latest_scan_warnings = ["strict_mode_threshold_exceeded"]
 
-    def start(self):
+    def run(self):
         self.progress_updated.emit(100, "Done")
-        QTimer.singleShot(0, lambda: self.scan_finished.emit({("hash", 1): ["a", "b"]}))
+        self.scan_finished.emit({("hash", 1): ["a", "b"]})
 
 
 def test_cli_parses_strict_flags(monkeypatch):

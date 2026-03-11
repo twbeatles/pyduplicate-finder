@@ -75,27 +75,10 @@ def test_main_writes_output_json_in_v2_schema(tmp_path, monkeypatch):
             self.scan_failed = _Signal()
             self.scan_cancelled = _Signal()
 
-        def start(self):
+        def run(self):
             self.scan_finished.emit({("hash1", 10): ["a.bin", "b.bin"]})
 
-    class _FakeEventLoop:
-        def exec(self):
-            return 0
-
-        def quit(self):
-            return None
-
-    class _FakeCoreApplication:
-        @staticmethod
-        def instance():
-            return object()
-
-        def __init__(self, *_args, **_kwargs):
-            pass
-
     monkeypatch.setattr(cli, "ScanWorker", _FakeWorker)
-    monkeypatch.setattr(cli, "QEventLoop", _FakeEventLoop)
-    monkeypatch.setattr(cli, "QCoreApplication", _FakeCoreApplication)
 
     code = cli.main()
     assert code == 0
@@ -108,3 +91,129 @@ def test_main_writes_output_json_in_v2_schema(tmp_path, monkeypatch):
     assert data["meta"]["files"] == 2
     assert data["meta"]["source"] == "cli"
     assert isinstance(data["results"], dict)
+
+
+def test_main_mixed_mode_auto_enables_similar_image(tmp_path, monkeypatch):
+    scan_root = tmp_path / "scan_root"
+    scan_root.mkdir()
+
+    args = argparse.Namespace(
+        folders=[str(scan_root)],
+        lang="en",
+        extensions="",
+        min_size_kb=0,
+        same_name=False,
+        name_only=False,
+        byte_compare=False,
+        similar_image=False,
+        mixed_mode=True,
+        detect_folder_dup=False,
+        incremental_rescan=False,
+        baseline_session=0,
+        similarity_threshold=0.9,
+        strict_mode=False,
+        strict_max_errors=0,
+        no_protect_system=False,
+        skip_hidden=False,
+        follow_symlinks=False,
+        exclude=[],
+        include=[],
+        output_json="",
+        output_csv="",
+        quiet=True,
+    )
+    monkeypatch.setattr(cli, "_parse_args", lambda: args)
+    monkeypatch.setattr(cli, "validate_similar_image_dependency", lambda _cfg: None)
+
+    captured_kwargs = {}
+
+    class _Signal:
+        def __init__(self):
+            self._callbacks = []
+
+        def connect(self, cb):
+            self._callbacks.append(cb)
+
+        def emit(self, *a):
+            for cb in list(self._callbacks):
+                cb(*a)
+
+    class _FakeWorker:
+        def __init__(self, *_args, **kwargs):
+            captured_kwargs.update(kwargs)
+            self.progress_updated = _Signal()
+            self.scan_finished = _Signal()
+            self.scan_failed = _Signal()
+            self.scan_cancelled = _Signal()
+
+        def run(self):
+            self.scan_finished.emit({})
+
+    monkeypatch.setattr(cli, "ScanWorker", _FakeWorker)
+
+    code = cli.main()
+    assert code == 0
+    assert captured_kwargs["use_mixed_mode"] is True
+    assert captured_kwargs["use_similar_image"] is True
+
+
+def test_main_does_not_leave_plain_qcoreapplication_instance(tmp_path, monkeypatch):
+    from PySide6.QtCore import QCoreApplication
+    from PySide6.QtWidgets import QApplication
+
+    scan_root = tmp_path / "scan_root"
+    scan_root.mkdir()
+
+    args = argparse.Namespace(
+        folders=[str(scan_root)],
+        lang="en",
+        extensions="",
+        min_size_kb=0,
+        same_name=False,
+        name_only=False,
+        byte_compare=False,
+        similar_image=False,
+        mixed_mode=False,
+        detect_folder_dup=False,
+        incremental_rescan=False,
+        baseline_session=0,
+        similarity_threshold=0.9,
+        strict_mode=False,
+        strict_max_errors=0,
+        no_protect_system=False,
+        skip_hidden=False,
+        follow_symlinks=False,
+        exclude=[],
+        include=[],
+        output_json="",
+        output_csv="",
+        quiet=True,
+    )
+    monkeypatch.setattr(cli, "_parse_args", lambda: args)
+
+    class _Signal:
+        def __init__(self):
+            self._callbacks = []
+
+        def connect(self, cb):
+            self._callbacks.append(cb)
+
+        def emit(self, *a):
+            for cb in list(self._callbacks):
+                cb(*a)
+
+    class _FakeWorker:
+        def __init__(self, *_args, **_kwargs):
+            self.progress_updated = _Signal()
+            self.scan_finished = _Signal()
+            self.scan_failed = _Signal()
+            self.scan_cancelled = _Signal()
+
+        def run(self):
+            self.scan_finished.emit({})
+
+    monkeypatch.setattr(cli, "ScanWorker", _FakeWorker)
+    assert cli.main() == 0
+
+    inst = QCoreApplication.instance()
+    assert inst is None or isinstance(inst, QApplication)

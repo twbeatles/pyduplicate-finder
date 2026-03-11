@@ -4,11 +4,12 @@ from src.core.scanner import ScanWorker
 
 
 class _DummyCache:
-    def __init__(self, rows):
+    def __init__(self, rows, *, dirs=None):
         self._rows = list(rows)
+        self._dirs = dict(dirs or {})
 
     def load_scan_dirs(self, _session_id):
-        return {}
+        return dict(self._dirs)
 
     def iter_scan_files(self, _session_id):
         for row in self._rows:
@@ -48,4 +49,40 @@ def test_incremental_scan_builds_file_level_baseline_delta_map(tmp_path):
 
     assert delta[str(keep_path)] == "revalidated"
     assert delta[str(changed_path)] == "changed"
+    assert delta[str(new_path)] == "new"
+
+
+def test_incremental_scan_finds_new_file_even_when_dir_mtime_matches_baseline(tmp_path):
+    root = tmp_path / "scan"
+    sub = root / "sub"
+    sub.mkdir(parents=True)
+    keep_path = sub / "keep.txt"
+    keep_path.write_text("keep", encoding="utf-8")
+
+    # Build baseline snapshot first.
+    keep_stat = os.stat(str(keep_path))
+    sub_stat = os.stat(str(sub))
+    base_rows = [(str(keep_path), int(keep_stat.st_size), float(keep_stat.st_mtime))]
+
+    # Create a new file, then force directory mtime back to baseline
+    # to simulate coarse filesystem timestamp behavior.
+    new_path = sub / "new.txt"
+    new_path.write_text("new", encoding="utf-8")
+    os.utime(str(sub), (float(sub_stat.st_atime), float(sub_stat.st_mtime)))
+
+    worker = ScanWorker(
+        [str(root)],
+        incremental_rescan=True,
+        base_session_id=123,
+        session_id=None,
+    )
+    norm_sub = worker._normalize_path(str(sub))
+    setattr(
+        worker,
+        "cache_manager",
+        _DummyCache(base_rows, dirs={norm_sub: float(sub_stat.st_mtime)}),
+    )
+
+    _ = worker._scan_files_incremental(123)
+    delta = dict(worker.latest_baseline_delta_map or {})
     assert delta[str(new_path)] == "new"

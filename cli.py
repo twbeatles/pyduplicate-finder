@@ -4,8 +4,6 @@ import os
 import sys
 from typing import Any
 
-from PySide6.QtCore import QCoreApplication, QEventLoop
-
 from src.core.result_schema import dump_results_v2
 from src.core.scan_engine import ScanConfig, build_scan_worker_kwargs, validate_similar_image_dependency
 from src.core.scanner import ScanWorker
@@ -76,9 +74,6 @@ def main() -> int:
 
     exts = [x.strip() for x in str(args.extensions or "").split(",") if x.strip()]
 
-    app = QCoreApplication.instance() or QCoreApplication([])
-    loop = QEventLoop()
-
     state: dict[str, Any] = {
         "results": None,
         "error": None,
@@ -97,7 +92,8 @@ def main() -> int:
         follow_symlinks=bool(args.follow_symlinks),
         include_patterns=list(args.include or []),
         exclude_patterns=list(args.exclude or []),
-        use_similar_image=bool(args.similar_image),
+        # Mixed mode always requires similar-image pass.
+        use_similar_image=bool(args.similar_image or args.mixed_mode),
         use_mixed_mode=bool(args.mixed_mode),
         detect_duplicate_folders=bool(args.detect_folder_dup),
         incremental_rescan=bool(args.incremental_rescan),
@@ -122,22 +118,20 @@ def main() -> int:
             state["results"] = results
         else:
             state["results"] = {}
-        loop.quit()
 
     def on_failed(message: str) -> None:
         state["error"] = str(message)
-        loop.quit()
 
     def on_cancelled() -> None:
         state["cancelled"] = True
-        loop.quit()
 
     worker.progress_updated.connect(on_progress)
     worker.scan_finished.connect(on_finished)
     worker.scan_failed.connect(on_failed)
     worker.scan_cancelled.connect(on_cancelled)
-    worker.start()
-    loop.exec()
+    # Run synchronously to avoid creating a process-global Qt application
+    # in CLI mode (prevents cross-mode CLI->GUI lifecycle conflicts).
+    worker.run()
 
     if state["error"]:
         print(f"Scan failed: {state['error']}", file=sys.stderr)
@@ -188,8 +182,6 @@ def main() -> int:
         )
         print(f"Saved CSV: {out_csv} (groups={g}, rows={r})")
 
-    # Keep app reference alive until end of function.
-    _ = app
     return 0
 
 

@@ -161,6 +161,7 @@ python cli.py "D:/Data" "E:/Photos" --extensions jpg,png --output-json result.js
 ```
 - `--similarity-threshold` only accepts values in `0.0`~`1.0`. Out-of-range input is rejected with CLI error (`SystemExit 2`).
 - When `--similar-image` or `--mixed-mode` is requested, missing `imagehash`/`Pillow` dependencies cause immediate fail-fast exit.
+- `--mixed-mode` implicitly enables the similar-image pass (no separate `--similar-image` flag required).
 
 ### (Optional) Run strict-mode CLI scan with telemetry
 ```bash
@@ -316,7 +317,21 @@ The duplicate scan audit plan is now fully implemented:
   - `tests/test_source_encoding_integrity.py` checks UTF-8 decode, replacement-char bans, and known mojibake patterns.
 - Baseline checks:
   - `pyright src tests cli.py main.py` remains at `0 errors`.
-  - Full `pytest` may still terminate with `-1073740791`; this remains a pre-existing baseline issue.
+  - (As of 2026-03-09) full `pytest` could still terminate with `-1073740791`; this was tracked as a pre-existing baseline issue.
+
+## ✅ Implementation Status (2026-03-11)
+
+- CLI lifecycle hardening:
+  - CLI now runs `ScanWorker.run()` synchronously instead of creating a dedicated Qt event loop.
+  - This reduces process-global Qt lifecycle conflicts in CLI/GUI mixed usage.
+- CLI mixed-mode behavior alignment:
+  - `--mixed-mode` now always implies the similar-image pass (`--similar-image` is no longer required separately).
+- File lock detection hardening:
+  - Windows lock checks were updated to avoid zero-byte false-unlocked behavior.
+- Incremental rescan reliability:
+  - Deep subtree skipping based only on directory mtime was removed to reduce missed-file risk after baseline scans.
+- Regression verification:
+  - Full `pytest -q` baseline: `104 passed`.
 
 ## Performance Refactor Notes (2026-02)
 

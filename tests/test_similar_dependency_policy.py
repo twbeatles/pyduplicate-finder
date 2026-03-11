@@ -86,18 +86,6 @@ def test_cli_fail_fast_when_similar_dependency_missing(tmp_path, monkeypatch, ca
     monkeypatch.setattr(cli, "validate_similar_image_dependency", lambda _cfg: "err_similar_image_dependency")
     monkeypatch.setattr(
         cli,
-        "QCoreApplication",
-        type(
-            "_FakeCoreApplication",
-            (),
-            {
-                "instance": staticmethod(lambda: object()),
-                "__init__": lambda self, *_a, **_k: None,
-            },
-        ),
-    )
-    monkeypatch.setattr(
-        cli,
         "ScanWorker",
         lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("worker must not be created")),
     )

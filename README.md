@@ -163,6 +163,7 @@ python cli.py "D:/Data" "E:/Photos" --extensions jpg,png --output-json result.js
 ```
 - `--similarity-threshold` 값은 `0.0`~`1.0`만 허용됩니다. 범위를 벗어나면 CLI는 에러(`SystemExit 2`)로 종료됩니다.
 - `--similar-image` 또는 `--mixed-mode` 사용 시 `imagehash`/`Pillow` 의존성이 없으면 CLI는 즉시 실패(fail-fast)합니다.
+- `--mixed-mode`를 사용하면 `--similar-image` 패스가 자동으로 활성화됩니다(별도 플래그 불필요).
 
 ### 2. 검색 설정
 - **파일 위치 추가**: '폴더 추가' 혹은 드래그 앤 드롭으로 검색할 위치를 등록합니다.
@@ -287,7 +288,21 @@ MIT License
   - `tests/test_source_encoding_integrity.py`로 UTF-8 decode/`U+FFFD`/대표 깨짐 패턴 검사
 - 기준선 검증:
   - `pyright src tests cli.py main.py` 결과 `0 errors`
-  - 전체 `pytest`의 `-1073740791` 종료는 기존 사전 존재 이슈로 분리 관리
+  - (당시 기준) 전체 `pytest`의 `-1073740791` 종료는 기존 사전 존재 이슈로 분리 관리
+
+## ✅ 구현 상태 (2026-03-11)
+
+- CLI 실행 경로 안정화:
+  - CLI는 Qt 이벤트 루프를 별도 생성하지 않고 `ScanWorker.run()`을 동기 실행합니다.
+  - GUI/CLI 연속 실행 시 프로세스 전역 Qt lifecycle 충돌 가능성을 줄였습니다.
+- CLI mixed mode 동작 정합화:
+  - `--mixed-mode` 지정 시 유사 이미지 탐지가 자동 활성화됩니다 (`--similar-image` 별도 지정 불필요).
+- 파일 잠금 감지 보강:
+  - 0바이트 파일에서도 잠금 우회(false unlocked)가 발생하지 않도록 Windows 잠금 확인 흐름을 보강했습니다.
+- 증분 스캔 안정성 보강:
+  - 디렉토리 mtime만으로 하위 트리를 통째로 생략하지 않도록 정책을 조정해, baseline 이후 신규 파일 누락 가능성을 낮췄습니다.
+- 회귀 검증:
+  - `pytest -q` 기준 전체 `104 passed`.
 
 ## Performance Refactor Notes (2026-02)
 

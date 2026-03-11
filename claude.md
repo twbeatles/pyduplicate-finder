@@ -69,6 +69,7 @@ duplicate_finder/
     - `min_size`: 무시할 최소 파일 크기.
     - `protect_system`: 시스템 폴더 스캔 방지 플래그.
     - `use_similar_image`: 유사 이미지 탐지 모드.
+    - `use_mixed_mode`: mixed pipeline 모드(CLI에서는 `--mixed-mode` 지정 시 `use_similar_image`도 자동 활성화).
 - **구현 특징**:
     - **Inode Check**: 심볼릭/하드 링크 중복 방지를 위해 `(dev, ino)` 쌍을 추적.
     - **ThreadPoolExecutor**: `get_file_hash` 메서드를 병렬로 실행.
@@ -120,6 +121,7 @@ duplicate_finder/
 ### F. `src.core.file_lock_checker.FileLockChecker`
 파일 삭제 전 사용 중인 파일을 감지하여 오류를 방지합니다.
 - **Windows**: `msvcrt.locking` API로 잠금 확인, `psutil`로 프로세스 확인.
+- **Zero-byte 파일 안전성**: 먼저 파일 open 가능 여부를 확인하고, 파일 크기가 0보다 큰 경우에만 byte-range lock을 적용해 false unlocked를 줄임.
 - **Linux/Mac**: `fcntl.flock` 사용.
 
 ### G. `src.core.preset_manager.PresetManager`
@@ -254,3 +256,18 @@ duplicate_finder/
 - Encoding regression guardrails:
   - `.editorconfig` enforces UTF-8/LF/final newline.
   - `tests/test_source_encoding_integrity.py` validates UTF-8 decode + no replacement char + known mojibake pattern absence.
+
+## Update Memo (2026-03-11)
+
+- CLI lifecycle hardening:
+  - `cli.py` now runs the worker synchronously (`ScanWorker.run()`) instead of creating a separate Qt event loop instance.
+  - This avoids cross-mode lifecycle conflicts when CLI and GUI are used in the same process lifetime.
+- CLI mixed-mode policy alignment:
+  - `--mixed-mode` now implies `use_similar_image=True` in CLI config mapping.
+- Incremental reliability hardening:
+  - Deep directory skip based only on unchanged directory mtime was removed to prevent missing newly added files after baseline scans.
+- File lock detection hardening:
+  - `src/core/file_lock_checker.py` now handles zero-byte lock checks more safely on Windows.
+- Regression coverage:
+  - Added/updated tests around CLI lifecycle, mixed-mode policy, incremental delta behavior, and zero-byte lock checks.
+  - Current baseline: full `pytest -q` passes (`104 passed`).

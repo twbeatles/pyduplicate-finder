@@ -497,11 +497,11 @@ class ScanWorker(QThread):
                         self._record_scan_dir(entry.path, dir_mtime)
 
                         if base_dir_mtimes is not None:
-                            norm = self._normalize_path(entry.path)
-                            base_mtime = base_dir_mtimes.get(norm)
-                            if base_mtime is not None and dir_mtime is not None and float(base_mtime) == float(dir_mtime):
-                                # Directory structure unchanged since base session; skip deep walk.
-                                continue
+                            # Reliability-first policy:
+                            # do not skip deep traversal solely by parent directory mtime.
+                            # Some filesystems have coarse timestamp granularity, and that can
+                            # miss newly created files in edge cases.
+                            pass
 
                         if self.follow_symlinks:
                             k = self._dir_key(entry.path)

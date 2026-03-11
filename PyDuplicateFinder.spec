@@ -34,6 +34,8 @@ a = Analysis(
         'src.ui.main_window_parts.tools_flow',
         'src.ui.main_window_parts.schedule_flow',
         'src.ui.main_window_parts.typing_contract',
+        'src.ui.app_state',
+        'src.ui.contracts',
         'src.ui.theme',
         'src.ui.empty_folder_dialog',
         'src.ui.pages.scan_page',

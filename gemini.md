@@ -186,3 +186,19 @@ psutil>=5.9.0        # 파일 잠금 프로세스 확인
     - UTF-8 decode validity
     - no replacement char (`U+FFFD`)
     - known mojibake pattern absence.
+
+## Update Memo (2026-03-11)
+
+- CLI lifecycle stability:
+  - `cli.py` now executes `ScanWorker.run()` synchronously without creating a separate Qt event-loop instance.
+  - This reduces lifecycle collision risk when users switch between CLI and GUI workflows.
+- CLI option consistency:
+  - `--mixed-mode` now implicitly enables similar-image pass (`use_similar_image=True`).
+- Incremental scan reliability:
+  - Removed deep subtree skip policy that relied only on unchanged directory mtime.
+  - This lowers risk of missing new files that appear after baseline scans.
+- File lock reliability:
+  - Windows zero-byte lock-check path in `file_lock_checker.py` was hardened to avoid false-unlocked outcomes.
+- Regression tests and baseline:
+  - Added/updated tests for CLI lifecycle, mixed-mode config policy, incremental delta map behavior, and zero-byte lock checks.
+  - Current full-suite baseline: `pytest -q` -> `104 passed`.
