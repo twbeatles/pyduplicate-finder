@@ -28,6 +28,11 @@ build_work/
 dist_build/
 *.spec
 !PyDuplicateFinder.spec
+*.pkg
+*.pyz
+*.toc
+*.manifest
+warn-*.txt
 
 # Logs
 *.log

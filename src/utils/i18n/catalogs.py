@@ -1,23 +1,10 @@
-from PySide6.QtCore import QLocale
 import os
-from typing import ClassVar, Dict, Optional, Set
 
 # Debug mode: set via environment variable
 DEBUG_I18N = os.environ.get('DEBUG_I18N', '').lower() in ('1', 'true', 'yes')
 
-class I18n:
-    _instance: Optional["I18n"] = None
-    _missing_keys: Set[str] = set()  # Track reported missing keys
-
-    # Singleton state is effectively global; model as ClassVars for type checkers.
-    current_lang: ClassVar[str] = "ko"
-    translations: ClassVar[Dict[str, Dict[str, str]]] = {}
-    
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(I18n, cls).__new__(cls)
-            cls.current_lang = "ko"  # Default
-            cls.translations = {
+def build_translations() -> dict[str, dict[str, str]]:
+    return {
                 "en": {
                     "app_title": "PyDuplicate Finder Pro",
                     "scan_start": "Start Scan",
@@ -869,34 +856,11 @@ class I18n:
                     "btn_undo_hardlink": "하드링크 되돌리기 (원본 복구)",
                 }
             }
-        return cls._instance
 
-    def set_language(self, lang_code):
-        if lang_code in type(self).translations:
-            type(self).current_lang = lang_code
-        else:
-            type(self).current_lang = "en"  # Fallback
 
-    def tr(self, key):
-        result = type(self).translations.get(type(self).current_lang, {}).get(key)
-        if result is None:
-            # Fallback to English
-            result = type(self).translations.get("en", {}).get(key)
-            
-        if result is None:
-            # Log missing key in debug mode
-            if DEBUG_I18N and key not in I18n._missing_keys:
-                I18n._missing_keys.add(key)
-                print(f"[i18n] Missing translation key: '{key}' (lang={self.current_lang})")
-            return f"[{key}]" if DEBUG_I18N else key
-        
-        return result
-    
-    @classmethod
-    def get_missing_keys(cls):
-        """Returns set of all missing translation keys encountered."""
-        return cls._missing_keys.copy()
+_TRANSLATIONS = build_translations()
 
-# Blender-style singleton access
-strings = I18n()
+
+def get_catalog(lang_code: str) -> dict[str, str]:
+    return dict(_TRANSLATIONS.get(str(lang_code or ""), {}))
 

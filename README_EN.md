@@ -58,8 +58,14 @@ duplicate_finder/
 ├── gemini.md                # AI context (Gemini)
 ├── src/
 │   ├── core/                # Business logic (UI-independent)
-│   │   ├── scanner.py           # Multi-threaded scan engine
-│   │   ├── cache_manager.py     # SQLite cache management
+│   │   ├── scanner/             # ScanWorker facade + split discovery/hash/incremental/similar-image stages
+│   │   │   ├── __init__.py
+│   │   │   ├── worker.py
+│   │   │   └── ...
+│   │   ├── cache_manager/       # CacheManager facade + split DB/schema/session/quarantine/jobs modules
+│   │   │   ├── __init__.py
+│   │   │   ├── database.py
+│   │   │   └── ...
 │   │   ├── history.py           # Undo/Redo transactions
 │   │   ├── result_schema.py     # Result JSON v2 schema + compatibility loader
 │   │   ├── image_hash.py        # Similar image detection (pHash)
@@ -69,14 +75,14 @@ duplicate_finder/
 │   ├── ui/                  # GUI layer
 │   │   ├── main_window.py       # Main window
 │   │   ├── main_window_parts/   # SOLID split modules for main window responsibilities
-│   │   │   ├── ui_shell.py
-│   │   │   ├── scan_flow.py
-│   │   │   ├── results_flow.py
-│   │   │   ├── settings_flow.py
-│   │   │   ├── tools_flow.py
+│   │   │   ├── ui_shell/            # build/translate/theme/navigation submixins
+│   │   │   ├── scan_flow/           # folders/lifecycle/config submixins
+│   │   │   ├── results_flow/        # rendering/selection/filtering/preview/actions/persistence
+│   │   │   ├── settings_flow/       # persistence/session_restore/dialogs/cache_settings
+│   │   │   ├── tools_flow/          # quarantine/operations/rules/hardlink
 │   │   │   ├── schedule_flow.py
-│   │   │   └── typing_contract.py
-│   │   ├── theme.py             # Theme stylesheets
+│   │   │   └── typing_contract/     # split host protocols + aggregate contract
+│   │   ├── theme/               # palette/token/stylesheet split
 │   │   ├── empty_folder_dialog.py
 │   │   ├── controllers/         # UI orchestration controllers
 │   │   │   ├── scan_controller.py
@@ -87,7 +93,7 @@ duplicate_finder/
 │   │   │   ├── results_controller.py
 │   │   │   └── preview_controller.py
 │   │   ├── components/
-│   │   │   ├── results_tree.py  # Results tree widget
+│   │   │   ├── results_tree/    # Results tree facade + populate/filter/state split
 │   │   │   ├── sidebar.py       # Sidebar navigation
 │   │   │   └── toast.py         # Toast notifications
 │   │   ├── pages/
@@ -103,7 +109,7 @@ duplicate_finder/
 │   │       ├── operation_log_dialog.py
 │   │       └── shortcut_settings_dialog.py
 │   └── utils/
-│       └── i18n.py              # Internationalization strings
+│       └── i18n/                # split catalog_en/catalog_ko/service modules
 ```
 
 ---
@@ -278,8 +284,8 @@ The following items are now implemented in code:
 
 Planned follow-up refactors:
 
-- Further decomposition of heavy logic from `src/core/scanner.py`
-- Additional service-level extraction from `src/ui/main_window_parts/*` when needed
+- Shrink `legacy.py` delegation layers into thinner service/domain objects over time
+- Packageize `schedule_flow.py` too if its size/ownership warrants the same pattern
 
 ## ✅ Implementation Status (2026-02-28)
 
@@ -306,9 +312,9 @@ The duplicate scan audit plan is now fully implemented:
 
 - Main window was split by SOLID responsibilities while preserving public compatibility:
   - `src/ui/main_window.py` is now a lightweight assembly/compat layer.
-  - Feature logic moved to `src/ui/main_window_parts/{ui_shell,scan_flow,results_flow,settings_flow,tools_flow,schedule_flow}.py`.
+  - Feature logic moved to `src/ui/main_window_parts/{ui_shell,scan_flow,results_flow,settings_flow,tools_flow}/` packages plus `schedule_flow.py`.
 - Dynamic widget typing contract was added:
-  - `src/ui/main_window_parts/typing_contract.py` defines `TYPE_CHECKING` attributes and host protocols.
+  - `src/ui/main_window_parts/typing_contract/` defines `TYPE_CHECKING` attributes and host protocols.
   - `reportAttributeAccessIssue` remains strict; issues are fixed in code rather than relaxed in config.
 - Pylance regression guardrails were locked:
   - Added `pyrightconfig.json` (scope: `src`, `tests`, `cli.py`, `main.py`; Python 3.14; key diagnostics set to `error`).
@@ -332,6 +338,25 @@ The duplicate scan audit plan is now fully implemented:
   - Deep subtree skipping based only on directory mtime was removed to reduce missed-file risk after baseline scans.
 - Regression verification:
   - Full `pytest -q` baseline: `104 passed`.
+
+## ✅ Implementation Status (2026-03-18)
+
+- Large single-module packageization completed:
+  - `src/core/cache_manager/`: `database`, `schema`, `sessions`, `scan_storage`, `operations`, `quarantine`, `hash_cache`, `jobs`
+  - `src/core/scanner/`: `worker`, `discovery`, `hashing`, `incremental`, `similar_images`, `folder_duplicates`, `filters`, `metrics`, `state`
+  - `src/utils/i18n/`: `catalog_en`, `catalog_ko`, `catalogs`, `service`
+  - `src/ui/theme/`: `palettes`, `tokens`, `stylesheet`
+  - `src/ui/components/results_tree/`: `populate`, `filtering`, `state`, `appearance`, `constants`
+- Main-window responsibility split phase 2 completed:
+  - `src/ui/main_window_parts/{ui_shell,scan_flow,results_flow,settings_flow,tools_flow}/` converted to submixin packages
+  - `src/ui/main_window_parts/typing_contract/` split into `scan/results/settings/tools/ui_shell/schedule/navigation/operation_flow` host protocols
+- Public import compatibility preserved:
+  - `CacheManager`, `ScanWorker`, `IMAGE_HASH_AVAILABLE`, `I18n`, `strings`, `ModernTheme`, `DuplicateFinderApp`, `ResultsTreeWidget`
+- Regression/stability guardrails:
+  - added `tests/test_public_api_facades.py`
+  - current full baseline: `pytest -q` -> `111 passed`
+- Packaging alignment:
+  - `PyDuplicateFinder.spec` now uses `collect_submodules(...)` for the packageized module trees
 
 ## Performance Refactor Notes (2026-02)
 

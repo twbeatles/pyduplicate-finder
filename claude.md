@@ -18,8 +18,8 @@ duplicate_finder/
 ├── requirements.txt         [Dependencies] 의존성 패키지 목록
 └── src/
     ├── core/                [Business Logic Layer]
-    │   ├── scanner.py             # ScanWorker: 멀티스레드 파일 스캔, 해싱, Inode 중복 체크
-    │   ├── cache_manager.py       # CacheManager: SQLite 기반 해시 캐시 (WAL 모드, Thread-safe)
+    │   ├── scanner/               # ScanWorker façade + scan 단계별 helper 모듈
+    │   ├── cache_manager/         # CacheManager façade + DB/schema/session/quarantine/jobs helper 모듈
     │   ├── history.py             # HistoryManager: Undo/Redo 트랜잭션 및 안전한 임시 삭제 관리
     │   ├── empty_folder_finder.py # EmptyFolderFinder + EmptyFolderWorker: 비동기 빈 폴더 탐색
     │   ├── operation_queue.py      # OperationWorker: 삭제/복구/하드링크 작업 큐 워커
@@ -30,14 +30,14 @@ duplicate_finder/
     ├── ui/                  [Presentation Layer]
     │   ├── main_window.py         # DuplicateFinderApp: 조립/호환 레이어
     │   ├── main_window_parts/     # 메인 윈도우 책임 분리 모듈
-    │   │   ├── ui_shell.py            # init_ui/create_toolbar/retranslate/theme/nav/dragdrop
-    │   │   ├── scan_flow.py           # 폴더/스캔 시작-종료-취소-실패/진행
-    │   │   ├── results_flow.py        # 결과 렌더/필터/자동선택/삭제/내보내기/미리보기
-    │   │   ├── settings_flow.py       # QSettings 저장/복원/세션 복구/config hash
-    │   │   ├── tools_flow.py          # 격리함/작업로그/룰/하드링크
+    │   │   ├── ui_shell/              # build/translate/theme/navigation submixin
+    │   │   ├── scan_flow/             # folders/lifecycle/config submixin
+    │   │   ├── results_flow/          # rendering/selection/filtering/preview/actions/persistence
+    │   │   ├── settings_flow/         # persistence/session_restore/dialogs/cache_settings
+    │   │   ├── tools_flow/            # quarantine/operations/rules/hardlink
     │   │   ├── schedule_flow.py       # 스케줄 검증/tick/자동 export/실행 기록
-    │   │   └── typing_contract.py     # 동적 위젯 속성 계약 + host protocol
-    │   ├── theme.py               # ModernTheme: 라이트/다크 테마 스타일시트
+    │   │   └── typing_contract/       # 동적 위젯 속성 계약 + host protocol 세분화
+    │   ├── theme/                 # ModernTheme: 라이트/다크 테마 스타일시트
     │   ├── empty_folder_dialog.py # EmptyFolderDialog: 빈 폴더 정리용 모달 다이얼로그
     │   ├── controllers/
     │   │   ├── scan_controller.py       # ScanWorker 생성/시그널 바인딩
@@ -48,7 +48,7 @@ duplicate_finder/
     │   │   ├── results_controller.py    # 결과 선택/적용 계산
     │   │   └── preview_controller.py    # 미리보기 비동기 로딩/LRU
     │   ├── components/
-    │   │   ├── results_tree.py    # ResultsTreeWidget: 결과 목록 UI 및 배치 렌더링
+    │   │   ├── results_tree/      # ResultsTreeWidget: 결과 목록 UI 및 배치 렌더링
     │   │   ├── sidebar.py         # Sidebar: 페이지 네비게이션
     │   │   └── toast.py           # ToastManager: 사용자 알림
     │   └── dialogs/
@@ -56,7 +56,7 @@ duplicate_finder/
     │       ├── exclude_patterns_dialog.py # 제외 패턴 설정 다이얼로그
     │       └── shortcut_settings_dialog.py # 단축키 설정 다이얼로그 (테마 상속)
     └── utils/               [Utilities]
-        └── i18n.py                # 다국어 문자열 관리 (DEBUG_I18N 지원)
+        └── i18n/                  # 다국어 문자열 관리 (DEBUG_I18N 지원)
 ```
 
 ## 3. 핵심 클래스 및 상세 명세 (Key Classes & Specifications)
@@ -138,13 +138,13 @@ duplicate_finder/
 - **페이지 네비게이션**: `Sidebar` + `QStackedWidget`으로 스캔/결과/도구/설정 화면 구성.
 - **알림 UX**: `ToastManager`로 페이지 이동/상태 알림 제공.
 - **책임 분리**: 실동작 메서드는 `src.ui.main_window_parts.*` mixin으로 이동해 단일 책임을 강화.
-- **타입 안정성**: 동적 UI 속성은 `typing_contract.py`의 `TYPE_CHECKING` 계약으로 관리.
+- **타입 안정성**: 동적 UI 속성은 `typing_contract/`의 `TYPE_CHECKING` 계약으로 관리.
 
 ## 4. 코딩 컨벤션 및 규칙 (Coding Conventions & Rules)
 
 1. **Strict Separation**: UI 코드는 절대 `src.core`에 포함되지 않아야 함. Core 로직은 `PySide6.QtWidgets`에 의존하지 않아야 함 (Signal/QThread 등 QtCore는 허용).
 2. **Explicit Imports**: 절대 경로 임포트(`src.core`) 사용 권장.
-3. **Concurrency Safety**: `scanner.py`나 `cache_manager.py` 수정 시 스레드 안전성 최우선 고려.
+3. **Concurrency Safety**: `src/core/scanner/`나 `src/core/cache_manager/` 수정 시 스레드 안전성 최우선 고려.
 4. **Error Handling**: 파일 I/O 작업은 항상 `try-except` 블록으로 감싸고, 실패 시에도 앱이 종료되지 않도록 처리.
 5. **I18n**: 모든 UI 텍스트는 `src.utils.i18n` 모듈의 `strings.tr()` 사용. 하드코딩된 문자열 금지.
 6. **Resource Cleanup**: 스레드 종료 시 `finally` 블록에서 리소스 정리.
@@ -247,9 +247,9 @@ duplicate_finder/
 
 - Main-window SOLID split completed:
   - `src/ui/main_window.py` is now a small assembly/compat layer.
-  - Behavior moved to `src/ui/main_window_parts/{ui_shell,scan_flow,results_flow,settings_flow,tools_flow,schedule_flow}.py`.
+  - Behavior moved to `src/ui/main_window_parts/{ui_shell,scan_flow,results_flow,settings_flow,tools_flow}/` packages plus `schedule_flow.py`.
 - Added typing contract and host protocols:
-  - `src/ui/main_window_parts/typing_contract.py` documents dynamic widget attributes and protocolized host interfaces.
+  - `src/ui/main_window_parts/typing_contract/` documents dynamic widget attributes and protocolized host interfaces.
 - Pylance guardrails locked (no diagnostic relaxation):
   - `pyrightconfig.json` added with Python `3.14`, standard mode, and key diagnostics pinned to `error`.
   - `pyright src tests cli.py main.py` baseline is `0 errors`.
@@ -271,3 +271,21 @@ duplicate_finder/
 - Regression coverage:
   - Added/updated tests around CLI lifecycle, mixed-mode policy, incremental delta behavior, and zero-byte lock checks.
   - Current baseline: full `pytest -q` passes (`104 passed`).
+
+## Update Memo (2026-03-18)
+
+- Large module packageization completed while preserving public import paths:
+  - `src/core/cache_manager/`
+  - `src/core/scanner/`
+  - `src/utils/i18n/`
+  - `src/ui/theme/`
+  - `src/ui/components/results_tree/`
+- Main-window submixins were packageized:
+  - `src/ui/main_window_parts/{ui_shell,scan_flow,results_flow,settings_flow,tools_flow}/`
+  - each package composes focused submixins over a compatibility `legacy.py`
+- Typing contracts were split by host concern:
+  - `scan`, `results`, `settings`, `tools`, `ui_shell`, `schedule`, `navigation`, `operation_flow`
+- Packaging/docs/test alignment:
+  - `PyDuplicateFinder.spec` now uses `collect_submodules(...)` for packageized trees
+  - added `tests/test_public_api_facades.py`
+  - current baseline: full `pytest -q` passes (`111 passed`)

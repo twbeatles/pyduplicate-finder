@@ -1,0 +1,8 @@
+from .legacy import MainWindowSettingsFlowMixin as _LegacyMainWindowSettingsFlowMixin
+
+
+class MainWindowSettingsDialogsMixin:
+    open_preset_dialog = _LegacyMainWindowSettingsFlowMixin.open_preset_dialog
+    open_exclude_patterns_dialog = _LegacyMainWindowSettingsFlowMixin.open_exclude_patterns_dialog
+    open_include_patterns_dialog = _LegacyMainWindowSettingsFlowMixin.open_include_patterns_dialog
+    open_shortcut_settings = _LegacyMainWindowSettingsFlowMixin.open_shortcut_settings

@@ -1,0 +1,6 @@
+from .legacy import MainWindowSettingsFlowMixin as _LegacyMainWindowSettingsFlowMixin
+
+
+class MainWindowSettingsSessionRestoreMixin:
+    _restore_cached_session = _LegacyMainWindowSettingsFlowMixin._restore_cached_session
+    _prompt_resume_session = _LegacyMainWindowSettingsFlowMixin._prompt_resume_session

@@ -1,0 +1,12 @@
+from .legacy import MainWindowToolsFlowMixin as _LegacyMainWindowToolsFlowMixin
+
+
+class MainWindowToolsQuarantineMixin:
+    _apply_quarantine_retention = _LegacyMainWindowToolsFlowMixin._apply_quarantine_retention
+    choose_quarantine_folder = _LegacyMainWindowToolsFlowMixin.choose_quarantine_folder
+    apply_quarantine_settings = _LegacyMainWindowToolsFlowMixin.apply_quarantine_settings
+    refresh_quarantine_list = _LegacyMainWindowToolsFlowMixin.refresh_quarantine_list
+    _selected_quarantine_item_ids = _LegacyMainWindowToolsFlowMixin._selected_quarantine_item_ids
+    restore_selected_quarantine = _LegacyMainWindowToolsFlowMixin.restore_selected_quarantine
+    purge_selected_quarantine = _LegacyMainWindowToolsFlowMixin.purge_selected_quarantine
+    purge_all_quarantine = _LegacyMainWindowToolsFlowMixin.purge_all_quarantine

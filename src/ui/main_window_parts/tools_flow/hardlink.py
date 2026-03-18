@@ -1,0 +1,7 @@
+from .legacy import MainWindowToolsFlowMixin as _LegacyMainWindowToolsFlowMixin
+
+
+class MainWindowToolsHardlinkMixin:
+    _undo_hardlink_from_operation = _LegacyMainWindowToolsFlowMixin._undo_hardlink_from_operation
+    _is_group_key_hardlink_eligible = _LegacyMainWindowToolsFlowMixin._is_group_key_hardlink_eligible
+    hardlink_consolidate_checked = _LegacyMainWindowToolsFlowMixin.hardlink_consolidate_checked

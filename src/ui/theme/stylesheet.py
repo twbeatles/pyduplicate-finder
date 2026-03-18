@@ -1,6 +1,4 @@
-from PySide6.QtGui import QColor, QPalette
-
-class ModernTheme:
+class _LegacyThemeStyle:
     """
     Centralized theme management for the application.
     Enhanced with modern design tokens, typography scale,
@@ -152,12 +150,12 @@ class ModernTheme:
 
     @staticmethod
     def get_palette(mode="light"):
-        return ModernTheme.DARK_PALETTE if mode == "dark" else ModernTheme.LIGHT_PALETTE
+        return _LegacyThemeStyle.DARK_PALETTE if mode == "dark" else _LegacyThemeStyle.LIGHT_PALETTE
 
     @staticmethod
     def get_stylesheet(mode="light"):
-        c = ModernTheme.get_palette(mode)
-        t = ModernTheme  # shorthand for token access
+        c = _LegacyThemeStyle.get_palette(mode)
+        t = _LegacyThemeStyle  # shorthand for token access
 
         return f"""
             /* ==================== GLOBAL RESET ==================== */
@@ -983,3 +981,11 @@ class ModernTheme:
                 background: transparent;
             }}
         """
+
+
+def get_palette(mode: str = "light") -> dict[str, str]:
+    return dict(_LegacyThemeStyle.get_palette(mode))
+
+
+def build_stylesheet(mode: str = "light") -> str:
+    return _LegacyThemeStyle.get_stylesheet(mode)

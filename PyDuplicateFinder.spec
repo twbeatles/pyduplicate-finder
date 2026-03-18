@@ -1,74 +1,85 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from PyInstaller.utils.hooks import collect_submodules
+
 block_cipher = None
+
+BASE_HIDDENIMPORTS = [
+    # Core
+    'src.core.scanner',
+    'src.core.cache_manager',
+    'src.core.history',
+    'src.core.image_hash',
+    'src.core.preset_manager',
+    'src.core.file_lock_checker',
+    'src.core.empty_folder_finder',
+    'src.core.scan_engine',
+    'src.core.result_schema',
+    'src.core.scheduler',
+    'src.core.operation_queue',
+    'src.core.preflight',
+    'src.core.quarantine_manager',
+    'src.core.selection_rules',
+
+    # UI
+    'src.ui.main_window',
+    'src.ui.main_window_parts',
+    'src.ui.main_window_parts.schedule_flow',
+    'src.ui.app_state',
+    'src.ui.contracts',
+    'src.ui.theme',
+    'src.ui.empty_folder_dialog',
+    'src.ui.pages.scan_page',
+    'src.ui.pages.results_page',
+    'src.ui.pages.tools_page',
+    'src.ui.pages.settings_page',
+    'src.ui.components.results_tree',
+    'src.ui.components.sidebar',
+    'src.ui.components.toast',
+    'src.ui.controllers.scan_controller',
+    'src.ui.controllers.ops_controller',
+    'src.ui.controllers.scheduler_controller',
+    'src.ui.controllers.operation_flow_controller',
+    'src.ui.controllers.navigation_controller',
+    'src.ui.controllers.results_controller',
+    'src.ui.controllers.preview_controller',
+    'src.ui.exporting',
+    'src.ui.dialogs.preset_dialog',
+    'src.ui.dialogs.exclude_patterns_dialog',
+    'src.ui.dialogs.selection_rules_dialog',
+    'src.ui.dialogs.preflight_dialog',
+    'src.ui.dialogs.operation_log_dialog',
+    'src.ui.dialogs.shortcut_settings_dialog',
+
+    # Utils / third-party
+    'src.utils.i18n',
+    'imagehash',
+    'PIL',
+    'send2trash',
+    'psutil',
+    'sqlite3',
+    'uuid',
+]
+
+PACKAGE_HIDDENIMPORTS = []
+for package_name in [
+    'src.core.cache_manager',
+    'src.core.scanner',
+    'src.ui.theme',
+    'src.utils.i18n',
+    'src.ui.components.results_tree',
+    'src.ui.main_window_parts',
+]:
+    PACKAGE_HIDDENIMPORTS.extend(collect_submodules(package_name))
+
+HIDDENIMPORTS = sorted(set(BASE_HIDDENIMPORTS + PACKAGE_HIDDENIMPORTS))
 
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
     datas=[],
-    hiddenimports=[
-        # Core
-        'src.core.scanner', 
-        'src.core.cache_manager',
-        'src.core.history', 
-        'src.core.image_hash', 
-        'src.core.preset_manager', 
-        'src.core.file_lock_checker', 
-        'src.core.empty_folder_finder',
-        'src.core.scan_engine',
-        'src.core.result_schema',
-        'src.core.scheduler',
-        'src.core.operation_queue',
-        'src.core.preflight',
-        'src.core.quarantine_manager',
-        'src.core.selection_rules',
-
-        # UI
-        'src.ui.main_window',
-        'src.ui.main_window_parts',
-        'src.ui.main_window_parts.ui_shell',
-        'src.ui.main_window_parts.scan_flow',
-        'src.ui.main_window_parts.results_flow',
-        'src.ui.main_window_parts.settings_flow',
-        'src.ui.main_window_parts.tools_flow',
-        'src.ui.main_window_parts.schedule_flow',
-        'src.ui.main_window_parts.typing_contract',
-        'src.ui.app_state',
-        'src.ui.contracts',
-        'src.ui.theme',
-        'src.ui.empty_folder_dialog',
-        'src.ui.pages.scan_page',
-        'src.ui.pages.results_page',
-        'src.ui.pages.tools_page',
-        'src.ui.pages.settings_page',
-        'src.ui.components.results_tree',
-        'src.ui.components.sidebar',
-        'src.ui.components.toast',
-        'src.ui.controllers.scan_controller',
-        'src.ui.controllers.ops_controller',
-        'src.ui.controllers.scheduler_controller',
-        'src.ui.controllers.operation_flow_controller',
-        'src.ui.controllers.navigation_controller',
-        'src.ui.controllers.results_controller',
-        'src.ui.controllers.preview_controller',
-        'src.ui.exporting',
-        'src.ui.dialogs.preset_dialog',
-        'src.ui.dialogs.exclude_patterns_dialog',
-        'src.ui.dialogs.selection_rules_dialog',
-        'src.ui.dialogs.preflight_dialog',
-        'src.ui.dialogs.operation_log_dialog',
-        'src.ui.dialogs.shortcut_settings_dialog',
-
-        # Utils / third-party
-        'src.utils.i18n',
-        'imagehash', 
-        'PIL', 
-        'send2trash', 
-        'psutil',
-        'sqlite3',
-        'uuid'
-    ],
+    hiddenimports=HIDDENIMPORTS,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

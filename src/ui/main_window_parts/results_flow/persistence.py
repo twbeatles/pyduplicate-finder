@@ -1,0 +1,10 @@
+from .legacy import MainWindowResultsFlowMixin as _LegacyMainWindowResultsFlowMixin
+
+
+class MainWindowResultsPersistenceMixin:
+    _remove_paths_from_results = _LegacyMainWindowResultsFlowMixin._remove_paths_from_results
+    _prune_missing_results = _LegacyMainWindowResultsFlowMixin._prune_missing_results
+    _prune_missing_results_after_restore = _LegacyMainWindowResultsFlowMixin._prune_missing_results_after_restore
+    update_undo_redo_buttons = _LegacyMainWindowResultsFlowMixin.update_undo_redo_buttons
+    save_scan_results = _LegacyMainWindowResultsFlowMixin.save_scan_results
+    load_scan_results = _LegacyMainWindowResultsFlowMixin.load_scan_results

@@ -1,0 +1,6 @@
+from .legacy import MainWindowToolsFlowMixin as _LegacyMainWindowToolsFlowMixin
+
+
+class MainWindowToolsRulesMixin:
+    open_selection_rules_dialog = _LegacyMainWindowToolsFlowMixin.open_selection_rules_dialog
+    select_duplicates_by_rules = _LegacyMainWindowToolsFlowMixin.select_duplicates_by_rules

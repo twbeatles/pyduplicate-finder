@@ -1,0 +1,12 @@
+from .legacy import MainWindowResultsFlowMixin as _LegacyMainWindowResultsFlowMixin
+
+
+class MainWindowResultsSelectionMixin:
+    _apply_keep_set_to_group = _LegacyMainWindowResultsFlowMixin._apply_keep_set_to_group
+    select_duplicates_smart = _LegacyMainWindowResultsFlowMixin.select_duplicates_smart
+    select_duplicates_newest = _LegacyMainWindowResultsFlowMixin.select_duplicates_newest
+    select_duplicates_oldest = _LegacyMainWindowResultsFlowMixin.select_duplicates_oldest
+    select_duplicates_by_pattern = _LegacyMainWindowResultsFlowMixin.select_duplicates_by_pattern
+    on_checked_files_changed = _LegacyMainWindowResultsFlowMixin.on_checked_files_changed
+    on_checked_files_delta = _LegacyMainWindowResultsFlowMixin.on_checked_files_delta
+    _flush_selected_paths = _LegacyMainWindowResultsFlowMixin._flush_selected_paths

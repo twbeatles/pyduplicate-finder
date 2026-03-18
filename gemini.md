@@ -14,8 +14,8 @@
 ```
 src/
 ├── core/                    [비즈니스 로직 - UI 독립]
-│   ├── scanner.py               # ScanWorker: QThread 기반 병렬 스캔/해싱 + 병렬 pHash
-│   ├── cache_manager.py         # SQLite 캐시 (WAL 모드, Thread-local, close_all())
+│   ├── scanner/                 # ScanWorker façade + discovery/hash/incremental/similar-image helper 모듈
+│   ├── cache_manager/           # CacheManager façade + DB/schema/session/quarantine/jobs helper 모듈
 │   ├── history.py               # Undo/Redo 트랜잭션 + atexit 자동 정리 + 디스크 공간 체크
 │   ├── operation_queue.py       # OperationWorker: 삭제/복구/하드링크 작업 큐
 │   ├── result_schema.py         # 결과 JSON v2 스키마 및 legacy 호환 로더
@@ -26,14 +26,14 @@ src/
 ├── ui/                      [PySide6 GUI]
 │   ├── main_window.py           # 조립/호환 레이어(공개 import 경로 유지)
 │   ├── main_window_parts/       # 메인 윈도우 책임별 분리 모듈(SOLID)
-│   │   ├── ui_shell.py              # init_ui/toolbar/retranslate/theme/nav/dragdrop
-│   │   ├── scan_flow.py             # 폴더 선택/스캔 시작-진행-완료-취소-실패
-│   │   ├── results_flow.py          # 결과 렌더/필터/자동선택/삭제/내보내기/미리보기
-│   │   ├── settings_flow.py         # QSettings 저장/복원/세션 복원/config hash
-│   │   ├── tools_flow.py            # 격리함/작업로그/룰/하드링크
+│   │   ├── ui_shell/                # build/translate/theme/navigation submixin
+│   │   ├── scan_flow/               # folders/lifecycle/config submixin
+│   │   ├── results_flow/            # rendering/selection/filtering/preview/actions/persistence
+│   │   ├── settings_flow/           # persistence/session_restore/dialogs/cache_settings
+│   │   ├── tools_flow/              # quarantine/operations/rules/hardlink
 │   │   ├── schedule_flow.py         # 스케줄 검증/tick/자동 export/실행기록
-│   │   └── typing_contract.py       # 동적 속성 타입 계약 + host protocol
-│   ├── theme.py                 # 라이트/다크 테마 스타일시트
+│   │   └── typing_contract/         # host protocol 세분화 + aggregate contract
+│   ├── theme/                   # 라이트/다크 테마 스타일시트 분리
 │   ├── empty_folder_dialog.py   # 빈 폴더 정리 다이얼로그 (비동기)
 │   ├── controllers/
 │   │   ├── scan_controller.py
@@ -44,7 +44,7 @@ src/
 │   │   ├── results_controller.py
 │   │   └── preview_controller.py
 │   ├── components/
-│   │   ├── results_tree.py      # 결과 트리 위젯 (배치 렌더링)
+│   │   ├── results_tree/        # 결과 트리 위젯 façade + populate/filter/state 분리
 │   │   ├── sidebar.py           # 사이드바 네비게이션
 │   │   └── toast.py             # 토스트 알림
 │   └── dialogs/
@@ -52,12 +52,12 @@ src/
 │       ├── exclude_patterns_dialog.py
 │       └── shortcut_settings_dialog.py  # 테마 상속 지원
 └── utils/
-    └── i18n.py                  # 한국어/영어 다국어 지원 + DEBUG_I18N
+    └── i18n/                    # 한국어/영어 다국어 지원 + DEBUG_I18N
 ```
 
 ## 3. 핵심 기술 구현 상세 (Implementation Details)
 
-### 스캔 및 성능 최적화 (`scanner.py`)
+### 스캔 및 성능 최적화 (`src/core/scanner/`)
 | 기술 | 설명 |
 |------|------|
 | **초고속 I/O** | `os.scandir` 재귀 사용으로 stat 접근 최소화 |
@@ -80,7 +80,7 @@ src/
 | **디스크 공간 체크** | 삭제 전 `check_disk_space()` 검증 |
 | **I18n** | 모든 에러 메시지 `strings.tr()` 사용 |
 
-### DB 최적화 (`cache_manager.py`)
+### DB 최적화 (`src/core/cache_manager/`)
 ```python
 # SQLite Tuning
 PRAGMA journal_mode=WAL     # 동시성 향상
@@ -109,8 +109,8 @@ psutil>=5.9.0        # 파일 잠금 프로세스 확인
 
 ## 5. 유지보수 가이드
 1. **core/ui 분리**: 기능 수정 시 `core`와 `ui` 의존성 분리 유지
-2. **스레드 안전**: `scanner.py`, `cache_manager.py` 수정 시 동시성 고려
-3. **다국어 확장**: 새 UI 텍스트는 `src/utils/i18n.py`에 추가
+2. **스레드 안전**: `src/core/scanner/`, `src/core/cache_manager/` 수정 시 동시성 고려
+3. **다국어 확장**: 새 UI 텍스트는 `src/utils/i18n/`에 추가
 4. **리소스 정리**: 스레드 종료 시 `finally` 블록에서 정리 로직 구현
 5. **취소 지원**: 장시간 작업에는 반드시 `check_cancel` 콜백 구현
 6. **테마 상속**: 다이얼로그는 부모 테마 설정 상속
@@ -173,9 +173,9 @@ psutil>=5.9.0        # 파일 잠금 프로세스 확인
 
 - Main-window SOLID split completed while preserving compatibility:
   - Public import path remains `src.ui.main_window.DuplicateFinderApp`.
-  - Behavior moved to `src/ui/main_window_parts/*` mixin modules.
+  - Behavior moved to `src/ui/main_window_parts/*` mixin packages/modules.
 - Typing contract introduced for dynamic UI attributes:
-  - `src/ui/main_window_parts/typing_contract.py` adds `TYPE_CHECKING` attributes and host protocols.
+  - `src/ui/main_window_parts/typing_contract/` adds `TYPE_CHECKING` attributes and host protocols.
   - Reduced `Any` dependence in controller-host interactions without relaxing diagnostics.
 - Pylance/Pyright regression prevention:
   - Added `pyrightconfig.json` (Python `3.14`, scoped to `src`, `tests`, `cli.py`, `main.py`).
@@ -202,3 +202,21 @@ psutil>=5.9.0        # 파일 잠금 프로세스 확인
 - Regression tests and baseline:
   - Added/updated tests for CLI lifecycle, mixed-mode config policy, incremental delta map behavior, and zero-byte lock checks.
   - Current full-suite baseline: `pytest -q` -> `104 passed`.
+
+## Update Memo (2026-03-18)
+
+- Large module packageization completed while preserving public import paths:
+  - `src/core/cache_manager/`
+  - `src/core/scanner/`
+  - `src/utils/i18n/`
+  - `src/ui/theme/`
+  - `src/ui/components/results_tree/`
+- Main-window submixins were packageized:
+  - `src/ui/main_window_parts/{ui_shell,scan_flow,results_flow,settings_flow,tools_flow}/`
+  - each package now composes focused submixins over a compatibility `legacy.py`
+- Typing contracts were split by host concern:
+  - `scan`, `results`, `settings`, `tools`, `ui_shell`, `schedule`, `navigation`, `operation_flow`
+- Packaging/docs/test alignment:
+  - `PyDuplicateFinder.spec` now collects packageized submodules with `collect_submodules(...)`
+  - added `tests/test_public_api_facades.py`
+  - current full-suite baseline: `pytest -q` -> `111 passed`

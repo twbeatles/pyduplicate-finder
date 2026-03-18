@@ -40,3 +40,15 @@ python tests/verify_image_hash.py
 2. Encoding integrity:
    - `pytest -q tests/test_source_encoding_integrity.py`
    - 기대값: UTF-8 decode/`U+FFFD`/known mojibake pattern 검사 통과
+
+## Packageization Checks (2026-03-18)
+
+1. Public facade regression:
+   - `pytest -q tests/test_public_api_facades.py`
+   - 기대값: packageized 모듈에서도 기존 공개 import 경로와 핵심 export 유지
+2. Full regression baseline:
+   - `pytest -q`
+   - 기대값: `111 passed`
+3. GUI smoke after package split:
+   - `python main.py`
+   - 기대값: 앱이 정상 기동되고 스캔/결과/도구/설정 페이지 전환, 테마 전환, 결과 필터 입력이 예외 없이 동작

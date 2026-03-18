@@ -60,8 +60,14 @@ duplicate_finder/
 ├── gemini.md                # AI 컨텍스트 (Gemini)
 ├── src/
 │   ├── core/                # 비즈니스 로직 (UI 독립)
-│   │   ├── scanner.py           # 멀티스레드 스캔 엔진
-│   │   ├── cache_manager.py     # SQLite 캐시 관리
+│   │   ├── scanner/             # ScanWorker façade + discovery/hash/incremental/similar-image 분리
+│   │   │   ├── __init__.py
+│   │   │   ├── worker.py
+│   │   │   └── ...
+│   │   ├── cache_manager/       # CacheManager façade + DB/schema/session/quarantine/jobs 분리
+│   │   │   ├── __init__.py
+│   │   │   ├── database.py
+│   │   │   └── ...
 │   │   ├── history.py           # Undo/Redo 트랜잭션
 │   │   ├── result_schema.py     # 결과 JSON v2 스키마/호환 로더
 │   │   ├── image_hash.py        # 유사 이미지 탐지 (pHash)
@@ -71,14 +77,14 @@ duplicate_finder/
 │   ├── ui/                  # GUI 레이어
 │   │   ├── main_window.py       # 메인 윈도우
 │   │   ├── main_window_parts/   # 메인 윈도우 책임 분리 모듈(SOLID)
-│   │   │   ├── ui_shell.py
-│   │   │   ├── scan_flow.py
-│   │   │   ├── results_flow.py
-│   │   │   ├── settings_flow.py
-│   │   │   ├── tools_flow.py
+│   │   │   ├── ui_shell/            # build/translate/theme/navigation submixin
+│   │   │   ├── scan_flow/           # folders/lifecycle/config submixin
+│   │   │   ├── results_flow/        # rendering/selection/filtering/preview/actions/persistence
+│   │   │   ├── settings_flow/       # persistence/session_restore/dialogs/cache_settings
+│   │   │   ├── tools_flow/          # quarantine/operations/rules/hardlink
 │   │   │   ├── schedule_flow.py
-│   │   │   └── typing_contract.py
-│   │   ├── theme.py             # 테마 스타일시트
+│   │   │   └── typing_contract/     # host protocol 세분화 + aggregate contract
+│   │   ├── theme/               # palette/token/stylesheet 분리
 │   │   ├── empty_folder_dialog.py
 │   │   ├── controllers/         # UI 오케스트레이션 컨트롤러
 │   │   │   ├── scan_controller.py
@@ -89,7 +95,7 @@ duplicate_finder/
 │   │   │   ├── results_controller.py
 │   │   │   └── preview_controller.py
 │   │   ├── components/
-│   │   │   ├── results_tree.py  # 결과 트리 위젯
+│   │   │   ├── results_tree/    # 결과 트리 façade + populate/filter/state 분리
 │   │   │   ├── sidebar.py       # 사이드바 네비게이션
 │   │   │   └── toast.py         # 토스트 알림
 │   │   ├── pages/
@@ -105,7 +111,7 @@ duplicate_finder/
 │   │       ├── operation_log_dialog.py
 │   │       └── shortcut_settings_dialog.py
 │   └── utils/
-│       └── i18n.py              # 다국어 문자열 관리
+│       └── i18n/                # catalog_en/catalog_ko/service 분리
 ```
 
 ---
@@ -270,16 +276,16 @@ MIT License
 
 아래 항목은 후속 리팩터링으로 유지됩니다.
 
-- `src/core/scanner.py` 본문 로직의 추가 분해(엔진 완전 분리)
-- `src/ui/main_window_parts/*` 내부 로직의 서비스 단위 추가 추출(필요 시)
+- `legacy.py` 기반 submixin 위임을 더 얇은 서비스/도메인 객체로 단계적 축소
+- `schedule_flow.py`에 대해서도 필요 시 동일한 패키지화 패턴 적용
 
 ## ✅ 구현 상태 (2026-03-09)
 
 - UI 메인 윈도우를 SOLID 기준으로 분리:
   - `src/ui/main_window.py`는 조립/호환 레이어로 축소
-  - 기능 구현은 `src/ui/main_window_parts/{ui_shell,scan_flow,results_flow,settings_flow,tools_flow,schedule_flow}.py`로 이동
+  - 기능 구현은 `src/ui/main_window_parts/{ui_shell,scan_flow,results_flow,settings_flow,tools_flow}/` 패키지와 `schedule_flow.py`로 이동
 - 동적 위젯 속성 타입 계약 추가:
-  - `src/ui/main_window_parts/typing_contract.py`에서 `TYPE_CHECKING` 기반 계약 + host protocol 정의
+  - `src/ui/main_window_parts/typing_contract/`에서 `TYPE_CHECKING` 기반 계약 + host protocol 정의
   - `reportAttributeAccessIssue`를 완화하지 않고 코드로 해결
 - Pylance 재발 방지 설정 고정:
   - `pyrightconfig.json` 추가 (범위: `src`, `tests`, `cli.py`, `main.py`; Python 3.14, 핵심 진단 `error` 고정)
@@ -303,6 +309,25 @@ MIT License
   - 디렉토리 mtime만으로 하위 트리를 통째로 생략하지 않도록 정책을 조정해, baseline 이후 신규 파일 누락 가능성을 낮췄습니다.
 - 회귀 검증:
   - `pytest -q` 기준 전체 `104 passed`.
+
+## ✅ 구현 상태 (2026-03-18)
+
+- 대형 단일 모듈 패키지화 완료:
+  - `src/core/cache_manager/`: `database`, `schema`, `sessions`, `scan_storage`, `operations`, `quarantine`, `hash_cache`, `jobs`
+  - `src/core/scanner/`: `worker`, `discovery`, `hashing`, `incremental`, `similar_images`, `folder_duplicates`, `filters`, `metrics`, `state`
+  - `src/utils/i18n/`: `catalog_en`, `catalog_ko`, `catalogs`, `service`
+  - `src/ui/theme/`: `palettes`, `tokens`, `stylesheet`
+  - `src/ui/components/results_tree/`: `populate`, `filtering`, `state`, `appearance`, `constants`
+- 메인 윈도우 책임 분리 2차 완료:
+  - `src/ui/main_window_parts/{ui_shell,scan_flow,results_flow,settings_flow,tools_flow}/`를 submixin 패키지로 전환
+  - `src/ui/main_window_parts/typing_contract/`를 `scan/results/settings/tools/ui_shell/schedule/navigation/operation_flow` host protocol로 세분화
+- 공개 import 경로 호환 유지:
+  - `CacheManager`, `ScanWorker`, `IMAGE_HASH_AVAILABLE`, `I18n`, `strings`, `ModernTheme`, `DuplicateFinderApp`, `ResultsTreeWidget`
+- 회귀/안정성 검증:
+  - `tests/test_public_api_facades.py` 추가
+  - 현재 전체 기준선: `pytest -q` -> `111 passed`
+- 배포 정합성 보강:
+  - `PyDuplicateFinder.spec`에서 패키지화된 하위 모듈을 `collect_submodules(...)`로 자동 수집
 
 ## Performance Refactor Notes (2026-02)
 
