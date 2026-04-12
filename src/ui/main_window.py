@@ -122,10 +122,16 @@ class DuplicateFinderApp(
         self.preview_controller.preview_ready.connect(self._on_preview_ready, Qt.ConnectionType.QueuedConnection)
         self._preview_request_id = 0
         self._current_result_meta = {}
+        self._current_result_existence_map = {}
         self._current_baseline_delta_map = {}
         self._last_scan_metrics = {}
         self._last_scan_status = "completed"
         self._last_scan_warnings = []
+        self._previous_results = None
+        self._previous_selected_paths = []
+        self._previous_result_meta = {}
+        self._previous_result_existence_map = {}
+        self._previous_baseline_delta_map = {}
 
         self._op_worker = None
         self._op_progress = None

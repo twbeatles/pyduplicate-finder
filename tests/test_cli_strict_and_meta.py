@@ -25,6 +25,8 @@ class _FakeWorker:
         self.latest_scan_status = "partial"
         self.latest_scan_metrics = {"errors_total": 2, "files_scanned": 10}
         self.latest_scan_warnings = ["strict_mode_threshold_exceeded"]
+        self.latest_file_meta = {"a": (1, 10.0), "b": (1, 11.0)}
+        self.latest_baseline_delta_map = {"a": "new", "b": "changed"}
 
     def run(self):
         self.progress_updated.emit(100, "Done")
@@ -74,3 +76,7 @@ def test_cli_json_meta_contains_scan_status_and_metrics(tmp_path, monkeypatch):
     assert int(data["meta"]["metrics"]["errors_total"]) == 2
     assert "warnings" in data["meta"]
     assert "strict_mode_threshold_exceeded" in data["meta"]["warnings"]
+    assert data["meta"]["selected_paths"] == []
+    assert data["meta"]["file_meta"]["a"]["size"] == 1
+    assert data["meta"]["file_meta"]["b"]["exists"] is True
+    assert data["meta"]["baseline_delta_map"] == {"a": "new", "b": "changed"}

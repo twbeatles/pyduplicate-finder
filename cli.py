@@ -80,6 +80,11 @@ def main() -> int:
         "cancelled": False,
     }
 
+    def emit_success(message: str) -> None:
+        if args.quiet:
+            return
+        print(message)
+
     cfg = ScanConfig(
         folders=folders,
         extensions=exts or [],
@@ -148,7 +153,9 @@ def main() -> int:
     warnings = list(getattr(worker, "latest_scan_warnings", []) or [])
     if scan_status == "partial" and "strict_mode_threshold_exceeded" not in warnings:
         warnings.append("strict_mode_threshold_exceeded")
-    print(f"Done. status={scan_status}, groups={group_count}, files={file_count}, errors={int(metrics.get('errors_total', 0) or 0)}")
+    emit_success(
+        f"Done. status={scan_status}, groups={group_count}, files={file_count}, errors={int(metrics.get('errors_total', 0) or 0)}"
+    )
 
     if args.output_json:
         out_json = os.path.abspath(args.output_json)
@@ -156,6 +163,10 @@ def main() -> int:
             scan_results=results,
             folders=folders,
             source="cli",
+            selected_paths=[],
+            file_meta=dict(getattr(worker, "latest_file_meta", {}) or {}),
+            baseline_delta_map=dict(getattr(worker, "latest_baseline_delta_map", {}) or {}),
+            existence_map={p: True for p in dict(getattr(worker, "latest_file_meta", {}) or {}).keys()},
         )
         payload_meta = payload.setdefault("meta", {})
         payload_meta["scan_status"] = scan_status
@@ -165,7 +176,7 @@ def main() -> int:
         payload_meta["files"] = file_count
         with open(out_json, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
-        print(f"Saved JSON: {out_json}")
+        emit_success(f"Saved JSON: {out_json}")
 
     if args.output_csv:
         out_csv = os.path.abspath(args.output_csv)
@@ -178,9 +189,10 @@ def main() -> int:
             scan_results=results,
             out_path=out_csv,
             selected_paths=[],
+            file_meta=dict(getattr(worker, "latest_file_meta", {}) or {}),
             baseline_delta_map=baseline_delta_map,
         )
-        print(f"Saved CSV: {out_csv} (groups={g}, rows={r})")
+        emit_success(f"Saved CSV: {out_csv} (groups={g}, rows={r})")
 
     return 0
 

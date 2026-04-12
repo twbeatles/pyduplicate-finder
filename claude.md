@@ -289,3 +289,27 @@ duplicate_finder/
   - `PyDuplicateFinder.spec` now uses `collect_submodules(...)` for packageized trees
   - added `tests/test_public_api_facades.py`
   - current baseline: full `pytest -q` passes (`111 passed`)
+
+## Update Memo (2026-04-12)
+
+- Scheduler weekly first-run semantics were corrected.
+  - `src/core/scheduler.py:is_due(...)` now waits for the next configured weekday/time slot instead of treating an already-passed weekday as immediately due.
+- Zero-byte duplicate handling is aligned across normal collection and cached-session reuse.
+  - Empty files are considered duplicate candidates only when `min_size_kb == 0`.
+- Scan rollback on cancel/failure now restores the full previous result bundle.
+  - Restored state includes checked paths, `file_meta`, missing-file existence flags, and `baseline_delta_map`.
+- Result JSON `version=2` was extended additively.
+  - `dump_results_v2(...)` can persist `meta.selected_paths`, `meta.file_meta`, and `meta.baseline_delta_map`.
+  - `load_results_bundle_any(...)` restores GUI-ready results + meta in one pass while `load_results_any(...)` remains compatibility-only.
+- Scheduled auto-export bookkeeping now reflects partial failures.
+  - Export failure downgrades `completed -> partial`.
+  - Run messages may carry `missing_folders:<n>` and `export_failed:<formats>` suffixes.
+- CLI quiet mode semantics were tightened.
+  - `--quiet` suppresses successful stdout entirely while keeping errors/cancellation on `stderr`.
+- Quarantine retention is no longer capped by the first 5,000 rows.
+  - `CacheManager.iter_quarantine_items_oldest(...)` and batched purging are now used by `QuarantineManager.apply_retention(...)`.
+- Packaging review:
+  - `PyDuplicateFinder.spec` already includes the modules touched by this change set, so no spec edit was required.
+- Regression baseline:
+  - `pytest -q` -> `122 passed`
+  - `pyright src tests cli.py main.py` was attempted in this workspace but is currently blocked by missing local dependency resolution for `imagehash` / `send2trash`.

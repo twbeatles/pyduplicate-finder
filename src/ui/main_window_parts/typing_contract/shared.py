@@ -10,6 +10,14 @@ class CommonWindowHost:
         selected_folders: list[str]
         _scheduled_run_context: dict[str, object] | None
         _current_scan_stage_code: str | None
+        _current_result_meta: dict[str, tuple[int, float]]
+        _current_result_existence_map: dict[str, bool]
+        _current_baseline_delta_map: dict[str, str]
+        _previous_results: Any
+        _previous_selected_paths: list[str]
+        _previous_result_meta: dict[str, tuple[int, float]]
+        _previous_result_existence_map: dict[str, bool]
+        _previous_baseline_delta_map: dict[str, str]
         _pending_selected_add: set[str]
         _pending_selected_remove: set[str]
 

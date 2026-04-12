@@ -220,3 +220,26 @@ psutil>=5.9.0        # 파일 잠금 프로세스 확인
   - `PyDuplicateFinder.spec` now collects packageized submodules with `collect_submodules(...)`
   - added `tests/test_public_api_facades.py`
   - current full-suite baseline: `pytest -q` -> `111 passed`
+
+## Update Memo (2026-04-12)
+
+- Scheduler weekly first-run semantics were corrected.
+  - `src/core/scheduler.py:is_due(...)` now waits for the next configured weekday/time slot instead of firing immediately after the target weekday has already passed.
+- Zero-byte duplicate handling is now consistent across live scan collection and cached-session reuse.
+  - Empty files are eligible only when `min_size_kb == 0`.
+- Cancel/failure rollback now restores the prior result bundle instead of only the duplicate groups.
+  - Checked paths, `file_meta`, missing-file state, and `baseline_delta_map` are restored together.
+- Result JSON `version=2` remains backward-compatible and now supports richer optional metadata.
+  - `dump_results_v2(...)` can persist `meta.selected_paths`, `meta.file_meta`, and `meta.baseline_delta_map`.
+  - `load_results_bundle_any(...)` restores GUI-ready state while `load_results_any(...)` keeps legacy compatibility behavior.
+- Scheduled auto-export bookkeeping now reports partial export failures correctly.
+  - If scan execution completed but JSON/CSV export failed, run status is finalized as `partial`.
+  - Run messages may include `missing_folders:<n>` and `export_failed:<formats>`.
+- CLI quiet mode semantics were tightened.
+  - `--quiet` suppresses successful stdout completely, while errors and cancellation remain on `stderr`.
+- Quarantine retention now iterates over the full quarantine table in batches rather than stopping at the first 5,000 rows.
+- Packaging review:
+  - `PyDuplicateFinder.spec` already includes the affected modules, so no hidden-import update was necessary.
+- Current regression baseline:
+  - `pytest -q` -> `122 passed`
+  - `pyright src tests cli.py main.py` was attempted in this workspace, but local dependency resolution for `imagehash` / `send2trash` is currently missing.

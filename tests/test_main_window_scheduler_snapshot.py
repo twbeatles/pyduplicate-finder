@@ -141,3 +141,39 @@ def test_scheduler_tick_skips_when_snapshot_folders_all_missing(tmp_path, monkey
         assert w._scheduled_job_run_id == 0
     finally:
         w.close()
+
+
+def test_finish_scheduled_run_marks_partial_and_records_message_on_export_failure(tmp_path, monkeypatch, qapp):
+    w = _setup_window(tmp_path, monkeypatch)
+    try:
+        captured = {}
+        w._scheduled_job_run_id = 31
+        w._scheduled_run_context = {
+            "schedule_type": "daily",
+            "weekday": 0,
+            "time_hhmm": "03:00",
+            "output_dir": str(tmp_path),
+            "output_json": True,
+            "output_csv": True,
+            "missing_folders": [str(tmp_path / "missing")],
+        }
+
+        monkeypatch.setattr(
+            w,
+            "_scheduled_export_results",
+            lambda _results: ("", "", ["csv"]),
+        )
+
+        def fake_finalize_run(**kwargs):
+            captured.update(kwargs)
+
+        monkeypatch.setattr(w.scheduler_controller, "finalize_run", fake_finalize_run)
+
+        w._finish_scheduled_run("completed", {("hash", 1): ["a", "b"]})
+
+        assert captured["status"] == "partial"
+        assert captured["message"] == "partial;missing_folders:1;export_failed:csv"
+        assert captured["groups_count"] == 1
+        assert captured["files_count"] == 2
+    finally:
+        w.close()

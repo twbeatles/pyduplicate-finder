@@ -392,3 +392,18 @@ Example:
 ```bash
 python tests/benchmarks/bench_perf.py --files 200000 --groups 5000 --output bench_perf.json
 ```
+
+## Documentation Sync (2026-04-12)
+
+- Weekly first-run scheduling semantics were corrected.
+  - A newly enabled weekly job now waits for the next configured weekday/time slot instead of firing immediately when the configured day already passed.
+- Zero-byte duplicates are now included only when `min_size_kb` is `0`.
+- Result JSON `version=2` remains backward-compatible and can now persist `meta.selected_paths`, `meta.file_meta` (`size`, `mtime`, `exists`), and `meta.baseline_delta_map` (`new|changed|revalidated`).
+- Loading saved JSON in the GUI now restores checked items, file metadata, missing-file badges, and incremental delta markers.
+- Scheduled auto-export no longer reports a false full success.
+  - If the scan completed but JSON/CSV export failed, the run is finalized as `partial`.
+  - Run messages may include structured suffixes such as `missing_folders:1` and `export_failed:csv`.
+- CLI `--quiet` now suppresses all successful stdout, including progress lines, completion summary, and `Saved JSON/CSV` messages. Errors and cancellation still go to `stderr`.
+- Quarantine retention now walks the full quarantine set in batches, so age/size cleanup is no longer limited to the first 5,000 rows.
+- Packaging review note: `PyDuplicateFinder.spec` already covers the modules touched by this update, so no hidden-import change was required.
+- Current regression baseline: `pytest -q` -> `122 passed`.

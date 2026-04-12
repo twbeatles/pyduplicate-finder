@@ -379,3 +379,18 @@ python cli.py "D:/Data" --strict-mode --strict-max-errors 0 --output-json result
 - Strict mode is available in both UI and CLI (`--strict-mode`, `--strict-max-errors`).
 - Config hash canonicalization is applied for better baseline reuse.
 - Baseline policy remains `completed`-only (`partial` excluded).
+
+## 구현 상태 (2026-04-12)
+
+- 주간 예약 스캔의 첫 실행 판정을 수정했습니다.
+  - 새로 활성화한 weekly 작업은 이미 지난 요일 때문에 즉시 실행되지 않고, 다음 예약 슬롯을 기다립니다.
+- 0바이트 파일은 `min_size_kb`가 `0`일 때만 중복 후보에 포함됩니다.
+- 결과 JSON `version=2`는 하위 호환을 유지하면서 `meta.selected_paths`, `meta.file_meta`(`size`, `mtime`, `exists`), `meta.baseline_delta_map`(`new|changed|revalidated`)을 함께 저장할 수 있습니다.
+- 저장된 JSON을 GUI에서 불러오면 체크 상태, 파일 메타데이터, 누락 배지, incremental delta 표시까지 함께 복원됩니다.
+- 예약 스캔이 정상 완료되었더라도 JSON/CSV export가 실패하면 실행 상태는 `partial`로 기록됩니다.
+  - 실행 메시지에는 `missing_folders:1`, `export_failed:csv` 같은 반구조화 suffix가 함께 남습니다.
+- CLI `--quiet`는 이제 진행률, 완료 요약, `Saved JSON/CSV`를 포함한 성공 stdout을 모두 숨깁니다.
+  - 오류와 취소 알림은 계속 `stderr`로 출력됩니다.
+- 격리함 retention 정리는 5,000건 제한 없이 배치 순회로 적용됩니다.
+- 패키징 점검 결과 `PyDuplicateFinder.spec`는 이번 변경에 필요한 모듈을 이미 포함하고 있어 hidden import 수정이 필요하지 않았습니다.
+- 회귀 검증 기준은 `pytest -q` -> `122 passed`입니다.

@@ -25,7 +25,7 @@ from src.core.preflight import PreflightAnalyzer
 from src.core.selection_rules import parse_rules
 from src.core.operation_queue import Operation
 from src.core.scan_engine import ScanConfig, validate_similar_image_dependency
-from src.core.result_schema import dump_results_v2, load_results_any
+from src.core.result_schema import dump_results_v2
 from src.core.scheduler import ScheduleConfig
 from src.ui.empty_folder_dialog import EmptyFolderDialog
 from src.ui.components.results_tree import ResultsTreeWidget
@@ -176,17 +176,23 @@ class MainWindowScheduleFlowMixin(DuplicateFinderTypingContract):
     def _scheduled_export_results(self: Any, results: dict):
         ctx = dict(self._scheduled_run_context or {})
         out_dir = str(ctx.get("output_dir") or "").strip()
+        requested_exports = []
+        if bool(ctx.get("output_json")):
+            requested_exports.append("json")
+        if bool(ctx.get("output_csv")):
+            requested_exports.append("csv")
         if not out_dir:
-            return ("", "")
+            return ("", "", [])
         try:
             os.makedirs(out_dir, exist_ok=True)
         except Exception:
             logger.warning("Scheduled export output dir is not writable: %s", out_dir, exc_info=True)
-            return ("", "")
+            return ("", "", requested_exports)
 
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         out_json = ""
         out_csv = ""
+        failed_exports: list[str] = []
         try:
             if bool(ctx.get("output_json")):
                 out_json = os.path.join(out_dir, f"scan_{stamp}.json")
@@ -196,6 +202,10 @@ class MainWindowScheduleFlowMixin(DuplicateFinderTypingContract):
                     scan_results=results or {},
                     folders=folders_payload,
                     source="gui",
+                    selected_paths=[],
+                    file_meta=self._current_result_meta,
+                    baseline_delta_map=self._current_baseline_delta_map,
+                    existence_map=self._current_result_existence_map,
                 )
                 payload_meta = payload.setdefault("meta", {})
                 payload_meta["scan_status"] = str(self._last_scan_status or "completed")
@@ -208,6 +218,7 @@ class MainWindowScheduleFlowMixin(DuplicateFinderTypingContract):
         except Exception:
             logger.warning("Scheduled JSON export failed", exc_info=True)
             out_json = ""
+            failed_exports.append("json")
         try:
             if bool(ctx.get("output_csv")):
                 out_csv = os.path.join(out_dir, f"scan_{stamp}.csv")
@@ -223,7 +234,8 @@ class MainWindowScheduleFlowMixin(DuplicateFinderTypingContract):
         except Exception:
             logger.warning("Scheduled CSV export failed", exc_info=True)
             out_csv = ""
-        return (out_json, out_csv)
+            failed_exports.append("csv")
+        return (out_json, out_csv, failed_exports)
 
     def _finish_scheduled_run(self: Any, status: str, results: dict, message_override: str = ""):
         if not self._scheduled_run_context:
@@ -231,17 +243,29 @@ class MainWindowScheduleFlowMixin(DuplicateFinderTypingContract):
         cfg = self._build_schedule_config_from_context()
         out_json = ""
         out_csv = ""
+        failed_exports: list[str] = []
         if status in ("completed", "partial"):
-            out_json, out_csv = self._scheduled_export_results(results or {})
+            out_json, out_csv, failed_exports = self._scheduled_export_results(results or {})
+        final_status = str(status or "completed")
+        if failed_exports and final_status == "completed":
+            final_status = "partial"
         groups = len(results or {})
         files = sum(len(v or []) for v in (results or {}).values()) if results else 0
-        message = str(message_override or status)
+        base_message = str(message_override or final_status)
+        message_parts = [base_message]
+        missing_count = len(list((self._scheduled_run_context or {}).get("missing_folders") or []))
+        if missing_count > 0:
+            message_parts.append(f"missing_folders:{missing_count}")
+        if failed_exports:
+            export_value = ",".join(sorted(dict.fromkeys(failed_exports)))
+            message_parts.append(f"export_failed:{export_value}")
+        message = ";".join(message_parts)
         try:
             self.scheduler_controller.finalize_run(
                 cache_manager=self.cache_manager,
                 run_id=self._scheduled_job_run_id,
                 cfg=cfg,
-                status=status,
+                status=final_status,
                 message=message,
                 groups_count=groups,
                 files_count=files,

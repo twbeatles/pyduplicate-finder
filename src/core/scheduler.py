@@ -57,8 +57,11 @@ def is_due(cfg: ScheduleConfig, *, last_run_at: Optional[float], now_ts: Optiona
     if not last_run_at:
         if weekly:
             weekday = max(0, min(6, int(cfg.weekday or 0)))
-            this_week_slot = slot + timedelta(days=(weekday - slot.weekday()))
-            return now.timestamp() >= this_week_slot.timestamp()
+            days_ahead = (weekday - now.weekday()) % 7
+            first_slot = slot + timedelta(days=days_ahead)
+            if first_slot <= now:
+                return True
+            return False
         return now.timestamp() >= slot.timestamp()
 
     # Compute the most recent scheduled point and compare with last_run_at.

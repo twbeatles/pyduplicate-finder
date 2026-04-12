@@ -72,3 +72,42 @@ def test_similar_image_hash_errors_are_counted_in_telemetry(tmp_path):
         assert int(metrics.get("errors_total", 0)) == 1
     finally:
         worker.cache_manager.close_all()
+
+
+def test_zero_byte_duplicates_are_detected_when_min_size_is_zero(tmp_path):
+    left = tmp_path / "left.txt"
+    right = tmp_path / "right.txt"
+    left.write_bytes(b"")
+    right.write_bytes(b"")
+
+    worker = ScanWorker([str(tmp_path)], protect_system=False, max_workers=1, min_size_kb=0)
+    captured = {"results": None}
+    worker.scan_finished.connect(lambda results: captured.__setitem__("results", results))
+    try:
+        worker.run()
+        results = dict(captured["results"] or {})
+        assert len(results) == 1
+        paths = next(iter(results.values()))
+        assert sorted(paths) == sorted([str(left), str(right)])
+    finally:
+        worker.cache_manager.close_all()
+
+
+def test_zero_byte_duplicates_are_kept_in_cached_file_collection(tmp_path, monkeypatch):
+    left = tmp_path / "left_cached.txt"
+    right = tmp_path / "right_cached.txt"
+    left.write_bytes(b"")
+    right.write_bytes(b"")
+
+    worker = ScanWorker([str(tmp_path)], protect_system=False, max_workers=1, min_size_kb=0)
+    try:
+        size_map = worker._scan_files_from_cache(
+            [
+                (str(left), 0, float(left.stat().st_mtime)),
+                (str(right), 0, float(right.stat().st_mtime)),
+            ]
+        )
+        assert 0 in size_map
+        assert sorted(size_map[0]) == sorted([str(left), str(right)])
+    finally:
+        worker.cache_manager.close_all()

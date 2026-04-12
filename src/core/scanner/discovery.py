@@ -67,7 +67,7 @@ class ScanDiscoveryMixin:
         self._collect_image_candidate(path)
         self._inc_metric("files_scanned", 1)
 
-        if size >= self.min_size and size > 0:
+        if size >= self.min_size and (size > 0 or self.min_size <= 0):
             size_map[size].append(path)
 
         if self.session_id:
@@ -185,7 +185,7 @@ class ScanDiscoveryMixin:
             if size != cached_size or mtime != cached_mtime:
                 update_entries.append((path, size, mtime))
 
-            if size >= self.min_size and size > 0:
+            if size >= self.min_size and (size > 0 or self.min_size <= 0):
                 size_map[size].append(path)
 
             self._file_meta[path] = (int(size), float(mtime))

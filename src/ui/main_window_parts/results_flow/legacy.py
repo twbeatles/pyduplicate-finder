@@ -25,7 +25,7 @@ from src.core.preflight import PreflightAnalyzer
 from src.core.selection_rules import parse_rules
 from src.core.operation_queue import Operation
 from src.core.scan_engine import ScanConfig, validate_similar_image_dependency
-from src.core.result_schema import dump_results_v2, load_results_any
+from src.core.result_schema import dump_results_v2, load_results_bundle_any
 from src.core.scheduler import ScheduleConfig
 from src.ui.empty_folder_dialog import EmptyFolderDialog
 from src.ui.components.results_tree import ResultsTreeWidget
@@ -249,11 +249,12 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
     ):
         selected = list(selected_paths or [])
         self._current_result_meta = dict(file_meta or {})
+        self._current_result_existence_map = dict(existence_map or {})
         self.tree_widget.populate(
             results,
             selected_paths=selected,
             file_meta=self._current_result_meta,
-            existence_map=existence_map,
+            existence_map=self._current_result_existence_map,
         )
         self._saved_selected_paths = set(selected)
         self._pending_selected_add.clear()
@@ -804,10 +805,18 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
             return
 
         try:
+            selected_paths = self.tree_widget.get_checked_files()
+        except Exception:
+            selected_paths = []
+        try:
             payload = dump_results_v2(
                 scan_results=self.scan_results,
                 folders=list(self.selected_folders or []),
                 source="gui",
+                selected_paths=selected_paths,
+                file_meta=self._current_result_meta,
+                baseline_delta_map=self._current_baseline_delta_map,
+                existence_map=self._current_result_existence_map,
             )
             payload_meta = payload.setdefault("meta", {})
             payload_meta["scan_status"] = str(self._last_scan_status or "completed")
@@ -836,16 +845,23 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
         try:
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            self.scan_results = load_results_any(data)
-            self._current_baseline_delta_map = {}
-            meta = data.get("meta") if isinstance(data, dict) else {}
-            if not isinstance(meta, dict):
-                meta = {}
-            self._last_scan_status = str(meta.get("scan_status") or "completed")
-            self._last_scan_metrics = dict(meta.get("metrics") or {})
-            self._last_scan_warnings = list(meta.get("warnings") or [])
-            
-            self._render_results(self.scan_results, selected_paths=[], selected_count=0)
+            bundle = load_results_bundle_any(data)
+            self.scan_results = dict(bundle.get("results") or {})
+            self._current_baseline_delta_map = dict(bundle.get("baseline_delta_map") or {})
+            self._last_scan_status = str(bundle.get("scan_status") or "completed")
+            self._last_scan_metrics = dict(bundle.get("metrics") or {})
+            self._last_scan_warnings = list(bundle.get("warnings") or [])
+            selected_paths = list(bundle.get("selected_paths") or [])
+            file_meta = dict(bundle.get("file_meta") or {})
+            existence_map = dict(bundle.get("existence_map") or {})
+
+            self._render_results(
+                self.scan_results,
+                selected_paths=selected_paths,
+                file_meta=file_meta,
+                existence_map=existence_map,
+                selected_count=len(selected_paths),
+            )
             self.status_label.setText(strings.tr("msg_results_loaded").format(len(self.scan_results)))
             try:
                 self._navigate_to("results")

@@ -46,3 +46,10 @@ def test_is_due_first_run_weekly_before_slot_is_false():
     cfg = ScheduleConfig(enabled=True, schedule_type="weekly", weekday=4, time_hhmm="10:15")
     now = datetime(2026, 2, 18, 9, 0, 0).timestamp()
     assert not is_due(cfg, last_run_at=None, now_ts=now)
+
+
+def test_is_due_first_run_weekly_after_target_day_does_not_run_immediately():
+    # Sunday after a Friday schedule should wait for the next Friday slot.
+    cfg = ScheduleConfig(enabled=True, schedule_type="weekly", weekday=4, time_hhmm="03:00")
+    now = datetime(2026, 4, 12, 10, 0, 0).timestamp()  # Sunday
+    assert not is_due(cfg, last_run_at=None, now_ts=now)

@@ -87,6 +87,24 @@ class TestQuarantineManager(unittest.TestCase):
         purged = self.qm.apply_retention(max_days=9999, max_bytes=1024)  # keep only 1 file worth
         self.assertGreaterEqual(len(purged), 1)
 
+    def test_retention_iterates_beyond_5000_items(self):
+        total = 5002
+        for i in range(total):
+            item_id = self.cache.insert_quarantine_item(
+                orig_path=os.path.join(self.tmp, f"orig_{i}.bin"),
+                quarantine_path=os.path.join(self.qdir, f"q_{i}.bin"),
+                size=1,
+                mtime=float(i),
+                status="quarantined",
+            )
+            self.assertGreater(item_id, 0)
+
+        purged = self.qm.apply_retention(max_days=9999, max_bytes=1)
+        remaining = self.cache.list_quarantine_items(limit=10, offset=0, status_filter="quarantined")
+
+        self.assertGreaterEqual(len(purged), total - 1)
+        self.assertLessEqual(len(remaining), 1)
+
     def test_history_delete_reflects_cancelled_state(self):
         files = []
         for i in range(2):

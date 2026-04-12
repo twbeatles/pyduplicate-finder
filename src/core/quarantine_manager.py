@@ -216,22 +216,9 @@ class QuarantineManager:
             return purged
 
         now = time.time()
-        items = self.cache_manager.list_quarantine_items(limit=5000, offset=0, status_filter="quarantined")
-        # Oldest first for purging.
-        items_sorted = sorted(items, key=lambda x: float(x.get("created_at") or 0.0))
+        current_total = int(self.cache_manager.get_quarantine_total_size(status_filter="quarantined") or 0)
 
-        def total_size(it_list: List[Dict]) -> int:
-            s = 0
-            for it in it_list:
-                try:
-                    s += int(it.get("size") or 0)
-                except Exception:
-                    pass
-            return s
-
-        current_total = total_size(items_sorted)
-
-        for it in items_sorted:
+        for it in self.cache_manager.iter_quarantine_items_oldest(status_filter="quarantined", batch_size=500):
             created = float(it.get("created_at") or 0.0)
             age_days = (now - created) / 86400.0 if created else 0.0
             over_age = (max_days > 0) and (age_days > max_days)

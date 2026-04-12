@@ -217,3 +217,71 @@ def test_main_does_not_leave_plain_qcoreapplication_instance(tmp_path, monkeypat
 
     inst = QCoreApplication.instance()
     assert inst is None or isinstance(inst, QApplication)
+
+
+def test_main_quiet_suppresses_success_stdout(tmp_path, monkeypatch, capsys):
+    scan_root = tmp_path / "scan_root"
+    scan_root.mkdir()
+    out_json = tmp_path / "out.json"
+    out_csv = tmp_path / "out.csv"
+
+    args = argparse.Namespace(
+        folders=[str(scan_root)],
+        lang="en",
+        extensions="",
+        min_size_kb=0,
+        same_name=False,
+        name_only=False,
+        byte_compare=False,
+        similar_image=False,
+        mixed_mode=False,
+        detect_folder_dup=False,
+        incremental_rescan=False,
+        baseline_session=0,
+        similarity_threshold=0.9,
+        strict_mode=False,
+        strict_max_errors=0,
+        no_protect_system=False,
+        skip_hidden=False,
+        follow_symlinks=False,
+        exclude=[],
+        include=[],
+        output_json=str(out_json),
+        output_csv=str(out_csv),
+        quiet=True,
+    )
+    monkeypatch.setattr(cli, "_parse_args", lambda: args)
+
+    class _Signal:
+        def __init__(self):
+            self._callbacks = []
+
+        def connect(self, cb):
+            self._callbacks.append(cb)
+
+        def emit(self, *a):
+            for cb in list(self._callbacks):
+                cb(*a)
+
+    class _FakeWorker:
+        def __init__(self, *_args, **_kwargs):
+            self.progress_updated = _Signal()
+            self.scan_finished = _Signal()
+            self.scan_failed = _Signal()
+            self.scan_cancelled = _Signal()
+            self.latest_file_meta = {}
+            self.latest_baseline_delta_map = {}
+            self.latest_scan_metrics = {}
+            self.latest_scan_status = "completed"
+            self.latest_scan_warnings = []
+
+        def run(self):
+            self.progress_updated.emit(100, "Done")
+            self.scan_finished.emit({("hash", 1): ["a", "b"]})
+
+    monkeypatch.setattr(cli, "ScanWorker", _FakeWorker)
+
+    assert cli.main() == 0
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""

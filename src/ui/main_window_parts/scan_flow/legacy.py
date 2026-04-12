@@ -25,7 +25,6 @@ from src.core.preflight import PreflightAnalyzer
 from src.core.selection_rules import parse_rules
 from src.core.operation_queue import Operation
 from src.core.scan_engine import ScanConfig, validate_similar_image_dependency
-from src.core.result_schema import dump_results_v2, load_results_any
 from src.core.scheduler import ScheduleConfig
 from src.ui.empty_folder_dialog import EmptyFolderDialog
 from src.ui.components.results_tree import ResultsTreeWidget
@@ -309,10 +308,14 @@ class MainWindowScanFlowMixin(DuplicateFinderTypingContract):
 
         self._previous_results = self.scan_results
         self._previous_selected_paths = self.tree_widget.get_checked_files()
+        self._previous_result_meta = dict(self._current_result_meta or {})
+        self._previous_result_existence_map = dict(self._current_result_existence_map or {})
+        self._previous_baseline_delta_map = dict(self._current_baseline_delta_map or {})
 
         self.tree_widget.clear()
         self.scan_results = {}
         self._current_result_meta = {}
+        self._current_result_existence_map = {}
         self._current_baseline_delta_map = {}
         self._set_results_view(False)
         self._update_results_summary(0)
@@ -380,6 +383,9 @@ class MainWindowScanFlowMixin(DuplicateFinderTypingContract):
         self.scan_results = results
         self._previous_results = None
         self._previous_selected_paths = []
+        self._previous_result_meta = {}
+        self._previous_result_existence_map = {}
+        self._previous_baseline_delta_map = {}
         scan_status = str(getattr(self.worker, "latest_scan_status", "completed") or "completed")
         self._last_scan_status = scan_status
         self._last_scan_metrics = dict(getattr(self.worker, "latest_scan_metrics", {}) or {})
@@ -425,6 +431,7 @@ class MainWindowScanFlowMixin(DuplicateFinderTypingContract):
         except Exception:
             self._current_baseline_delta_map = {}
         existence_map = {p: True for p in file_meta.keys()} if file_meta else None
+        self._current_result_existence_map = dict(existence_map or {})
         self._render_results(results, selected_paths=[], file_meta=file_meta, existence_map=existence_map, selected_count=0)
         # UX: bring user to focused results page after scan completes.
         try:
@@ -449,9 +456,12 @@ class MainWindowScanFlowMixin(DuplicateFinderTypingContract):
         self.status_label.setText(strings.tr("status_stopped"))
         if getattr(self, "_previous_results", None):
             self.scan_results = self._previous_results
+            self._current_baseline_delta_map = dict(self._previous_baseline_delta_map or {})
             self._render_results(
                 self.scan_results,
                 selected_paths=self._previous_selected_paths,
+                file_meta=self._previous_result_meta,
+                existence_map=self._previous_result_existence_map,
                 selected_count=len(self._previous_selected_paths),
             )
         else:
@@ -469,9 +479,12 @@ class MainWindowScanFlowMixin(DuplicateFinderTypingContract):
         self.status_label.setText(err_msg)
         if getattr(self, "_previous_results", None):
             self.scan_results = self._previous_results
+            self._current_baseline_delta_map = dict(self._previous_baseline_delta_map or {})
             self._render_results(
                 self.scan_results,
                 selected_paths=self._previous_selected_paths,
+                file_meta=self._previous_result_meta,
+                existence_map=self._previous_result_existence_map,
                 selected_count=len(self._previous_selected_paths),
             )
         else:
