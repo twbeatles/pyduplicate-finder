@@ -3,10 +3,12 @@ from __future__ import annotations
 from .common import (
     Any,
     CacheManager,
+    DOCUMENT_HASH_AVAILABLE,
     IMAGE_HASH_AVAILABLE,
     QMutex,
     QThread,
     Signal,
+    _DocumentHasher,
     _ImageHasher,
     defaultdict,
     os,
@@ -20,11 +22,13 @@ from .folder_duplicates import ScanFolderDuplicatesMixin
 from .hashing import ScanHashingMixin
 from .incremental import ScanIncrementalMixin
 from .metrics import ScanMetricsMixin
+from .similar_documents import ScanSimilarDocumentsMixin
 from .similar_images import ScanSimilarImagesMixin
 from .state import ScanStateMixin
 
 
 class ScanWorker(
+    ScanSimilarDocumentsMixin,
     ScanSimilarImagesMixin,
     ScanFolderDuplicatesMixin,
     ScanHashingMixin,
@@ -65,6 +69,14 @@ class ScanWorker(
         use_cached_files=False,
         strict_mode=False,
         strict_max_errors=0,
+        selection_policy="smart",
+        compare_mode="none",
+        folder_roles=None,
+        use_similar_document=False,
+        document_similarity_threshold=0.9,
+        watch_mode=False,
+        apply_exemptions=True,
+        post_cleanup_empty_dirs=False,
     ):
         super().__init__()
         self.folders = folders
@@ -88,6 +100,14 @@ class ScanWorker(
         self.base_session_id = int(base_session_id) if base_session_id else None
         self.strict_mode = bool(strict_mode)
         self.strict_max_errors = max(0, int(strict_max_errors or 0))
+        self.selection_policy = str(selection_policy or "smart")
+        self.compare_mode = str(compare_mode or "none")
+        self.folder_roles = {str(k): str(v) for k, v in dict(folder_roles or {}).items() if k}
+        self.use_similar_document = bool(use_similar_document) and DOCUMENT_HASH_AVAILABLE
+        self.document_similarity_threshold = float(document_similarity_threshold or 0.9)
+        self.watch_mode = bool(watch_mode)
+        self.apply_exemptions = bool(apply_exemptions)
+        self.post_cleanup_empty_dirs = bool(post_cleanup_empty_dirs)
         self._stop_event = threading.Event()
         self._init_protected_paths()
         self.cache_manager = CacheManager()
@@ -107,6 +127,7 @@ class ScanWorker(
 
         self._file_meta = {}
         self._image_files = []
+        self._document_files = []
         self._current_scan_dirs = {}
         self._base_scan_dirs = {}
         self.latest_file_meta = {}
@@ -114,6 +135,10 @@ class ScanWorker(
         self.latest_scan_metrics: dict[str, Any] = {}
         self.latest_scan_status = "completed"
         self.latest_scan_warnings = []
+        self.latest_collection_role_map: dict[str, str] = {}
+        self.latest_exemption_status_map: dict[str, str] = {}
+        self.latest_selection_reason_map: dict[str, str] = {}
+        self.latest_result_review_state_map: dict[str, str] = {}
         self.incremental_stats = {}
         self._metrics_lock = threading.Lock()
         self._metrics: dict[str, int] = {
@@ -128,6 +153,19 @@ class ScanWorker(
 
         if self.use_similar_image and _ImageHasher is not None:
             self.image_hasher = _ImageHasher()
+        if self.use_similar_document and _DocumentHasher is not None:
+            self.document_hasher = _DocumentHasher()
+
+        self._exemption_rules = []
+        try:
+            from src.core.selection_rules import parse_exemption_rules
+
+            self._exemption_rules = parse_exemption_rules(self.cache_manager.list_scan_exemptions())
+        except Exception:
+            self._exemption_rules = []
+        self._full_hash_values: dict[str, str] = {}
+        self._path_collection_roles: dict[str, str] = {}
+        self._path_exemption_status: dict[str, str] = {}
 
     def _normalize_extensions(self, extensions):
         normalized = set()
@@ -252,11 +290,31 @@ class ScanWorker(
                 if similar_groups:
                     final_duplicates.update(similar_groups)
 
+            if self.use_similar_document:
+                similar_doc_groups = self._run_similar_document_scan(document_files=list(self._document_files), emit_result=False)
+                if self._handle_cancel("similar_document"):
+                    return
+                if similar_doc_groups:
+                    final_duplicates.update(similar_doc_groups)
+
+            final_duplicates = self._apply_post_scan_filters(final_duplicates)
+
             final_status = self._finalize_scan_status()
             done_msg = strings.tr("status_done_partial") if final_status == "partial" else strings.tr("status_done")
             self._emit_progress(100, f"{done_msg}! ({time.time() - start_time:.2f}s)", force=True)
             self._trim_file_meta_for_results(final_duplicates)
             self.latest_file_meta = dict(self._file_meta or {})
+            self.latest_collection_role_map = dict(self._path_collection_roles or {})
+            self.latest_exemption_status_map = dict(self._path_exemption_status or {})
+            try:
+                review_rows = self.cache_manager.list_review_marks(int(self.session_id or 0), target_type="file")
+                self.latest_result_review_state_map = {
+                    str(row.get("target_key") or ""): str(row.get("state") or "")
+                    for row in review_rows
+                    if row.get("target_key")
+                }
+            except Exception:
+                self.latest_result_review_state_map = {}
             if self.session_id:
                 self.cache_manager.update_scan_session(
                     self.session_id,

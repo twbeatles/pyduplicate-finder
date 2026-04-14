@@ -26,13 +26,18 @@
 ### 🎨 Modern UI & User Experience
 - **Multiple Scan Modes**: 
     - **Similar Image Detection (pHash)**: Finds visually similar images (resized, recompressed, etc.)
+    - **Similar Document Detection (SimHash)**: Groups near-duplicate `.txt`, `.md`, `.csv`, `.json`, `.py`, and `.pdf` files.
     - **Filename Comparison**: Quickly finds files with the same name regardless of content.
 - **Exclude Patterns**: Skip unwanted folders/files like `node_modules`, `.git`, `*.tmp` using wildcard patterns (*, ?).
 - **Scan Presets**: Save and load frequently used scan configurations.
 - **Result Save/Load**: Export scan results to JSON and reload later.
-  - New saves use the common `version=2` schema, and the loader remains backward-compatible with legacy GUI/CLI JSON formats.
+  - New saves use the common `version=3` schema, and the loader remains backward-compatible with legacy / v2 / v3 JSON formats.
+  - File-level state (`selection_reason`, `exemption_status`, `review_state`, `collection_role`, `baseline_delta`) is persisted.
 - **Session Restore**: Detects the latest session and lets you resume or start a new scan.
 - **Intuitive Tree View**: Expand/collapse all groups, right-click context menu for quick actions.
+- **Insights Dashboard**: Dedicated page for recent scan sessions, reclaim estimates, failure rate, quarantine usage, and scheduled run history.
+- **Session Compare**: Review incremental `new / changed / revalidated` deltas in a dedicated dialog and filter.
+- **Watch Mode**: Monitor selected folders and queue an incremental rescan when changes are detected.
 - **Custom Shortcuts**: Configure keyboard shortcuts for all functions.
 - **Multi-language Support**: Full Korean and English interface support.
 
@@ -67,8 +72,10 @@ duplicate_finder/
 │   │   │   ├── database.py
 │   │   │   └── ...
 │   │   ├── history.py           # Undo/Redo transactions
-│   │   ├── result_schema.py     # Result JSON v2 schema + compatibility loader
+│   │   ├── result_schema.py     # Result JSON v3 schema + compatibility loader
 │   │   ├── image_hash.py        # Similar image detection (pHash)
+│   │   ├── document_hash.py     # Similar document detection (SimHash / PDF extraction)
+│   │   ├── scan_types.py        # selection/exemption/review/collection types
 │   │   ├── file_lock_checker.py # File lock detection
 │   │   ├── preset_manager.py    # Scan preset management
 │   │   └── empty_folder_finder.py # Empty folder detection
@@ -87,6 +94,7 @@ duplicate_finder/
 │   │   ├── controllers/         # UI orchestration controllers
 │   │   │   ├── scan_controller.py
 │   │   │   ├── scheduler_controller.py
+│   │   │   ├── watch_controller.py
 │   │   │   ├── ops_controller.py
 │   │   │   ├── operation_flow_controller.py
 │   │   │   ├── navigation_controller.py
@@ -100,10 +108,12 @@ duplicate_finder/
 │   │   │   ├── scan_page.py      # Scan page (UI)
 │   │   │   ├── results_page.py   # Results page (UI)
 │   │   │   ├── tools_page.py     # Tools page (UI)
+│   │   │   ├── insights_page.py  # Insights page (UI)
 │   │   │   └── settings_page.py  # Settings page (UI)
 │   │   └── dialogs/
 │   │       ├── preset_dialog.py
 │   │       ├── exclude_patterns_dialog.py
+│   │       ├── session_compare_dialog.py
 │   │       ├── selection_rules_dialog.py
 │   │       ├── preflight_dialog.py
 │   │       ├── operation_log_dialog.py
@@ -127,6 +137,8 @@ duplicate_finder/
 | Pillow | Image processing |
 | send2trash | Recycle Bin functionality |
 | psutil | File lock process detection |
+| watchdog | Real-time folder watching |
+| pypdf | PDF text extraction for similar-document scan |
 
 ### Installation Steps
 
@@ -214,6 +226,10 @@ python cli.py "D:/Data" --strict-mode --strict-max-errors 0 --output-json result
 | Operations Log | Operation history with details + CSV/JSON export |
 | Hardlink Consolidation | (Advanced) Save disk space via hardlinks |
 | Scheduled Scan Snapshot | Scheduled runs use saved config snapshot (`scan_jobs.config_json`); if some folders are missing, run valid folders only; if all are missing, mark run as `skipped(no_valid_folders)` |
+| Multi-job Scheduling | Create/edit/delete/run named jobs and inspect recent run history |
+| Watch Mode | Queue debounce-based incremental rescans after folder changes |
+| Insights | Review recent sessions, reclaim estimates, failure rate, quarantine usage, and scheduled runs |
+| Session Compare | Inspect `new`, `changed`, `revalidated` delta markers in a dedicated dialog |
 | Cache Retention Policy | Configure session keep count (`cache/session_keep_latest`) and hash cache retention days (`cache/hash_cleanup_days`) and apply immediately |
 | Headless CLI Scan | Run scans without GUI and export JSON/CSV outputs |
 
@@ -269,7 +285,7 @@ The following items are now implemented in code:
 - Scheduled scan (baseline): daily/weekly scheduling from Settings with optional JSON/CSV auto-export
 - Scheduled execution policy: run from saved snapshot (`scan_jobs.config_json`) rather than current UI state; folder handling is `run valid folders only / all missing -> skipped(no_valid_folders)`
 - Results/export enhancements: better `FOLDER_DUP` labels and CSV columns `group_kind`, `bytes_reclaim_est`, `baseline_delta`
-- Unified result JSON schema: GUI/CLI now save `version=2`, while loader supports legacy GUI/legacy CLI/v2 formats
+- Unified result JSON schema path introduced; the current save target is `version=3`, while the loader supports legacy GUI/legacy CLI/v2/v3 formats
 - Safer quarantine path: DB insert failure now triggers rollback to original path (prevents orphaned files)
 - Preview concurrency hardening: cache updates are lock-protected (`RLock`) and preview signal is connected with `Qt.QueuedConnection`
 - Preset schema alignment: writes `schema_version=2` and upgrades old presets by merging missing defaults
@@ -407,3 +423,27 @@ python tests/benchmarks/bench_perf.py --files 200000 --groups 5000 --output benc
 - Quarantine retention now walks the full quarantine set in batches, so age/size cleanup is no longer limited to the first 5,000 rows.
 - Packaging review note: `PyDuplicateFinder.spec` already covers the modules touched by this update, so no hidden-import change was required.
 - Current regression baseline: `pytest -q` -> `122 passed`.
+
+## Documentation Sync (2026-04-14)
+
+- Database schema version is now `6`.
+  - Added `scan_exemptions`, `review_marks`, and `file_signatures`.
+- Result JSON now saves as `version=3`.
+  - Adds file-level state: `selection_reason`, `exemption_status`, `review_state`, `collection_role`, `baseline_delta`.
+  - Loader remains compatible with legacy / v2 / v3.
+- Selection policy pipeline was unified.
+  - Explicit rules -> safelist -> collection role -> attribute priority -> fallback keep-one.
+- Multi-job scheduler UI is now implemented.
+  - Create, edit, delete, and run named jobs.
+  - Recent run history is shown per job.
+- Added the `Insights` page.
+  - Shows recent sessions, reclaim estimates, failure rate, quarantine usage, and scheduled run history.
+- Added a `Session Compare` dialog and delta filter for incremental scans.
+- Watch mode is now connected to real rerun behavior.
+  - Uses `watchdog` when available and falls back to polling when unavailable.
+  - File changes detected during an active scan are coalesced into a single pending rerun.
+- Post-delete empty-folder cleanup is now executed from the operation flow and logged separately.
+- Similar-document detection is now available for `.txt`, `.md`, `.csv`, `.json`, `.py`, and `.pdf`.
+  - `pypdf` is used for PDF text extraction.
+- Current automated baseline in this workspace:
+  - `pytest -q` -> `131 passed, 1 skipped`

@@ -23,7 +23,9 @@ duplicate_finder/
     │   ├── history.py             # HistoryManager: Undo/Redo 트랜잭션 및 안전한 임시 삭제 관리
     │   ├── empty_folder_finder.py # EmptyFolderFinder + EmptyFolderWorker: 비동기 빈 폴더 탐색
     │   ├── operation_queue.py      # OperationWorker: 삭제/복구/하드링크 작업 큐 워커
-    │   ├── result_schema.py        # 결과 JSON v2 스키마 및 legacy 호환 로더
+    │   ├── result_schema.py        # 결과 JSON v3 스키마 및 legacy/v2/v3 호환 로더
+    │   ├── document_hash.py        # SimHash 기반 유사 문서 탐지
+    │   ├── scan_types.py           # selection/exemption/review/collection 타입
     │   ├── image_hash.py          # ImageHasher: pHash 기반 유사 이미지 탐지 (BK-Tree)
     │   ├── file_lock_checker.py   # FileLockChecker: 파일 잠금 상태 확인
     │   └── preset_manager.py      # PresetManager: 스캔 설정 프리셋 관리 (기본값 병합)
@@ -42,6 +44,7 @@ duplicate_finder/
     │   ├── controllers/
     │   │   ├── scan_controller.py       # ScanWorker 생성/시그널 바인딩
     │   │   ├── scheduler_controller.py  # 예약 스캔 구성/실행 기록 관리
+    │   │   ├── watch_controller.py      # watch mode / debounce / rerun orchestration
     │   │   ├── ops_controller.py        # 실패 재시도 Operation 생성
     │   │   ├── operation_flow_controller.py # 작업 큐/프로그레스/완료 처리 오케스트레이션
     │   │   ├── navigation_controller.py # Sidebar/QStackedWidget 네비게이션 제어
@@ -158,6 +161,8 @@ duplicate_finder/
 | Pillow | >=9.0.0 | 이미지 처리 |
 | send2trash | >=1.8.0 | 휴지통 기능 |
 | psutil | >=5.9.0 | 파일 잠금 프로세스 확인 |
+| watchdog | >=4.0.0 | 실시간 폴더 감시 |
+| pypdf | >=5.0.0 | PDF 텍스트 추출 기반 유사 문서 탐지 |
 | uuid | (Std Lib) | 백업 파일명 충돌 방지 |
 
 ## 6. 업데이트 메모 (2026-02-20)
@@ -313,3 +318,33 @@ duplicate_finder/
 - Regression baseline:
   - `pytest -q` -> `122 passed`
   - `pyright src tests cli.py main.py` was attempted in this workspace but is currently blocked by missing local dependency resolution for `imagehash` / `send2trash`.
+
+## Update Memo (2026-04-14)
+
+- Selection/exemption/review pipeline added:
+  - `src/core/scan_types.py`
+  - `src/core/selection_rules.py` 확장
+  - DB schema version `6` with `scan_exemptions`, `review_marks`, `file_signatures`
+- Result persistence upgraded to JSON `version=3`.
+  - file-level state: `selection_reason`, `exemption_status`, `review_state`, `collection_role`, `baseline_delta`
+  - loader remains compatible with legacy / v2 / v3
+- Similar document detection added:
+  - `src/core/document_hash.py`
+  - `src/core/scanner/similar_documents.py`
+  - supported: `.txt`, `.md`, `.csv`, `.json`, `.py`, `.pdf`
+- UI navigation/pages expanded:
+  - new `Insights` page (`src/ui/pages/insights_page.py`)
+  - new `SessionCompareDialog` (`src/ui/dialogs/session_compare_dialog.py`)
+  - sidebar/page stack now includes `scan/results/tools/insights/settings`
+- Scheduler expanded from single `default` job to named multi-job workflow.
+  - settings page now supports job create/edit/delete/run-now
+  - `scan_job_runs` history is exposed in UI
+- Watch mode is now connected to actual rerun behavior.
+  - `src/ui/controllers/watch_controller.py`
+  - changes during active scan are coalesced into one pending rerun
+  - `watchdog` preferred, polling fallback when unavailable
+- Post-delete empty-folder cleanup is now executed from operation completion.
+  - `src/core.empty_folder_finder.cleanup_empty_parent_folders(...)`
+  - separate `empty_folder_cleanup` operation log row is written
+- Current regression baseline in this workspace:
+  - `pytest -q` -> `131 passed, 1 skipped`

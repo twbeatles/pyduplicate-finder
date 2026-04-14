@@ -112,6 +112,10 @@ def export_scan_results_csv(
     selected_paths: Optional[Iterable[str]] = None,
     file_meta: Optional[Dict[str, tuple[int, float]]] = None,
     baseline_delta_map: Optional[Dict[str, str]] = None,
+    selection_reason_map: Optional[Dict[str, str]] = None,
+    exemption_status_map: Optional[Dict[str, str]] = None,
+    review_state_map: Optional[Dict[str, str]] = None,
+    collection_role_map: Optional[Dict[str, str]] = None,
 ) -> Tuple[int, int]:
     """
     Export scan results to CSV robustly across group key shapes.
@@ -121,6 +125,10 @@ def export_scan_results_csv(
     selected_set = set(selected_paths or [])
     meta_map = dict(file_meta or {})
     delta_map = dict(baseline_delta_map or {})
+    selection_map = dict(selection_reason_map or {})
+    exemption_map = dict(exemption_status_map or {})
+    review_map = dict(review_state_map or {})
+    collection_map = dict(collection_role_map or {})
     allowed_delta = {"new", "changed", "revalidated"}
 
     groups = 0
@@ -137,6 +145,10 @@ def export_scan_results_csv(
                 "byte_compare",
                 "bytes_reclaim_est",
                 "baseline_delta",
+                "selection_reason",
+                "exemption_status",
+                "review_state",
+                "collection_role",
                 "path",
                 "selected",
                 "size_bytes",
@@ -184,6 +196,10 @@ def export_scan_results_csv(
                         "1" if gi.has_byte_compare else "0",
                         str(int(gi.bytes_reclaim_est or 0)),
                         baseline_delta,
+                        str(selection_map.get(p) or ""),
+                        str(exemption_map.get(p) or ""),
+                        str(review_map.get(p) or ""),
+                        str(collection_map.get(p) or ""),
                         p or "",
                         "1" if (p in selected_set) else "0",
                         size,

@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QLabel,
     QLineEdit,
+    QComboBox,
     QSplitter,
     QTextEdit,
     QScrollArea,
@@ -71,6 +72,20 @@ def build_results_page(window) -> QWidget:
     else:
         window.txt_result_filter.textChanged.connect(window.filter_results_tree)
     filter_row.addWidget(window.txt_result_filter)
+    window.cmb_delta_filter = QComboBox()
+    window.cmb_delta_filter.addItem(strings.tr("opt_delta_all"), "")
+    window.cmb_delta_filter.addItem(strings.tr("opt_delta_new"), "new")
+    window.cmb_delta_filter.addItem(strings.tr("opt_delta_changed"), "changed")
+    window.cmb_delta_filter.addItem(strings.tr("opt_delta_revalidated"), "revalidated")
+    window.cmb_delta_filter.currentIndexChanged.connect(lambda _i: window.filter_results_tree(window.txt_result_filter.text()))
+    filter_row.addWidget(window.cmb_delta_filter)
+
+    window.btn_session_compare = QPushButton(strings.tr("btn_session_compare"))
+    window.btn_session_compare.setMinimumHeight(34)
+    window.btn_session_compare.setCursor(Qt.CursorShape.PointingHandCursor)
+    window.btn_session_compare.clicked.connect(window.open_session_compare_dialog)
+    filter_row.addWidget(window.btn_session_compare)
+
     filter_row.addStretch()
     window.lbl_filter_count = QLabel("")
     window.lbl_filter_count.setObjectName("filter_count")

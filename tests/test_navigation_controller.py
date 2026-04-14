@@ -90,4 +90,20 @@ def test_navigate_to_updates_sidebar_and_page():
     c.navigate_to(host, "settings")
 
     assert host.sidebar.page == "settings"
+    assert host.page_stack.index == 4
+
+
+def test_on_page_changed_insights_refreshes_metrics():
+    c = NavigationController()
+    host = _build_host(scanning=False)
+    host._insights_refresh_count = 0
+
+    def _refresh_insights():
+        host._insights_refresh_count += 1
+
+    host.refresh_insights_page = _refresh_insights
+
+    c.on_page_changed(host, "insights")
+
     assert host.page_stack.index == 3
+    assert host._insights_refresh_count == 1

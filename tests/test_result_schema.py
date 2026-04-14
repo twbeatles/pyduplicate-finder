@@ -1,6 +1,12 @@
 import json
 
-from src.core.result_schema import dump_results_v2, load_results_any, load_results_bundle_any
+from src.core.result_schema import (
+    dump_results_v2,
+    dump_results_v3,
+    load_file_state_map,
+    load_results_any,
+    load_results_bundle_any,
+)
 
 
 def test_load_results_any_supports_legacy_gui_top_level_map():
@@ -78,3 +84,27 @@ def test_load_results_bundle_any_defaults_for_legacy_payload():
     assert bundle["file_meta"] == {}
     assert bundle["existence_map"] == {}
     assert bundle["baseline_delta_map"] == {}
+
+
+def test_dump_results_v3_round_trip_with_file_state():
+    source = {
+        ("deadbeef", 10): ["a", "b"],
+    }
+    payload = dump_results_v3(
+        scan_results=source,
+        folders=["D:/scan"],
+        source="gui",
+        generated_at=123.0,
+        selection_reason_map={"a": "policy:smart"},
+        exemption_status_map={"b": "safelisted"},
+        review_state_map={"a": "reviewed_keep"},
+        collection_role_map={"b": "primary"},
+        baseline_delta_map={"a": "new"},
+    )
+
+    assert payload["version"] == 3
+    assert payload["meta"]["file_state"]["a"]["selection_reason"] == "policy:smart"
+    assert payload["meta"]["file_state"]["a"]["review_state"] == "reviewed_keep"
+    assert payload["meta"]["file_state"]["b"]["exemption_status"] == "safelisted"
+    assert load_results_any(payload) == source
+    assert load_file_state_map(payload)["a"]["baseline_delta"] == "new"

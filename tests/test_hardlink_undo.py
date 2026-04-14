@@ -43,7 +43,10 @@ class TestHardlinkUndo(unittest.TestCase):
         item_id = moved[0].item_id
 
         # Replace target with a hardlink to canonical.
-        os.link(canonical, target)
+        try:
+            os.link(canonical, target)
+        except OSError as exc:
+            self.skipTest(f"Hardlinks are not supported in this test environment: {exc}")
         with open(target, "r", encoding="utf-8") as f:
             self.assertEqual(f.read(), "AAA")
 

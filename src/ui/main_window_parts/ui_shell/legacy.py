@@ -42,6 +42,7 @@ from src.ui.theme import ModernTheme
 from src.ui.pages.scan_page import build_scan_page
 from src.ui.pages.results_page import build_results_page
 from src.ui.pages.tools_page import build_tools_page
+from src.ui.pages.insights_page import build_insights_page
 from src.ui.pages.settings_page import build_settings_page
 from src.ui.controllers.scan_controller import ScanController
 from src.ui.controllers.ops_controller import OpsController
@@ -133,7 +134,7 @@ class MainWindowUiShellMixin(DuplicateFinderTypingContract):
         self.page_stack = QStackedWidget()
         content_layout.addWidget(self.page_stack, 1)
 
-        # === Pages (Scan / Results / Tools / Settings) ===
+        # === Pages (Scan / Results / Tools / Insights / Settings) ===
         self.scan_page = build_scan_page(self)
         self.page_stack.addWidget(self.scan_page)
 
@@ -146,6 +147,13 @@ class MainWindowUiShellMixin(DuplicateFinderTypingContract):
         tools_scroll.setFrameShape(QFrame.Shape.NoFrame)
         tools_scroll.setWidget(self.tools_page)
         self.page_stack.addWidget(tools_scroll)
+
+        self.insights_page = build_insights_page(self)
+        insights_scroll = QScrollArea()
+        insights_scroll.setWidgetResizable(True)
+        insights_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        insights_scroll.setWidget(self.insights_page)
+        self.page_stack.addWidget(insights_scroll)
 
         self.settings_page = build_settings_page(self)
         settings_scroll = QScrollArea()
@@ -219,8 +227,35 @@ class MainWindowUiShellMixin(DuplicateFinderTypingContract):
         self.chk_similar_image.setText(strings.tr("chk_similar_image"))
         self.chk_similar_image.setToolTip(strings.tr("tip_similar_image"))
         self.lbl_similarity.setText(strings.tr("lbl_similarity_threshold"))
+        if hasattr(self, "chk_similar_document"):
+            self.chk_similar_document.setText(strings.tr("chk_similar_document"))
+            self.chk_similar_document.setToolTip(strings.tr("tip_similar_document"))
+        if hasattr(self, "lbl_document_similarity"):
+            self.lbl_document_similarity.setText(strings.tr("lbl_document_similarity_threshold"))
         if hasattr(self, "lbl_filter_strategy"):
             self.lbl_filter_strategy.setText(strings.tr("hdr_filters_strategy"))
+        if hasattr(self, "lbl_selection_policy"):
+            self.lbl_selection_policy.setText(strings.tr("lbl_selection_policy"))
+        if hasattr(self, "cmb_selection_policy"):
+            cur = self.cmb_selection_policy.currentData()
+            self.cmb_selection_policy.setItemText(0, strings.tr("opt_policy_smart"))
+            self.cmb_selection_policy.setItemText(1, strings.tr("opt_policy_oldest"))
+            self.cmb_selection_policy.setItemText(2, strings.tr("opt_policy_newest"))
+            self.cmb_selection_policy.setItemText(3, strings.tr("opt_policy_path_shortest"))
+            self.cmb_selection_policy.setItemText(4, strings.tr("opt_policy_extension_priority"))
+            self.cmb_selection_policy.setItemText(5, strings.tr("opt_policy_primary_keep"))
+            idx = self.cmb_selection_policy.findData(cur)
+            if idx >= 0:
+                self.cmb_selection_policy.setCurrentIndex(idx)
+        if hasattr(self, "lbl_compare_mode"):
+            self.lbl_compare_mode.setText(strings.tr("lbl_compare_mode"))
+        if hasattr(self, "cmb_compare_mode"):
+            cur = self.cmb_compare_mode.currentData()
+            self.cmb_compare_mode.setItemText(0, strings.tr("opt_compare_none"))
+            self.cmb_compare_mode.setItemText(1, strings.tr("opt_compare_collections"))
+            idx = self.cmb_compare_mode.findData(cur)
+            if idx >= 0:
+                self.cmb_compare_mode.setCurrentIndex(idx)
         if hasattr(self, "chk_mixed_mode"):
             self.chk_mixed_mode.setText(strings.tr("chk_mixed_mode"))
             self.chk_mixed_mode.setToolTip(strings.tr("tip_mixed_mode"))
@@ -230,6 +265,15 @@ class MainWindowUiShellMixin(DuplicateFinderTypingContract):
         if hasattr(self, "chk_incremental_rescan"):
             self.chk_incremental_rescan.setText(strings.tr("chk_incremental_rescan"))
             self.chk_incremental_rescan.setToolTip(strings.tr("tip_incremental_rescan"))
+        if hasattr(self, "chk_apply_exemptions"):
+            self.chk_apply_exemptions.setText(strings.tr("chk_apply_exemptions"))
+            self.chk_apply_exemptions.setToolTip(strings.tr("tip_apply_exemptions"))
+        if hasattr(self, "chk_post_cleanup_empty_dirs"):
+            self.chk_post_cleanup_empty_dirs.setText(strings.tr("chk_post_cleanup_empty_dirs"))
+            self.chk_post_cleanup_empty_dirs.setToolTip(strings.tr("tip_post_cleanup_empty_dirs"))
+        if hasattr(self, "chk_watch_mode"):
+            self.chk_watch_mode.setText(strings.tr("chk_watch_mode"))
+            self.chk_watch_mode.setToolTip(strings.tr("tip_watch_mode"))
         if hasattr(self, "chk_strict_mode"):
             self.chk_strict_mode.setText(strings.tr("chk_strict_mode"))
             self.chk_strict_mode.setToolTip(strings.tr("tip_strict_mode"))
@@ -283,6 +327,12 @@ class MainWindowUiShellMixin(DuplicateFinderTypingContract):
             self.btn_go_scan.setText(strings.tr("btn_go_scan"))
         if hasattr(self, 'lbl_tools_title'):
             self.lbl_tools_title.setText(strings.tr("nav_tools"))
+        if hasattr(self, "lbl_insights_title"):
+            self.lbl_insights_title.setText(strings.tr("nav_insights"))
+        if hasattr(self, "lbl_insights_hint"):
+            self.lbl_insights_hint.setText(strings.tr("msg_insights_page_hint"))
+        if hasattr(self, "btn_insights_refresh"):
+            self.btn_insights_refresh.setText(strings.tr("btn_refresh"))
         if hasattr(self, 'lbl_tools_hint'):
             self.lbl_tools_hint.setText(strings.tr("msg_tools_page_hint"))
         if hasattr(self, "btn_tools_go_scan"):
@@ -408,6 +458,76 @@ class MainWindowUiShellMixin(DuplicateFinderTypingContract):
             self.btn_schedule_pick.setText(strings.tr("btn_choose_folder"))
         if hasattr(self, "btn_schedule_apply"):
             self.btn_schedule_apply.setText(strings.tr("btn_apply"))
+        if hasattr(self, "lbl_schedule_job_name"):
+            self.lbl_schedule_job_name.setText(strings.tr("settings_schedule_job_name"))
+        if hasattr(self, "txt_schedule_job_name"):
+            self.txt_schedule_job_name.setPlaceholderText(strings.tr("ph_schedule_job_name"))
+        if hasattr(self, "btn_schedule_new"):
+            self.btn_schedule_new.setText(strings.tr("btn_schedule_new"))
+        if hasattr(self, "btn_schedule_run_now"):
+            self.btn_schedule_run_now.setText(strings.tr("btn_schedule_run_now"))
+        if hasattr(self, "btn_schedule_delete"):
+            self.btn_schedule_delete.setText(strings.tr("btn_delete"))
+        if hasattr(self, "btn_schedule_refresh"):
+            self.btn_schedule_refresh.setText(strings.tr("btn_refresh"))
+        if hasattr(self, "lbl_schedule_runs"):
+            self.lbl_schedule_runs.setText(strings.tr("settings_schedule_runs"))
+        if hasattr(self, "tbl_schedule_jobs"):
+            self.tbl_schedule_jobs.setHorizontalHeaderLabels(
+                [
+                    strings.tr("col_job_name"),
+                    strings.tr("col_status"),
+                    strings.tr("settings_schedule_frequency"),
+                    strings.tr("settings_schedule_time"),
+                    strings.tr("col_next_run"),
+                ]
+            )
+        if hasattr(self, "tbl_schedule_runs"):
+            self.tbl_schedule_runs.setHorizontalHeaderLabels(
+                [
+                    strings.tr("col_created"),
+                    strings.tr("col_status"),
+                    strings.tr("col_groups"),
+                    strings.tr("col_files"),
+                    strings.tr("col_message"),
+                ]
+            )
+        if hasattr(self, "cmb_delta_filter"):
+            cur = self.cmb_delta_filter.currentData()
+            self.cmb_delta_filter.setItemText(0, strings.tr("opt_delta_all"))
+            self.cmb_delta_filter.setItemText(1, strings.tr("opt_delta_new"))
+            self.cmb_delta_filter.setItemText(2, strings.tr("opt_delta_changed"))
+            self.cmb_delta_filter.setItemText(3, strings.tr("opt_delta_revalidated"))
+            idx = self.cmb_delta_filter.findData(cur)
+            if idx >= 0:
+                self.cmb_delta_filter.setCurrentIndex(idx)
+        if hasattr(self, "btn_session_compare"):
+            self.btn_session_compare.setText(strings.tr("btn_session_compare"))
+        if hasattr(self, "tbl_insight_sessions"):
+            self.tbl_insight_sessions.setHorizontalHeaderLabels(
+                [
+                    strings.tr("col_id"),
+                    strings.tr("col_created"),
+                    strings.tr("col_status"),
+                    strings.tr("col_groups"),
+                    strings.tr("col_message"),
+                ]
+            )
+        if hasattr(self, "tbl_insight_jobs"):
+            self.tbl_insight_jobs.setHorizontalHeaderLabels(
+                [
+                    strings.tr("col_created"),
+                    strings.tr("col_job_name"),
+                    strings.tr("col_status"),
+                    strings.tr("col_groups"),
+                    strings.tr("col_files"),
+                    strings.tr("col_message"),
+                ]
+            )
+        if hasattr(self, "lbl_insights_sessions_title"):
+            self.lbl_insights_sessions_title.setText(strings.tr("insight_sessions_title"))
+        if hasattr(self, "lbl_insights_jobs_title"):
+            self.lbl_insights_jobs_title.setText(strings.tr("insight_jobs_title"))
         if hasattr(self, "cmb_schedule_frequency"):
             cur = self.cmb_schedule_frequency.currentData()
             self.cmb_schedule_frequency.setItemText(0, strings.tr("term_daily"))
@@ -696,6 +816,8 @@ class MainWindowUiShellMixin(DuplicateFinderTypingContract):
             self.chk_same_name.setChecked(False)
             self.chk_byte_compare.setChecked(False)
             self.chk_similar_image.setChecked(False)
+            if hasattr(self, "chk_similar_document"):
+                self.chk_similar_document.setChecked(False)
             if hasattr(self, "chk_mixed_mode"):
                 self.chk_mixed_mode.setChecked(False)
             if hasattr(self, "chk_detect_folder_dup"):
@@ -708,11 +830,18 @@ class MainWindowUiShellMixin(DuplicateFinderTypingContract):
         self.chk_same_name.setEnabled(not name_only)
         self.chk_byte_compare.setEnabled(not name_only)
         self.chk_similar_image.setEnabled((not name_only) and (not mixed_mode))
+        if hasattr(self, "chk_similar_document"):
+            self.chk_similar_document.setEnabled(not name_only)
         if hasattr(self, "chk_mixed_mode"):
             self.chk_mixed_mode.setEnabled(not name_only)
         if hasattr(self, "chk_detect_folder_dup"):
             self.chk_detect_folder_dup.setEnabled(not name_only)
         self.spin_similarity.setEnabled(self.chk_similar_image.isChecked() and not name_only)
+        if hasattr(self, "spin_document_similarity") and hasattr(self, "chk_similar_document"):
+            enabled = self.chk_similar_document.isChecked() and not name_only
+            self.spin_document_similarity.setEnabled(enabled)
+            if hasattr(self, "lbl_document_similarity"):
+                self.lbl_document_similarity.setEnabled(enabled)
         if hasattr(self, "chk_strict_mode") and hasattr(self, "spin_strict_max_errors"):
             use_strict = bool(self.chk_strict_mode.isChecked())
             self.spin_strict_max_errors.setEnabled(use_strict)

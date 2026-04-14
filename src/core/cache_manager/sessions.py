@@ -204,6 +204,7 @@ class CacheSessionMixin:
                 conn.execute(f"DELETE FROM scan_folder_sigs WHERE session_id NOT IN ({placeholders})", keep_ids)
                 conn.execute(f"DELETE FROM scan_results WHERE session_id NOT IN ({placeholders})", keep_ids)
                 conn.execute(f"DELETE FROM scan_selected WHERE session_id NOT IN ({placeholders})", keep_ids)
+                conn.execute(f"DELETE FROM review_marks WHERE session_id NOT IN ({placeholders})", keep_ids)
                 conn.execute(f"DELETE FROM scan_sessions WHERE id NOT IN ({placeholders})", keep_ids)
         except Exception:
             logger.exception("Cleanup sessions error")

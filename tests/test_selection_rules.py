@@ -1,8 +1,14 @@
 import os
 import tempfile
+import time
 import unittest
 
-from src.core.selection_rules import decide_keep_delete_for_group, parse_rules
+from src.core.scan_types import SelectionCandidate, SelectionPolicy
+from src.core.selection_rules import (
+    decide_keep_delete_for_group,
+    decide_selection_for_candidates,
+    parse_rules,
+)
 
 
 class SelectionRulesTests(unittest.TestCase):
@@ -44,14 +50,40 @@ class SelectionRulesTests(unittest.TestCase):
                 with open(p, "wb") as f:
                     f.write(b"x")
 
-            # Set deterministic mtimes: p1 oldest.
-            os.utime(p1, (1000, 1000))
-            os.utime(p2, (2000, 2000))
-            os.utime(p3, (3000, 3000))
+            # Set deterministic mtimes using current-era timestamps that work on
+            # Windows filesystems with restricted epoch handling.
+            now = max(int(time.time()), 10_000)
+            os.utime(p1, (now - 300, now - 300))
+            os.utime(p2, (now - 200, now - 200))
+            os.utime(p3, (now - 100, now - 100))
 
             keep_set, delete_set = decide_keep_delete_for_group([p1, p2, p3], rules=[])
             self.assertEqual(keep_set, {p1})
             self.assertEqual(delete_set, {p2, p3})
+
+    def test_selection_policy_precedence_explicit_keep_then_safelist_then_policy(self):
+        candidates = [
+            SelectionCandidate(path="/scan/keep-a.txt", mtime=300.0, explicit_keep=True),
+            SelectionCandidate(path="/scan/safe-b.txt", mtime=100.0, safelisted=True),
+            SelectionCandidate(path="/scan/c.txt", mtime=50.0),
+        ]
+        decision = decide_selection_for_candidates(candidates, rules=[], policy=SelectionPolicy(mode="oldest"))
+        self.assertEqual(decision.keep_set, {"/scan/keep-a.txt"})
+        self.assertIn("/scan/safe-b.txt", decision.delete_set)
+        self.assertEqual(decision.reasons["/scan/keep-a.txt"], "explicit_keep")
+
+    def test_selection_policy_primary_collection_preferred(self):
+        candidates = [
+            SelectionCandidate(path="/secondary/a.txt", mtime=10.0, collection_role="secondary"),
+            SelectionCandidate(path="/primary/b.txt", mtime=20.0, collection_role="primary"),
+        ]
+        decision = decide_selection_for_candidates(
+            candidates,
+            rules=[],
+            policy=SelectionPolicy(mode="primary_keep", collection_preference="primary"),
+        )
+        self.assertEqual(decision.keep_set, {"/primary/b.txt"})
+        self.assertEqual(decision.reasons["/primary/b.txt"], "collection_primary_keep")
 
 
 if __name__ == "__main__":

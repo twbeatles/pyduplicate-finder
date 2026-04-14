@@ -1,9 +1,49 @@
 from __future__ import annotations
 
 from .common import defaultdict, hashlib, os
+from src.core.scan_types import (
+    COLLECTION_ROLE_PRIMARY,
+    COLLECTION_ROLE_SECONDARY,
+    COMPARE_MODE_COLLECTIONS,
+    EXEMPTION_ACTION_IGNORE,
+)
 
 
 class ScanFolderDuplicatesMixin:
+    def _apply_post_scan_filters(self, results):
+        filtered = {}
+        for key, paths in (results or {}).items():
+            group_paths = [str(p) for p in (paths or []) if p]
+            if not group_paths:
+                continue
+
+            kept_paths = []
+            for path in group_paths:
+                full_hash = str(self._full_hash_values.get(path) or "")
+                ignore_rule = None
+                if self.apply_exemptions:
+                    try:
+                        from src.core.selection_rules import match_exemption_rule
+
+                        ignore_rule = match_exemption_rule(path, self._exemption_rules, content_hash=full_hash)
+                    except Exception:
+                        ignore_rule = None
+                if ignore_rule and ignore_rule.action == EXEMPTION_ACTION_IGNORE:
+                    self._path_exemption_status[path] = "ignore"
+                    continue
+                if ignore_rule and ignore_rule.action != EXEMPTION_ACTION_IGNORE:
+                    self._path_exemption_status[path] = "safelist"
+                kept_paths.append(path)
+
+            if self.compare_mode == COMPARE_MODE_COLLECTIONS:
+                roles = {self._path_collection_roles.get(path, "") for path in kept_paths}
+                if not ({COLLECTION_ROLE_PRIMARY, COLLECTION_ROLE_SECONDARY} <= roles):
+                    continue
+
+            if len(kept_paths) >= 2:
+                filtered[key] = kept_paths
+        return filtered
+
     def _trim_file_meta_for_results(self, results):
         if not self._file_meta:
             return

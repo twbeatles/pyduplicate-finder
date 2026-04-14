@@ -75,6 +75,7 @@ class Sidebar(QFrame):
         ("⊙", "nav_scan", "scan"),
         ("≡", "nav_results", "results"),
         ("⚒", "nav_tools", "tools"),
+        ("▣", "nav_insights", "insights"),
     ]
 
     BOTTOM_ITEMS = [

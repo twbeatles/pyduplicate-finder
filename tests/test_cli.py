@@ -41,11 +41,20 @@ def test_main_writes_output_json_in_v2_schema(tmp_path, monkeypatch):
         name_only=False,
         byte_compare=False,
         similar_image=False,
+        similar_document=False,
         mixed_mode=False,
         detect_folder_dup=False,
         incremental_rescan=False,
         baseline_session=0,
         similarity_threshold=0.9,
+        document_threshold=0.9,
+        selection_policy="smart",
+        compare_mode="none",
+        watch=False,
+        respect_exemptions=False,
+        post_cleanup_empty_dirs=False,
+        collection_a=[],
+        collection_b=[],
         no_protect_system=False,
         skip_hidden=False,
         follow_symlinks=False,
@@ -85,7 +94,7 @@ def test_main_writes_output_json_in_v2_schema(tmp_path, monkeypatch):
     assert out_json.exists()
 
     data = json.loads(out_json.read_text(encoding="utf-8"))
-    assert data["version"] == 2
+    assert data["version"] == 3
     assert set(data.keys()) == {"version", "meta", "results"}
     assert data["meta"]["groups"] == 1
     assert data["meta"]["files"] == 2
@@ -106,11 +115,20 @@ def test_main_mixed_mode_auto_enables_similar_image(tmp_path, monkeypatch):
         name_only=False,
         byte_compare=False,
         similar_image=False,
+        similar_document=False,
         mixed_mode=True,
         detect_folder_dup=False,
         incremental_rescan=False,
         baseline_session=0,
         similarity_threshold=0.9,
+        document_threshold=0.9,
+        selection_policy="smart",
+        compare_mode="none",
+        watch=False,
+        respect_exemptions=False,
+        post_cleanup_empty_dirs=False,
+        collection_a=[],
+        collection_b=[],
         strict_mode=False,
         strict_max_errors=0,
         no_protect_system=False,
@@ -173,11 +191,20 @@ def test_main_does_not_leave_plain_qcoreapplication_instance(tmp_path, monkeypat
         name_only=False,
         byte_compare=False,
         similar_image=False,
+        similar_document=False,
         mixed_mode=False,
         detect_folder_dup=False,
         incremental_rescan=False,
         baseline_session=0,
         similarity_threshold=0.9,
+        document_threshold=0.9,
+        selection_policy="smart",
+        compare_mode="none",
+        watch=False,
+        respect_exemptions=False,
+        post_cleanup_empty_dirs=False,
+        collection_a=[],
+        collection_b=[],
         strict_mode=False,
         strict_max_errors=0,
         no_protect_system=False,
@@ -218,7 +245,6 @@ def test_main_does_not_leave_plain_qcoreapplication_instance(tmp_path, monkeypat
     inst = QCoreApplication.instance()
     assert inst is None or isinstance(inst, QApplication)
 
-
 def test_main_quiet_suppresses_success_stdout(tmp_path, monkeypatch, capsys):
     scan_root = tmp_path / "scan_root"
     scan_root.mkdir()
@@ -234,11 +260,20 @@ def test_main_quiet_suppresses_success_stdout(tmp_path, monkeypatch, capsys):
         name_only=False,
         byte_compare=False,
         similar_image=False,
+        similar_document=False,
         mixed_mode=False,
         detect_folder_dup=False,
         incremental_rescan=False,
         baseline_session=0,
         similarity_threshold=0.9,
+        document_threshold=0.9,
+        selection_policy="smart",
+        compare_mode="none",
+        watch=False,
+        respect_exemptions=False,
+        post_cleanup_empty_dirs=False,
+        collection_a=[],
+        collection_b=[],
         strict_mode=False,
         strict_max_errors=0,
         no_protect_system=False,
@@ -271,6 +306,10 @@ def test_main_quiet_suppresses_success_stdout(tmp_path, monkeypatch, capsys):
             self.scan_cancelled = _Signal()
             self.latest_file_meta = {}
             self.latest_baseline_delta_map = {}
+            self.latest_selection_reason_map = {}
+            self.latest_exemption_status_map = {}
+            self.latest_result_review_state_map = {}
+            self.latest_collection_role_map = {}
             self.latest_scan_metrics = {}
             self.latest_scan_status = "completed"
             self.latest_scan_warnings = []
@@ -285,3 +324,26 @@ def test_main_quiet_suppresses_success_stdout(tmp_path, monkeypatch, capsys):
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == ""
+
+
+def test_parse_args_supports_new_policy_and_compare_flags():
+    args = _parse_args(
+        [
+            "D:/scan-target",
+            "--selection-policy",
+            "primary_keep",
+            "--compare-mode",
+            "collections",
+            "--similar-document",
+            "--document-threshold",
+            "0.8",
+            "--watch",
+            "--respect-exemptions",
+        ]
+    )
+    assert args.selection_policy == "primary_keep"
+    assert args.compare_mode == "collections"
+    assert args.similar_document is True
+    assert float(args.document_threshold) == 0.8
+    assert args.watch is True
+    assert args.respect_exemptions is True

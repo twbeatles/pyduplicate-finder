@@ -20,6 +20,8 @@ BASE_HIDDENIMPORTS = [
     'src.core.preflight',
     'src.core.quarantine_manager',
     'src.core.selection_rules',
+    'src.core.document_hash',
+    'src.core.scan_types',
 
     # UI
     'src.ui.main_window',
@@ -32,6 +34,7 @@ BASE_HIDDENIMPORTS = [
     'src.ui.pages.scan_page',
     'src.ui.pages.results_page',
     'src.ui.pages.tools_page',
+    'src.ui.pages.insights_page',
     'src.ui.pages.settings_page',
     'src.ui.components.results_tree',
     'src.ui.components.sidebar',
@@ -39,6 +42,7 @@ BASE_HIDDENIMPORTS = [
     'src.ui.controllers.scan_controller',
     'src.ui.controllers.ops_controller',
     'src.ui.controllers.scheduler_controller',
+    'src.ui.controllers.watch_controller',
     'src.ui.controllers.operation_flow_controller',
     'src.ui.controllers.navigation_controller',
     'src.ui.controllers.results_controller',
@@ -49,6 +53,7 @@ BASE_HIDDENIMPORTS = [
     'src.ui.dialogs.selection_rules_dialog',
     'src.ui.dialogs.preflight_dialog',
     'src.ui.dialogs.operation_log_dialog',
+    'src.ui.dialogs.session_compare_dialog',
     'src.ui.dialogs.shortcut_settings_dialog',
 
     # Utils / third-party
@@ -57,6 +62,8 @@ BASE_HIDDENIMPORTS = [
     'PIL',
     'send2trash',
     'psutil',
+    'watchdog',
+    'pypdf',
     'sqlite3',
     'uuid',
 ]
@@ -69,6 +76,8 @@ for package_name in [
     'src.utils.i18n',
     'src.ui.components.results_tree',
     'src.ui.main_window_parts',
+    'watchdog',
+    'pypdf',
 ]:
     PACKAGE_HIDDENIMPORTS.extend(collect_submodules(package_name))
 

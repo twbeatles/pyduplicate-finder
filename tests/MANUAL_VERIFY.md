@@ -48,7 +48,7 @@ python tests/verify_image_hash.py
    - Expected result: packageized modules preserve the public import paths and exports.
 2. Full regression baseline:
    - `pytest -q`
-   - Expected result: `111 passed`
+   - Historical package-split baseline at the time: `111 passed`
 3. GUI smoke after package split:
    - `python main.py`
    - Expected result: the app starts normally and scan/results/tools/settings navigation, theme switching, and result filtering work without exceptions.
@@ -68,3 +68,35 @@ python tests/verify_image_hash.py
    - Confirm the recorded message includes `export_failed:<format>` and any `missing_folders:<n>` suffix.
 5. Quarantine retention scale:
    - Seed more than 5,000 quarantined rows in a test DB and confirm age/size retention still purges beyond the first page.
+
+## Additional Manual Checks (2026-04-14)
+
+1. Insights page refresh:
+   - Open the `Insights` page after at least one scan and confirm session metrics, reclaim estimate, failure rate, quarantine usage, and scheduled run history populate without exceptions.
+2. Session compare and delta filter:
+   - Run an incremental rescan with a valid baseline.
+   - Confirm the Results page delta filter (`all/new/changed/revalidated`) changes visible rows correctly.
+   - Open `Compare Sessions` and confirm the summary counts match the filtered file list.
+3. Multi-job scheduler UI:
+   - Create two named jobs with different folders or output directories.
+   - Confirm each job persists independently, can be selected back into the form, and `Run Now` executes the selected snapshot instead of current transient UI state.
+4. Watch mode rerun:
+   - Enable watch mode for a small test folder, finish an initial scan, then create or edit a file.
+   - Confirm one incremental rerun is queued after debounce.
+   - While that scan is running, create another file and confirm only one pending rerun remains queued.
+5. Post-delete empty-folder cleanup:
+   - Enable the setting for post-delete empty folder cleanup.
+   - Delete or hardlink-consolidate files that leave intermediate parent folders empty.
+   - Confirm only newly empty parents under the selected roots are removed and that a separate operation-log entry is created.
+6. Similar-document dependency policy:
+   - Remove or temporarily break `pypdf` in a controlled environment and request similar-document scanning on a folder containing PDFs.
+   - Confirm GUI and CLI both fail fast with a clear dependency error instead of silently skipping PDF text extraction.
+
+## Current Automated Baseline
+
+1. Full suite:
+   - `pytest -q`
+   - Expected result in this workspace: `131 passed, 1 skipped`
+2. Build smoke:
+   - `pyinstaller PyDuplicateFinder.spec --clean`
+   - Expected result: `dist/PyDuplicateFinderPro.exe` is produced successfully.

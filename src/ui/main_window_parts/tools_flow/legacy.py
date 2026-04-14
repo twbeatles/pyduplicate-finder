@@ -20,6 +20,7 @@ from src.core.history import HistoryManager
 from src.core.cache_manager import CacheManager
 from src.core.preset_manager import PresetManager, get_default_config
 from src.core.file_lock_checker import FileLockChecker
+from src.core.empty_folder_finder import cleanup_empty_parent_folders
 from src.core.quarantine_manager import QuarantineManager
 from src.core.preflight import PreflightAnalyzer
 from src.core.selection_rules import parse_rules
@@ -62,6 +63,126 @@ def _mw():
 
 
 class MainWindowToolsFlowMixin(DuplicateFinderTypingContract):
+    def refresh_insights_page(self: Any):
+        if not hasattr(self, "lbl_insight_scans_value"):
+            return
+        try:
+            conn = self.cache_manager._get_conn()
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*), SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) FROM scan_sessions")
+            total_sessions, completed_sessions = cur.fetchone() or (0, 0)
+            cur.execute(
+                """
+                SELECT COUNT(*), SUM(CASE WHEN status IN ('partial', 'failed', 'abandoned') THEN 1 ELSE 0 END)
+                FROM (
+                    SELECT status FROM scan_sessions ORDER BY updated_at DESC LIMIT 20
+                )
+                """
+            )
+            fail_sample, fail_count = cur.fetchone() or (0, 0)
+            cur.execute("SELECT COALESCE(SUM(bytes_saved_est), 0) FROM file_operations")
+            saved_bytes = int((cur.fetchone() or [0])[0] or 0)
+            cur.execute(
+                "SELECT COUNT(*), COALESCE(SUM(size), 0) FROM quarantine_items WHERE status='quarantined'"
+            )
+            quarantine_count, quarantine_bytes = cur.fetchone() or (0, 0)
+            cur.execute(
+                """
+                SELECT s.id, s.updated_at, s.status, s.progress_message, COUNT(DISTINCT r.group_key)
+                FROM scan_sessions s
+                LEFT JOIN scan_results r ON r.session_id = s.id
+                GROUP BY s.id, s.updated_at, s.status, s.progress_message
+                ORDER BY s.updated_at DESC
+                LIMIT 10
+                """
+            )
+            session_rows = cur.fetchall()
+        except Exception:
+            logger.exception("Failed to refresh insights page")
+            return
+
+        self.lbl_insight_scans_value.setText(f"{int(completed_sessions or 0)}/{int(total_sessions or 0)}")
+        self.lbl_insight_savings_value.setText(self.format_size(int(saved_bytes or 0)))
+        sample_size = max(1, int(fail_sample or 0))
+        self.lbl_insight_fail_rate_value.setText(f"{(int(fail_count or 0) / sample_size) * 100:.0f}%")
+        self.lbl_insight_quarantine_value.setText(
+            f"{int(quarantine_count or 0)} / {self.format_size(int(quarantine_bytes or 0))}"
+        )
+
+        if hasattr(self, "tbl_insight_sessions"):
+            self.tbl_insight_sessions.setRowCount(len(session_rows))
+            for row_idx, row in enumerate(session_rows):
+                updated = float(row[1] or 0.0)
+                dt = datetime.fromtimestamp(updated).strftime("%Y-%m-%d %H:%M") if updated else "-"
+                self.tbl_insight_sessions.setItem(row_idx, 0, QTableWidgetItem(str(int(row[0] or 0))))
+                self.tbl_insight_sessions.setItem(row_idx, 1, QTableWidgetItem(dt))
+                self.tbl_insight_sessions.setItem(row_idx, 2, QTableWidgetItem(str(row[2] or "")))
+                self.tbl_insight_sessions.setItem(row_idx, 3, QTableWidgetItem(str(int(row[4] or 0))))
+                self.tbl_insight_sessions.setItem(row_idx, 4, QTableWidgetItem(str(row[3] or "")))
+
+        if hasattr(self, "tbl_insight_jobs"):
+            runs = self.cache_manager.list_scan_job_runs(limit=10)
+            self.tbl_insight_jobs.setRowCount(len(runs))
+            for row_idx, run in enumerate(runs):
+                started = float(run.get("started_at") or 0.0)
+                dt = datetime.fromtimestamp(started).strftime("%Y-%m-%d %H:%M") if started else "-"
+                self.tbl_insight_jobs.setItem(row_idx, 0, QTableWidgetItem(dt))
+                self.tbl_insight_jobs.setItem(row_idx, 1, QTableWidgetItem(str(run.get("job_name") or "")))
+                self.tbl_insight_jobs.setItem(row_idx, 2, QTableWidgetItem(str(run.get("status") or "")))
+                self.tbl_insight_jobs.setItem(row_idx, 3, QTableWidgetItem(str(int(run.get("groups_count") or 0))))
+                self.tbl_insight_jobs.setItem(row_idx, 4, QTableWidgetItem(str(int(run.get("files_count") or 0))))
+                self.tbl_insight_jobs.setItem(row_idx, 5, QTableWidgetItem(str(run.get("message") or "")))
+
+    def perform_post_cleanup_empty_dirs(self: Any, removed_paths):
+        if not removed_paths:
+            return
+        try:
+            enabled = bool(self.chk_post_cleanup_empty_dirs.isChecked()) if hasattr(self, "chk_post_cleanup_empty_dirs") else False
+        except Exception:
+            enabled = False
+        if not enabled:
+            return
+
+        deleted, failed = cleanup_empty_parent_folders(
+            removed_paths,
+            stop_roots=list(self.selected_folders or []),
+        )
+        if not deleted and not failed:
+            return
+
+        try:
+            op_id = self.cache_manager.create_operation(
+                "empty_folder_cleanup",
+                {"paths": list(removed_paths or []), "count": len(deleted)},
+                status="running",
+            )
+            batch = [(path, "deleted_empty_dir", "ok", "", None, None, "") for path in deleted]
+            batch.extend((path, "deleted_empty_dir", "fail", reason, None, None, "") for path, reason in failed)
+            if op_id and batch:
+                self.cache_manager.append_operation_items(op_id, batch)
+                final_status = "partial" if failed and deleted else ("failed" if failed else "completed")
+                self.cache_manager.finish_operation(
+                    op_id,
+                    final_status,
+                    f"empty_folder_cleanup:{len(deleted)}",
+                    bytes_total=0,
+                    bytes_saved_est=0,
+                )
+        except Exception:
+            logger.exception("Failed to log empty folder cleanup operation")
+
+        try:
+            self.refresh_operations_list()
+            self.refresh_insights_page()
+        except Exception:
+            pass
+
+        if deleted and hasattr(self, "toast_manager") and self.toast_manager:
+            self.toast_manager.info(
+                strings.tr("msg_empty_cleanup_done").format(count=len(deleted)),
+                duration=2500,
+            )
+
     def _apply_quarantine_retention(self: Any):
         """Best-effort retention policy application."""
         try:
@@ -331,8 +452,10 @@ class MainWindowToolsFlowMixin(DuplicateFinderTypingContract):
         try:
             for i in range(root.childCount()):
                 group = root.child(i)
-                paths = self.tree_widget.get_group_paths(group)
-                keep_set, _delete_set = self.results_controller.build_keep_delete_by_rules(paths, rules)
+                entries = [e for e, _ in self._group_entries_with_items(group)]
+                decision = self.results_controller.build_selection_decision(entries, strategy="smart", rules=rules)
+                keep_set = set(decision.keep_set or [])
+                self._remember_selection_reasons(decision)
                 for j in range(group.childCount()):
                     child = group.child(j)
                     p = child.data(0, Qt.ItemDataRole.UserRole)

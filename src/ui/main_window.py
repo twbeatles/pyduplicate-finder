@@ -14,7 +14,7 @@ from src.core.history import HistoryManager
 from src.core.preset_manager import PresetManager
 from src.core.preflight import PreflightAnalyzer
 from src.core.quarantine_manager import QuarantineManager
-from src.core.scan_engine import validate_similar_image_dependency
+from src.core.scan_engine import validate_similar_document_dependency, validate_similar_image_dependency
 from src.ui.components.toast import ToastManager
 from src.ui.controllers.navigation_controller import NavigationController
 from src.ui.controllers.operation_flow_controller import OperationFlowController
@@ -23,6 +23,7 @@ from src.ui.controllers.preview_controller import PreviewController
 from src.ui.controllers.results_controller import ResultsController
 from src.ui.controllers.scan_controller import ScanController
 from src.ui.controllers.scheduler_controller import SchedulerController
+from src.ui.controllers.watch_controller import FolderWatchService
 from src.ui.main_window_parts.scan_flow import MainWindowScanFlowMixin
 from src.ui.main_window_parts.results_flow import MainWindowResultsFlowMixin
 from src.ui.main_window_parts.settings_flow import MainWindowSettingsFlowMixin
@@ -44,6 +45,18 @@ class DuplicateFinderApp(
     MainWindowToolsFlowMixin,
     QMainWindow,
 ):
+    @staticmethod
+    def _create_settings() -> QSettings:
+        settings = QSettings("MySoft", "PyDuplicateFinderPro")
+        try:
+            probe_key = "app/settings_probe"
+            settings.setValue(probe_key, "1")
+            if str(settings.value(probe_key, "")) == "1":
+                return settings
+        except Exception:
+            pass
+        return QSettings(QSettings.Format.IniFormat, QSettings.Scope.UserScope, "MySoft", "PyDuplicateFinderPro")
+
     @staticmethod
     def _to_int(value: object, default: int = 0) -> int:
         if isinstance(value, bool):
@@ -124,9 +137,14 @@ class DuplicateFinderApp(
         self._current_result_meta = {}
         self._current_result_existence_map = {}
         self._current_baseline_delta_map = {}
+        self._current_selection_reason_map = {}
+        self._current_exemption_status_map = {}
+        self._current_review_state_map = {}
+        self._current_collection_role_map = {}
         self._last_scan_metrics = {}
         self._last_scan_status = "completed"
         self._last_scan_warnings = []
+        self._last_incremental_stats = {}
         self._previous_results = None
         self._previous_selected_paths = []
         self._previous_result_meta = {}
@@ -141,6 +159,13 @@ class DuplicateFinderApp(
         self._scheduler_timer.timeout.connect(self._scheduler_tick)
         self._scheduled_run_context = None
         self._scheduled_job_run_id = 0
+        self._watch_service = FolderWatchService(self)
+        self._watch_service.activity_detected.connect(self._on_watch_activity_detected)
+        self._watch_service.state_changed.connect(self._on_watch_state_changed)
+        self._watch_pending_rerun = False
+        self._watch_pending_paths = []
+        self._watch_last_config = {}
+        self._watch_last_folders = []
 
         self.init_ui()
         self.create_toolbar()
@@ -149,7 +174,7 @@ class DuplicateFinderApp(
         self.toast_manager = ToastManager(self)
 
         # Settings
-        self.settings = QSettings("MySoft", "PyDuplicateFinderPro")
+        self.settings = self._create_settings()
         self.load_settings()
 
         # Apply initial theme (defaults to light if not set)
@@ -188,6 +213,10 @@ class DuplicateFinderApp(
         try:
             if hasattr(self, "preview_controller") and self.preview_controller:
                 self.preview_controller.close()
+        except Exception:
+            pass
+        try:
+            self._watch_service.stop()
         except Exception:
             pass
         try:

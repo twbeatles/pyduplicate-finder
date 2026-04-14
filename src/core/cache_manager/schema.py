@@ -271,6 +271,7 @@ class CacheSchemaMixin:
                     """
                 )
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_jobs_enabled ON scan_jobs(enabled)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_jobs_next_run ON scan_jobs(enabled, next_run_at)")
 
                 conn.execute(
                     """
@@ -291,6 +292,50 @@ class CacheSchemaMixin:
                     """
                 )
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_job_runs_job ON scan_job_runs(job_name, started_at DESC)")
+
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS scan_exemptions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        kind TEXT NOT NULL,
+                        value TEXT NOT NULL,
+                        action TEXT NOT NULL,
+                        note TEXT NOT NULL DEFAULT '',
+                        created_at REAL NOT NULL
+                    )
+                    """
+                )
+                conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_scan_exemptions_unique ON scan_exemptions(kind, value, action)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_exemptions_action ON scan_exemptions(action)")
+
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS review_marks (
+                        session_id INTEGER NOT NULL,
+                        target_type TEXT NOT NULL,
+                        target_key TEXT NOT NULL,
+                        state TEXT NOT NULL,
+                        updated_at REAL NOT NULL,
+                        PRIMARY KEY (session_id, target_type, target_key)
+                    )
+                    """
+                )
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_review_marks_session ON review_marks(session_id, updated_at DESC)")
+
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS file_signatures (
+                        path TEXT NOT NULL,
+                        size INTEGER NOT NULL,
+                        mtime REAL NOT NULL,
+                        sig_type TEXT NOT NULL,
+                        sig_value TEXT NOT NULL,
+                        last_seen REAL NOT NULL,
+                        PRIMARY KEY (path, sig_type)
+                    )
+                    """
+                )
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_file_signatures_type ON file_signatures(sig_type, last_seen DESC)")
                 try:
                     cur = conn.cursor()
                     cur.execute("SELECT value FROM meta WHERE key='schema_version'")

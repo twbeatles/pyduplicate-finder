@@ -5,6 +5,7 @@ from typing import Any, cast
 
 from PySide6.QtWidgets import QMessageBox, QProgressDialog
 
+from src.core.empty_folder_finder import cleanup_empty_parent_folders
 from src.core.operation_queue import Operation, OperationWorker
 from src.ui.main_window_parts.typing_contract import OperationFlowHost
 from src.ui.dialogs.preflight_dialog import PreflightDialog
@@ -179,6 +180,16 @@ class OperationFlowController:
                         h.cache_manager.save_scan_results(h.current_session_id, h.scan_results)
         except Exception:
             pass
+
+        try:
+            if (
+                result
+                and getattr(result, "op_type", "") in ("delete_quarantine", "delete_trash", "hardlink_consolidate")
+                and hasattr(h, "perform_post_cleanup_empty_dirs")
+            ):
+                h.perform_post_cleanup_empty_dirs(list(getattr(result, "succeeded", []) or []))
+        except Exception:
+            logger.exception("Post-delete empty folder cleanup failed")
 
         try:
             msg = getattr(result, "message", "") or strings.tr("status_done")

@@ -90,6 +90,20 @@ class MainWindowSettingsFlowMixin(DuplicateFinderTypingContract):
         if hasattr(self, "spin_strict_max_errors"):
             self.settings.setValue("filter/strict_max_errors", int(self.spin_strict_max_errors.value()))
         self.settings.setValue("filter/similarity_threshold", self.spin_similarity.value())
+        if hasattr(self, "chk_similar_document"):
+            self.settings.setValue("filter/use_similar_document", self.chk_similar_document.isChecked())
+        if hasattr(self, "spin_document_similarity"):
+            self.settings.setValue("filter/document_similarity_threshold", self.spin_document_similarity.value())
+        if hasattr(self, "cmb_selection_policy"):
+            self.settings.setValue("filter/selection_policy", str(self.cmb_selection_policy.currentData() or "smart"))
+        if hasattr(self, "cmb_compare_mode"):
+            self.settings.setValue("filter/compare_mode", str(self.cmb_compare_mode.currentData() or "none"))
+        if hasattr(self, "chk_apply_exemptions"):
+            self.settings.setValue("filter/apply_exemptions", self.chk_apply_exemptions.isChecked())
+        if hasattr(self, "chk_post_cleanup_empty_dirs"):
+            self.settings.setValue("filter/post_cleanup_empty_dirs", self.chk_post_cleanup_empty_dirs.isChecked())
+        if hasattr(self, "chk_watch_mode"):
+            self.settings.setValue("filter/watch_mode", self.chk_watch_mode.isChecked())
         self.settings.setValue("folders", self.selected_folders)
         
         # Save shortcut settings
@@ -156,10 +170,17 @@ class MainWindowSettingsFlowMixin(DuplicateFinderTypingContract):
                     logger.warning("Skip saving invalid schedule time: %s", time_hhmm)
             if hasattr(self, "txt_schedule_output"):
                 self.settings.setValue("schedule/output_dir", str(self.txt_schedule_output.text() or "").strip())
+            if hasattr(self, "txt_schedule_job_name"):
+                self.settings.setValue("schedule/job_name", str(self.txt_schedule_job_name.text() or "").strip() or "default")
             if hasattr(self, "chk_schedule_export_json"):
                 self.settings.setValue("schedule/output_json", bool(self.chk_schedule_export_json.isChecked()))
             if hasattr(self, "chk_schedule_export_csv"):
                 self.settings.setValue("schedule/output_csv", bool(self.chk_schedule_export_csv.isChecked()))
+        except Exception:
+            pass
+
+        try:
+            self.settings.sync()
         except Exception:
             pass
 
@@ -198,6 +219,25 @@ class MainWindowSettingsFlowMixin(DuplicateFinderTypingContract):
             self.spin_strict_max_errors.setValue(max(0, strict_max))
         similarity = self.settings.value("filter/similarity_threshold", 0.9)
         self.spin_similarity.setValue(self._to_float(similarity, 0.9))
+        if hasattr(self, "chk_similar_document"):
+            self.chk_similar_document.setChecked(str(self.settings.value("filter/use_similar_document", False)).lower() == 'true')
+        if hasattr(self, "spin_document_similarity"):
+            doc_similarity = self.settings.value("filter/document_similarity_threshold", 0.9)
+            self.spin_document_similarity.setValue(self._to_float(doc_similarity, 0.9))
+        if hasattr(self, "cmb_selection_policy"):
+            selection_policy = str(self.settings.value("filter/selection_policy", "smart") or "smart")
+            idx = self.cmb_selection_policy.findData(selection_policy)
+            self.cmb_selection_policy.setCurrentIndex(idx if idx >= 0 else 0)
+        if hasattr(self, "cmb_compare_mode"):
+            compare_mode = str(self.settings.value("filter/compare_mode", "none") or "none")
+            idx = self.cmb_compare_mode.findData(compare_mode)
+            self.cmb_compare_mode.setCurrentIndex(idx if idx >= 0 else 0)
+        if hasattr(self, "chk_apply_exemptions"):
+            self.chk_apply_exemptions.setChecked(str(self.settings.value("filter/apply_exemptions", True)).lower() == 'true')
+        if hasattr(self, "chk_post_cleanup_empty_dirs"):
+            self.chk_post_cleanup_empty_dirs.setChecked(str(self.settings.value("filter/post_cleanup_empty_dirs", False)).lower() == 'true')
+        if hasattr(self, "chk_watch_mode"):
+            self.chk_watch_mode.setChecked(str(self.settings.value("filter/watch_mode", False)).lower() == 'true')
         self.refresh_incremental_baselines()
         if hasattr(self, "cmb_baseline_session"):
             sid = self._to_int(self.settings.value("filter/baseline_session_id", 0), 0)
@@ -344,12 +384,16 @@ class MainWindowSettingsFlowMixin(DuplicateFinderTypingContract):
                 self.txt_schedule_time.setText(str(self.settings.value("schedule/time_hhmm", "03:00") or "03:00"))
             if hasattr(self, "txt_schedule_output"):
                 self.txt_schedule_output.setText(str(self.settings.value("schedule/output_dir", "") or ""))
+            if hasattr(self, "txt_schedule_job_name"):
+                self.txt_schedule_job_name.setText(str(self.settings.value("schedule/job_name", "default") or "default"))
             if hasattr(self, "chk_schedule_export_json"):
                 self.chk_schedule_export_json.setChecked(str(self.settings.value("schedule/output_json", True)).lower() == "true")
             if hasattr(self, "chk_schedule_export_csv"):
                 self.chk_schedule_export_csv.setChecked(str(self.settings.value("schedule/output_csv", True)).lower() == "true")
             self._sync_schedule_ui()
-            self._persist_schedule_job()
+            self.refresh_schedule_jobs_view()
+            if not (self.cache_manager.list_scan_jobs() or []):
+                self._persist_schedule_job()
         except Exception:
             pass
 
@@ -388,6 +432,10 @@ class MainWindowSettingsFlowMixin(DuplicateFinderTypingContract):
                 selected_paths = self.cache_manager.load_selected_paths(self.current_session_id)
                 self.scan_results = results
                 self._current_baseline_delta_map = {}
+                self._current_selection_reason_map = {}
+                self._current_exemption_status_map = {}
+                self._current_review_state_map = {}
+                self._current_collection_role_map = {}
                 self._render_results(results, selected_paths=list(selected_paths), selected_count=len(selected_paths))
                 self.status_label.setText(strings.tr("msg_results_loaded").format(len(results)))
                 # Restore UX: bring the user to the focused results page when data is available.
@@ -541,6 +589,14 @@ class MainWindowSettingsFlowMixin(DuplicateFinderTypingContract):
             'incremental_rescan': self.chk_incremental_rescan.isChecked() if hasattr(self, 'chk_incremental_rescan') else False,
             'baseline_session_id': self._get_selected_baseline_session_id() or 0,
             'similarity_threshold': self.spin_similarity.value(),
+            'selection_policy': str(self.cmb_selection_policy.currentData() or 'smart') if hasattr(self, 'cmb_selection_policy') else 'smart',
+            'compare_mode': str(self.cmb_compare_mode.currentData() or 'none') if hasattr(self, 'cmb_compare_mode') else 'none',
+            'folder_roles': {},
+            'use_similar_document': self.chk_similar_document.isChecked() if hasattr(self, 'chk_similar_document') else False,
+            'document_similarity_threshold': self.spin_document_similarity.value() if hasattr(self, 'spin_document_similarity') else 0.9,
+            'watch_mode': self.chk_watch_mode.isChecked() if hasattr(self, 'chk_watch_mode') else False,
+            'apply_exemptions': self.chk_apply_exemptions.isChecked() if hasattr(self, 'chk_apply_exemptions') else True,
+            'post_cleanup_empty_dirs': self.chk_post_cleanup_empty_dirs.isChecked() if hasattr(self, 'chk_post_cleanup_empty_dirs') else False,
             'strict_mode': self.chk_strict_mode.isChecked() if hasattr(self, 'chk_strict_mode') else False,
             'strict_max_errors': self.spin_strict_max_errors.value() if hasattr(self, 'spin_strict_max_errors') else 0,
         }
@@ -593,6 +649,22 @@ class MainWindowSettingsFlowMixin(DuplicateFinderTypingContract):
                 self.spin_strict_max_errors.setValue(0)
         if 'similarity_threshold' in config:
             self.spin_similarity.setValue(config['similarity_threshold'])
+        if 'use_similar_document' in config and hasattr(self, 'chk_similar_document'):
+            self.chk_similar_document.setChecked(bool(config['use_similar_document']))
+        if 'document_similarity_threshold' in config and hasattr(self, 'spin_document_similarity'):
+            self.spin_document_similarity.setValue(float(config['document_similarity_threshold'] or 0.9))
+        if 'selection_policy' in config and hasattr(self, 'cmb_selection_policy'):
+            idx = self.cmb_selection_policy.findData(str(config.get('selection_policy') or 'smart'))
+            self.cmb_selection_policy.setCurrentIndex(idx if idx >= 0 else 0)
+        if 'compare_mode' in config and hasattr(self, 'cmb_compare_mode'):
+            idx = self.cmb_compare_mode.findData(str(config.get('compare_mode') or 'none'))
+            self.cmb_compare_mode.setCurrentIndex(idx if idx >= 0 else 0)
+        if 'apply_exemptions' in config and hasattr(self, 'chk_apply_exemptions'):
+            self.chk_apply_exemptions.setChecked(bool(config['apply_exemptions']))
+        if 'post_cleanup_empty_dirs' in config and hasattr(self, 'chk_post_cleanup_empty_dirs'):
+            self.chk_post_cleanup_empty_dirs.setChecked(bool(config['post_cleanup_empty_dirs']))
+        if 'watch_mode' in config and hasattr(self, 'chk_watch_mode'):
+            self.chk_watch_mode.setChecked(bool(config['watch_mode']))
         
         # Exclude patterns
         if 'exclude_patterns' in config:

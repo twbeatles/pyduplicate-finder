@@ -8,6 +8,42 @@ logger = logging.getLogger(__name__)
 
 
 class CacheJobMixin:
+    def list_scan_jobs(self):
+        out = []
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT name, enabled, schedule_type, weekday, time_hhmm, output_dir, output_json, output_csv,
+                       config_json, last_run_at, next_run_at, last_status, last_message, updated_at
+                FROM scan_jobs
+                ORDER BY name ASC
+                """
+            )
+            for row in cursor.fetchall():
+                out.append(
+                    {
+                        "name": str(row[0] or ""),
+                        "enabled": bool(row[1]),
+                        "schedule_type": str(row[2] or "daily"),
+                        "weekday": int(row[3] or 0),
+                        "time_hhmm": str(row[4] or "03:00"),
+                        "output_dir": str(row[5] or ""),
+                        "output_json": bool(row[6]),
+                        "output_csv": bool(row[7]),
+                        "config_json": str(row[8] or "{}"),
+                        "last_run_at": row[9],
+                        "next_run_at": row[10],
+                        "last_status": row[11],
+                        "last_message": row[12],
+                        "updated_at": row[13],
+                    }
+                )
+        except Exception:
+            logger.exception("List scan jobs error")
+        return out
+
     def upsert_scan_job(
         self,
         *,
@@ -62,6 +98,65 @@ class CacheJobMixin:
                 )
         except Exception:
             logger.exception("Upsert scan job error")
+
+    def delete_scan_job(self, name: str) -> None:
+        if not name:
+            return
+        try:
+            conn = self._get_conn()
+            with conn:
+                conn.execute("DELETE FROM scan_jobs WHERE name=?", (str(name),))
+        except Exception:
+            logger.exception("Delete scan job error")
+
+    def list_scan_job_runs(self, job_name: str | None = None, limit: int = 50):
+        out = []
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+            if job_name:
+                cursor.execute(
+                    """
+                    SELECT id, job_name, created_at, started_at, finished_at, status, message, session_id,
+                           groups_count, files_count, output_json_path, output_csv_path
+                    FROM scan_job_runs
+                    WHERE job_name=?
+                    ORDER BY started_at DESC
+                    LIMIT ?
+                    """,
+                    (str(job_name), max(1, int(limit or 50))),
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT id, job_name, created_at, started_at, finished_at, status, message, session_id,
+                           groups_count, files_count, output_json_path, output_csv_path
+                    FROM scan_job_runs
+                    ORDER BY started_at DESC
+                    LIMIT ?
+                    """,
+                    (max(1, int(limit or 50)),),
+                )
+            for row in cursor.fetchall():
+                out.append(
+                    {
+                        "id": int(row[0] or 0),
+                        "job_name": str(row[1] or ""),
+                        "created_at": float(row[2] or 0.0),
+                        "started_at": float(row[3] or 0.0),
+                        "finished_at": row[4],
+                        "status": str(row[5] or ""),
+                        "message": str(row[6] or ""),
+                        "session_id": int(row[7] or 0),
+                        "groups_count": int(row[8] or 0),
+                        "files_count": int(row[9] or 0),
+                        "output_json_path": str(row[10] or ""),
+                        "output_csv_path": str(row[11] or ""),
+                    }
+                )
+        except Exception:
+            logger.exception("List scan job runs error")
+        return out
 
     def get_scan_job(self, name: str):
         if not name:

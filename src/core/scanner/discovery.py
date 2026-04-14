@@ -16,6 +16,8 @@ class ScanDiscoveryMixin:
                         continue
                     if self._should_exclude(entry.path):
                         continue
+                    if self._should_ignore_path(entry.path):
+                        continue
 
                     if entry.is_dir(follow_symlinks=self.follow_symlinks):
                         if self.protect_system and self.is_protected(entry.path):
@@ -62,9 +64,21 @@ class ScanDiscoveryMixin:
         except Exception:
             pass
 
+    def _collect_document_candidate(self, path: str) -> None:
+        if not (self.use_similar_document and hasattr(self, "document_hasher")):
+            return
+        try:
+            if self.document_hasher.is_supported(path):
+                self._document_files.append(path)
+        except Exception:
+            pass
+
     def _track_file_record(self, path: str, size: int, mtime: float, size_map, db_batch) -> None:
         self._file_meta[path] = (size, mtime)
         self._collect_image_candidate(path)
+        self._collect_document_candidate(path)
+        self._mark_path_exemption_status(path)
+        self._path_collection_roles[path] = self._resolve_collection_role(path)
         self._inc_metric("files_scanned", 1)
 
         if size >= self.min_size and (size > 0 or self.min_size <= 0):
@@ -76,9 +90,12 @@ class ScanDiscoveryMixin:
     def _scan_files(self):
         self._file_meta = {}
         self._image_files = []
+        self._document_files = []
         self._current_scan_dirs = {}
         self._base_scan_dirs = {}
         self.latest_baseline_delta_map = {}
+        self._path_collection_roles = {}
+        self._path_exemption_status = {}
 
         self._emit_progress(0, strings.tr("status_collecting_files"), force=True)
 
@@ -101,6 +118,8 @@ class ScanDiscoveryMixin:
         for folder in self.folders:
             if self.protect_system and self.is_protected(folder):
                 self._emit_progress(0, strings.tr("status_skip_protected_root").format(folder), force=True)
+                continue
+            if self._should_ignore_path(folder):
                 continue
             self._record_scan_dir(folder)
             if self.follow_symlinks:
@@ -160,6 +179,8 @@ class ScanDiscoveryMixin:
             if self.skip_hidden and self._is_hidden_or_system_name(os.path.basename(path)):
                 continue
             if self._should_exclude(path):
+                continue
+            if self._should_ignore_path(path):
                 continue
             if self.extensions:
                 _, ext = os.path.splitext(path)

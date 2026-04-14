@@ -14,13 +14,15 @@ class NavigationController:
         "scan": 0,
         "results": 1,
         "tools": 2,
-        "settings": 3,
+        "insights": 3,
+        "settings": 4,
     }
 
     PAGE_LABEL_KEYS = {
         "scan": "nav_scan",
         "results": "nav_results",
         "tools": "nav_tools",
+        "insights": "nav_insights",
         "settings": "nav_settings",
     }
 
@@ -35,6 +37,11 @@ class NavigationController:
                 try:
                     h.refresh_quarantine_list()
                     h.refresh_operations_list()
+                except Exception:
+                    pass
+            elif page_name == "insights":
+                try:
+                    h.refresh_insights_page()
                 except Exception:
                     pass
 

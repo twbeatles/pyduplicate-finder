@@ -107,3 +107,31 @@ def test_export_scan_results_writes_file_level_baseline_delta(tmp_path):
     by_path = {row["path"]: row for row in r}
     assert by_path[p1]["baseline_delta"] == "new"
     assert by_path[p2]["baseline_delta"] == "changed"
+
+
+def test_export_scan_results_writes_extended_file_state_columns(tmp_path):
+    p1 = _write_file(tmp_path / "a.bin", b"a")
+    p2 = _write_file(tmp_path / "b.bin", b"b")
+    scan_results = {("hash_x", 1): [p1, p2]}
+    out = tmp_path / "extended.csv"
+
+    groups, rows = export_scan_results_csv(
+        scan_results=scan_results,
+        out_path=str(out),
+        selected_paths=[],
+        selection_reason_map={p1: "policy:smart"},
+        exemption_status_map={p2: "safelisted"},
+        review_state_map={p1: "reviewed_keep"},
+        collection_role_map={p2: "primary"},
+    )
+
+    assert groups == 1
+    assert rows == 2
+
+    with out.open("r", encoding="utf-8-sig", newline="") as f:
+        r = list(csv.DictReader(f))
+    by_path = {row["path"]: row for row in r}
+    assert by_path[p1]["selection_reason"] == "policy:smart"
+    assert by_path[p1]["review_state"] == "reviewed_keep"
+    assert by_path[p2]["exemption_status"] == "safelisted"
+    assert by_path[p2]["collection_role"] == "primary"

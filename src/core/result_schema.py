@@ -193,6 +193,55 @@ def dump_results_v2(
     }
 
 
+def dump_results_v3(
+    *,
+    scan_results: Mapping[Any, Sequence[str]],
+    folders: Iterable[str] | None = None,
+    source: str = "gui",
+    generated_at: float | None = None,
+    selected_paths: Iterable[str] | None = None,
+    file_meta: Mapping[str, Sequence[Any]] | None = None,
+    existence_map: Mapping[str, Any] | None = None,
+    selection_reason_map: Mapping[str, str] | None = None,
+    exemption_status_map: Mapping[str, str] | None = None,
+    review_state_map: Mapping[str, str] | None = None,
+    collection_role_map: Mapping[str, str] | None = None,
+    baseline_delta_map: Mapping[str, str] | None = None,
+) -> Dict[str, Any]:
+    payload = dump_results_v2(
+        scan_results=scan_results,
+        folders=folders,
+        source=source,
+        generated_at=generated_at,
+        selected_paths=selected_paths,
+        file_meta=file_meta,
+        baseline_delta_map=baseline_delta_map,
+        existence_map=existence_map,
+    )
+    payload["version"] = 3
+    meta = payload.setdefault("meta", {})
+    state_rows: Dict[str, Dict[str, str]] = {}
+    keys = set()
+    for mapping in (
+        selection_reason_map or {},
+        exemption_status_map or {},
+        review_state_map or {},
+        collection_role_map or {},
+        baseline_delta_map or {},
+    ):
+        keys.update(str(k) for k in mapping.keys())
+    for path in sorted(keys):
+        state_rows[path] = {
+            "selection_reason": str((selection_reason_map or {}).get(path) or ""),
+            "exemption_status": str((exemption_status_map or {}).get(path) or ""),
+            "review_state": str((review_state_map or {}).get(path) or ""),
+            "collection_role": str((collection_role_map or {}).get(path) or ""),
+            "baseline_delta": str((baseline_delta_map or {}).get(path) or ""),
+        }
+    meta["file_state"] = state_rows
+    return payload
+
+
 def load_results_any(payload: Any) -> Dict[Tuple[Any, ...], List[str]]:
     if not isinstance(payload, dict):
         raise ValueError("results payload must be an object")
@@ -245,3 +294,26 @@ def load_results_bundle_any(payload: Any) -> Dict[str, Any]:
         "metrics": dict(meta.get("metrics") or {}),
         "warnings": list(meta.get("warnings") or []),
     }
+
+
+def load_file_state_map(payload: Any) -> Dict[str, Dict[str, str]]:
+    if not isinstance(payload, dict):
+        return {}
+    meta = payload.get("meta")
+    if not isinstance(meta, dict):
+        return {}
+    file_state = meta.get("file_state")
+    if not isinstance(file_state, dict):
+        return {}
+    out: Dict[str, Dict[str, str]] = {}
+    for path, row in file_state.items():
+        if not path or not isinstance(row, dict):
+            continue
+        out[str(path)] = {
+            "selection_reason": str(row.get("selection_reason") or ""),
+            "exemption_status": str(row.get("exemption_status") or ""),
+            "review_state": str(row.get("review_state") or ""),
+            "collection_role": str(row.get("collection_role") or ""),
+            "baseline_delta": str(row.get("baseline_delta") or ""),
+        }
+    return out

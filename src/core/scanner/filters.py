@@ -1,6 +1,13 @@
 from __future__ import annotations
 
 from .common import fnmatch, os, platform
+from src.core.scan_types import (
+    COLLECTION_ROLE_NONE,
+    EXEMPTION_ACTION_IGNORE,
+    EXEMPTION_ACTION_SAFELIST,
+    EXEMPTION_KIND_EXACT_PATH,
+    EXEMPTION_KIND_PATH_GLOB,
+)
 
 
 class ScanFilterMixin:
@@ -139,3 +146,47 @@ class ScanFilterMixin:
             self.cache_manager.save_scan_dirs_batch(self.session_id, entries)
         except Exception:
             pass
+
+    def _resolve_collection_role(self, path: str) -> str:
+        if not path:
+            return COLLECTION_ROLE_NONE
+        norm_path = self._normalize_path(path)
+        best_role = COLLECTION_ROLE_NONE
+        best_len = -1
+        for folder, role in (self.folder_roles or {}).items():
+            try:
+                norm_folder = self._normalize_path(folder)
+                if os.path.commonpath([norm_path, norm_folder]) == norm_folder and len(norm_folder) > best_len:
+                    best_role = str(role or COLLECTION_ROLE_NONE)
+                    best_len = len(norm_folder)
+            except Exception:
+                continue
+        return best_role
+
+    def _match_path_exemption(self, path: str):
+        if not self.apply_exemptions:
+            return None
+        norm_path = self._normalize_path(path)
+        base = os.path.basename(norm_path)
+        for rule in self._exemption_rules or []:
+            if rule.kind == EXEMPTION_KIND_EXACT_PATH and self._normalize_path(rule.value) == norm_path:
+                return rule
+            if rule.kind == EXEMPTION_KIND_PATH_GLOB:
+                pat = self._normalize_match(rule.value)
+                if fnmatch.fnmatchcase(self._normalize_match(norm_path), pat) or fnmatch.fnmatchcase(base.lower() if os.name == "nt" else base, rule.value.lower() if os.name == "nt" else rule.value):
+                    return rule
+        return None
+
+    def _should_ignore_path(self, path: str) -> bool:
+        rule = self._match_path_exemption(path)
+        if not rule:
+            return False
+        status = "safelist" if rule.action == EXEMPTION_ACTION_SAFELIST else "ignore"
+        self._path_exemption_status[str(path)] = status
+        return rule.action == EXEMPTION_ACTION_IGNORE
+
+    def _mark_path_exemption_status(self, path: str) -> None:
+        rule = self._match_path_exemption(path)
+        if not rule:
+            return
+        self._path_exemption_status[str(path)] = "safelist" if rule.action == EXEMPTION_ACTION_SAFELIST else "ignore"

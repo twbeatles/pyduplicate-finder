@@ -3,6 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from src.core.scan_types import (
+    COMPARE_MODE_NONE,
+    SELECTION_POLICY_SMART,
+)
+
 
 @dataclass
 class ScanConfig:
@@ -25,6 +30,14 @@ class ScanConfig:
     similarity_threshold: float = 0.9
     strict_mode: bool = False
     strict_max_errors: int = 0
+    selection_policy: str = SELECTION_POLICY_SMART
+    compare_mode: str = COMPARE_MODE_NONE
+    folder_roles: Dict[str, str] = field(default_factory=dict)
+    use_similar_document: bool = False
+    document_similarity_threshold: float = 0.9
+    watch_mode: bool = False
+    apply_exemptions: bool = True
+    post_cleanup_empty_dirs: bool = False
 
 
 def build_scan_worker_kwargs(
@@ -52,6 +65,14 @@ def build_scan_worker_kwargs(
         "similarity_threshold": float(cfg.similarity_threshold or 0.9),
         "strict_mode": bool(cfg.strict_mode),
         "strict_max_errors": max(0, int(cfg.strict_max_errors or 0)),
+        "selection_policy": str(cfg.selection_policy or SELECTION_POLICY_SMART),
+        "compare_mode": str(cfg.compare_mode or COMPARE_MODE_NONE),
+        "folder_roles": dict(cfg.folder_roles or {}),
+        "use_similar_document": bool(cfg.use_similar_document),
+        "document_similarity_threshold": float(cfg.document_similarity_threshold or 0.9),
+        "watch_mode": bool(cfg.watch_mode),
+        "apply_exemptions": bool(cfg.apply_exemptions),
+        "post_cleanup_empty_dirs": bool(cfg.post_cleanup_empty_dirs),
         "session_id": int(session_id) if session_id else None,
         "use_cached_files": bool(use_cached_files),
     }
@@ -67,5 +88,18 @@ def validate_similar_image_dependency(cfg: ScanConfig) -> Optional[str]:
         return "err_similar_image_dependency"
     if not bool(IMAGE_HASH_AVAILABLE):
         return "err_similar_image_dependency"
+    return None
+
+
+def validate_similar_document_dependency(cfg: ScanConfig) -> Optional[str]:
+    requested = bool(getattr(cfg, "use_similar_document", False))
+    if not requested:
+        return None
+    try:
+        from src.core.scanner import DOCUMENT_HASH_AVAILABLE
+    except Exception:
+        return "err_similar_document_dependency"
+    if not bool(DOCUMENT_HASH_AVAILABLE):
+        return "err_similar_document_dependency"
     return None
 

@@ -31,4 +31,15 @@ except ImportError:
 
 
 IMAGE_HASH_AVAILABLE = bool(_image_hash_available())
+_DocumentHasher = None
+try:
+    from src.core.document_hash import DocumentHasher as _DocumentHasher, is_available as _document_hash_available
+except ImportError:
+    _DocumentHasher = None
+
+    def _document_hash_available() -> bool:
+        return False
+
+
+DOCUMENT_HASH_AVAILABLE = bool(_document_hash_available())
 BUFFER_SIZE = 1024 * 1024

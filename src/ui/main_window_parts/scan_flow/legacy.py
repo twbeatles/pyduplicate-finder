@@ -24,7 +24,7 @@ from src.core.quarantine_manager import QuarantineManager
 from src.core.preflight import PreflightAnalyzer
 from src.core.selection_rules import parse_rules
 from src.core.operation_queue import Operation
-from src.core.scan_engine import ScanConfig, validate_similar_image_dependency
+from src.core.scan_engine import ScanConfig, validate_similar_document_dependency, validate_similar_image_dependency
 from src.core.scheduler import ScheduleConfig
 from src.ui.empty_folder_dialog import EmptyFolderDialog
 from src.ui.components.results_tree import ResultsTreeWidget
@@ -61,6 +61,51 @@ def _mw():
 
 
 class MainWindowScanFlowMixin(DuplicateFinderTypingContract):
+    def _sync_watch_mode(self: Any, *, enabled: bool, folders: list[str] | None = None):
+        try:
+            if not enabled:
+                self._watch_service.stop()
+                self._watch_pending_rerun = False
+                self._watch_pending_paths = []
+                return
+            watch_folders = list(folders or self._watch_last_folders or [])
+            self._watch_last_folders = list(watch_folders)
+            self._watch_service.start(watch_folders)
+        except Exception:
+            logger.warning("Failed to sync watch mode", exc_info=True)
+
+    def _on_watch_state_changed(self: Any, state: str):
+        if bool(getattr(self, "btn_stop_scan", None) and self.btn_stop_scan.isEnabled()):
+            return
+        if state == "watchdog":
+            self.status_label.setText(strings.tr("msg_watch_armed"))
+        elif state == "polling":
+            self.status_label.setText(strings.tr("msg_watch_armed_polling"))
+
+    def _trigger_watch_rerun(self: Any):
+        if not self._watch_last_folders:
+            return
+        config_override = dict(self._watch_last_config or self._get_current_config() or {})
+        config_override["folders"] = list(self._watch_last_folders)
+        config_override["watch_mode"] = True
+        if self.current_session_id:
+            config_override["incremental_rescan"] = True
+            config_override["baseline_session_id"] = int(self.current_session_id or 0)
+        self._watch_pending_rerun = False
+        self.start_scan(
+            force_new=False,
+            config_override=config_override,
+            folders_override=list(self._watch_last_folders),
+        )
+
+    def _on_watch_activity_detected(self: Any, paths):
+        self._watch_pending_paths = list(paths or [])
+        if bool(getattr(self, "btn_stop_scan", None) and self.btn_stop_scan.isEnabled()):
+            self._watch_pending_rerun = True
+            self.status_label.setText(strings.tr("msg_watch_pending_rerun"))
+            return
+        self._trigger_watch_rerun()
+
     def _on_folders_changed(self: Any):
         """Central place to update UI state that depends on selected folders."""
         count = len(self.selected_folders or [])
@@ -189,6 +234,8 @@ class MainWindowScanFlowMixin(DuplicateFinderTypingContract):
             seen.add(key)
             effective_folders.append(abs_path)
         current_config["folders"] = list(effective_folders)
+        self._watch_last_config = dict(current_config or {})
+        self._watch_last_folders = list(effective_folders)
 
         if not effective_folders:
             if self._scheduled_run_context and self._scheduled_job_run_id:
@@ -247,10 +294,25 @@ class MainWindowScanFlowMixin(DuplicateFinderTypingContract):
             incremental_rescan=bool(incremental_rescan),
             baseline_session_id=int(baseline_session_id) if baseline_session_id > 0 else None,
             similarity_threshold=float(current_config.get("similarity_threshold") or 0.9),
+            selection_policy=str(current_config.get("selection_policy") or "smart"),
+            compare_mode=str(current_config.get("compare_mode") or "none"),
+            folder_roles=dict(current_config.get("folder_roles") or {}),
+            use_similar_document=bool(current_config.get("use_similar_document")),
+            document_similarity_threshold=float(current_config.get("document_similarity_threshold") or 0.9),
+            watch_mode=bool(current_config.get("watch_mode", False)),
+            apply_exemptions=bool(current_config.get("apply_exemptions", True)),
+            post_cleanup_empty_dirs=bool(current_config.get("post_cleanup_empty_dirs", False)),
             strict_mode=bool(current_config.get("strict_mode", False)),
             strict_max_errors=int(current_config.get("strict_max_errors") or 0),
         )
+        if scan_cfg.compare_mode == "collections" and len(scan_cfg.folders) >= 2 and not scan_cfg.folder_roles:
+            scan_cfg.folder_roles = {
+                str(scan_cfg.folders[0]): "primary",
+                str(scan_cfg.folders[1]): "secondary",
+            }
         dep_error_key = _mw().validate_similar_image_dependency(scan_cfg)
+        if not dep_error_key:
+            dep_error_key = _mw().validate_similar_document_dependency(scan_cfg)
         if dep_error_key:
             msg = strings.tr(dep_error_key)
             if self._scheduled_run_context and self._scheduled_job_run_id:
@@ -311,16 +373,25 @@ class MainWindowScanFlowMixin(DuplicateFinderTypingContract):
         self._previous_result_meta = dict(self._current_result_meta or {})
         self._previous_result_existence_map = dict(self._current_result_existence_map or {})
         self._previous_baseline_delta_map = dict(self._current_baseline_delta_map or {})
+        self._last_incremental_stats = {}
 
         self.tree_widget.clear()
         self.scan_results = {}
         self._current_result_meta = {}
         self._current_result_existence_map = {}
         self._current_baseline_delta_map = {}
+        self._current_selection_reason_map = {}
+        self._current_exemption_status_map = {}
+        self._current_review_state_map = {}
+        self._current_collection_role_map = {}
         self._set_results_view(False)
         self._update_results_summary(0)
         self.toggle_ui_state(scanning=True)
         self._set_scan_stage_code("collecting")
+        self._sync_watch_mode(
+            enabled=bool(scan_cfg.watch_mode) and not bool(self._scheduled_run_context),
+            folders=list(effective_folders),
+        )
         self.worker = self.scan_controller.build_worker(
             config=scan_cfg,
             session_id=session_id,
@@ -399,6 +470,7 @@ class MainWindowScanFlowMixin(DuplicateFinderTypingContract):
         delta_msg = ""
         try:
             stats = dict(getattr(self.worker, "incremental_stats", {}) or {})
+            self._last_incremental_stats = dict(stats or {})
             if stats and int(stats.get("base_session_id") or 0) > 0:
                 delta_msg = strings.tr("msg_incremental_delta").format(
                     added=int(stats.get("new") or 0),
@@ -430,6 +502,22 @@ class MainWindowScanFlowMixin(DuplicateFinderTypingContract):
             self._current_baseline_delta_map = dict(getattr(self.worker, "latest_baseline_delta_map", {}) or {})
         except Exception:
             self._current_baseline_delta_map = {}
+        try:
+            self._current_selection_reason_map = dict(getattr(self.worker, "latest_selection_reason_map", {}) or {})
+        except Exception:
+            self._current_selection_reason_map = {}
+        try:
+            self._current_exemption_status_map = dict(getattr(self.worker, "latest_exemption_status_map", {}) or {})
+        except Exception:
+            self._current_exemption_status_map = {}
+        try:
+            self._current_review_state_map = dict(getattr(self.worker, "latest_result_review_state_map", {}) or {})
+        except Exception:
+            self._current_review_state_map = {}
+        try:
+            self._current_collection_role_map = dict(getattr(self.worker, "latest_collection_role_map", {}) or {})
+        except Exception:
+            self._current_collection_role_map = {}
         existence_map = {p: True for p in file_meta.keys()} if file_meta else None
         self._current_result_existence_map = dict(existence_map or {})
         self._render_results(results, selected_paths=[], file_meta=file_meta, existence_map=existence_map, selected_count=0)
@@ -444,6 +532,12 @@ class MainWindowScanFlowMixin(DuplicateFinderTypingContract):
 
         # Scheduler post-actions (auto export + job run bookkeeping).
         self._finish_scheduled_run(scan_status, results)
+        self._sync_watch_mode(
+            enabled=bool((self._watch_last_config or {}).get("watch_mode")) and not bool(self._scheduled_run_context),
+            folders=list(self._watch_last_folders or []),
+        )
+        if self._watch_pending_rerun and bool((self._watch_last_config or {}).get("watch_mode")):
+            QTimer.singleShot(0, self._trigger_watch_rerun)
         if scan_status == "partial" and hasattr(self, "toast_manager") and self.toast_manager:
             self.toast_manager.warning(strings.tr("msg_scan_partial_warning"), duration=4000)
 
@@ -469,6 +563,7 @@ class MainWindowScanFlowMixin(DuplicateFinderTypingContract):
             self._update_results_summary(0)
             self._update_action_buttons_state(selected_count=0)
         self._finish_scheduled_run("cancelled", {})
+        self._sync_watch_mode(enabled=False)
 
     def on_scan_failed(self: Any, message):
         self._set_scan_stage(strings.tr("status_stopped"))
@@ -492,6 +587,7 @@ class MainWindowScanFlowMixin(DuplicateFinderTypingContract):
             self._update_results_summary(0)
             self._update_action_buttons_state(selected_count=0)
         self._finish_scheduled_run("failed", {})
+        self._sync_watch_mode(enabled=False)
         _mw().QMessageBox.critical(self, strings.tr("app_title"), err_msg)
 
     def _normalize_extension_tokens(self: Any, value):
@@ -541,10 +637,24 @@ class MainWindowScanFlowMixin(DuplicateFinderTypingContract):
         hash_config["extensions"] = self._normalize_extension_tokens(hash_config.get("extensions"))
         hash_config["include_patterns"] = self._normalize_pattern_list(hash_config.get("include_patterns") or [])
         hash_config["exclude_patterns"] = self._normalize_pattern_list(hash_config.get("exclude_patterns") or [])
+        hash_config["selection_policy"] = str(hash_config.get("selection_policy") or "smart")
+        hash_config["compare_mode"] = str(hash_config.get("compare_mode") or "none")
+        hash_config["folder_roles"] = {
+            str(k): str(v)
+            for k, v in sorted(dict(hash_config.get("folder_roles") or {}).items())
+            if k
+        }
+        hash_config["use_similar_document"] = bool(hash_config.get("use_similar_document"))
+        hash_config["document_similarity_threshold"] = float(hash_config.get("document_similarity_threshold") or 0.9)
+        hash_config["watch_mode"] = bool(hash_config.get("watch_mode"))
+        hash_config["apply_exemptions"] = bool(hash_config.get("apply_exemptions", True))
+        hash_config["post_cleanup_empty_dirs"] = bool(hash_config.get("post_cleanup_empty_dirs"))
 
         if not hash_config.get("use_similar_image"):
             hash_config.pop("similarity_threshold", None)
             hash_config.pop("use_mixed_mode", None)
+        if not hash_config.get("use_similar_document"):
+            hash_config.pop("document_similarity_threshold", None)
         if hash_config.get("name_only"):
             hash_config.pop("detect_duplicate_folders", None)
             hash_config.pop("use_mixed_mode", None)

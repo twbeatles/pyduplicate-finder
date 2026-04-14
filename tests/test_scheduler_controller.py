@@ -7,6 +7,7 @@ from src.ui.controllers.scheduler_controller import SchedulerController
 class _FakeCache:
     def __init__(self):
         self.job = None
+        self.jobs = {}
         self.upsert_calls = []
         self.runtime_calls = []
         self.create_run_calls = []
@@ -14,7 +15,7 @@ class _FakeCache:
 
     def upsert_scan_job(self, **kwargs):
         self.upsert_calls.append(kwargs)
-        self.job = {
+        job = {
             "name": kwargs.get("name"),
             "enabled": bool(kwargs.get("enabled")),
             "schedule_type": kwargs.get("schedule_type"),
@@ -30,17 +31,24 @@ class _FakeCache:
             "last_message": None,
             "updated_at": 0,
         }
+        self.jobs[str(kwargs.get("name") or "default")] = dict(job)
+        self.job = dict(job)
 
     def get_scan_job(self, _name):
-        return dict(self.job or {})
+        return dict(self.jobs.get(str(_name or "default")) or self.job or {})
+
+    def list_scan_jobs(self):
+        return [dict(v) for v in self.jobs.values()]
 
     def update_scan_job_runtime(self, name, **kwargs):
         self.runtime_calls.append((name, kwargs))
         if self.job:
             self.job.update(kwargs)
+        if name in self.jobs:
+            self.jobs[name].update(kwargs)
 
     def create_scan_job_run(self, _name, *, session_id=None, status="running"):
-        self.create_run_calls.append({"session_id": int(session_id or 0), "status": status})
+        self.create_run_calls.append({"name": _name, "session_id": int(session_id or 0), "status": status})
         return 17
 
     def finish_scan_job_run(self, run_id, **kwargs):
@@ -165,3 +173,35 @@ def test_scheduler_controller_finalize_run_updates_both_tables():
     _name, payload = cache.runtime_calls[-1]
     assert payload["last_status"] == "completed"
     assert payload["last_message"] == "completed"
+
+
+def test_scheduler_controller_chooses_earliest_due_job():
+    c = SchedulerController()
+    cache = _FakeCache()
+    cfg = c.build_config(enabled=True, schedule_type="daily", weekday=0, time_hhmm="03:00")
+    c.persist_job(
+        cache_manager=cache,
+        cfg=cfg,
+        scan_config={"folders": ["D:/A"]},
+        output_dir="D:/out",
+        output_json=True,
+        output_csv=False,
+        job_name="job_b",
+    )
+    c.persist_job(
+        cache_manager=cache,
+        cfg=cfg,
+        scan_config={"folders": ["D:/B"]},
+        output_dir="D:/out",
+        output_json=True,
+        output_csv=False,
+        job_name="job_a",
+    )
+    cache.jobs["job_a"]["next_run_at"] = 1.0
+    cache.jobs["job_b"]["next_run_at"] = 2.0
+
+    now_ts = datetime(2026, 2, 20, 10, 0, 0).timestamp()
+    job, _due_cfg = c.get_due_job(cache_manager=cache, is_scanning=False, now_ts=now_ts)
+
+    assert job is not None
+    assert job["name"] == "job_a"

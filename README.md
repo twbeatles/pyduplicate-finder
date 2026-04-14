@@ -26,15 +26,20 @@
 ### 🎨 모던 UI & 사용자 경험
 - **다양한 스캔 모드**: 
     - **유사 이미지 탐지 (pHash + BK-Tree)**: **BK-Tree** 알고리즘을 도입하여 수천 장의 이미지도 $O(N \log N)$ 속도로 순식간에 분석합니다. 시각적으로 비슷한 이미지(리사이즈, 변형 등)를 찾아냅니다.
+    - **유사 문서 탐지 (SimHash)**: `.txt`, `.md`, `.csv`, `.json`, `.py`, `.pdf` 문서를 정규화해 near-duplicate 문서를 그룹화합니다.
     - **파일명 비교**: 파일 내용은 다르더라도 이름이 같은 파일들을 빠르게 찾아냅니다.
 - **제외 패턴 (Exclude Patterns)**: `node_modules`, `.git`, `*.tmp` 등 원하지 않는 폴더나 파일을 스캔에서 제외할 수 있습니다.
 - **스캔 프리셋**: 자주 사용하는 스캔 설정(유사 이미지 모드, 특정 확장자 등)을 프리셋으로 저장하고 불러올 수 있습니다.
 - **결과 저장/로드**: 긴 시간 스캔한 결과를 JSON 파일로 저장했다가 나중에 다시 열어볼 수 있습니다.
-  - 신규 저장은 `version=2` 공통 스키마를 사용하며, 로더는 legacy GUI/CLI 포맷도 자동 호환합니다.
+  - 신규 저장은 `version=3` 공통 스키마를 사용하며, 로더는 legacy / v2 / v3 포맷을 자동 호환합니다.
+  - 파일 단위 상태(`selection_reason`, `exemption_status`, `review_state`, `collection_role`, `baseline_delta`)도 함께 보존합니다.
 - **자동 세션 복원**: 마지막 스캔 세션을 자동 감지하고 재개/새 스캔 여부를 선택할 수 있습니다.
 - **직관적인 트리 뷰**: 결과 트리를 전체 펼치거나 접을 수 있으며, 우클릭 메뉴로 다양한 작업을 수행합니다.
 - **실시간 결과 필터**: 이름/경로 기준으로 결과를 빠르게 필터링할 수 있습니다.
-- **사이드바 네비게이션**: 스캔/결과/도구/설정 화면을 빠르게 이동할 수 있습니다.
+- **사이드바 네비게이션**: 스캔/결과/도구/인사이트/설정 화면을 빠르게 이동할 수 있습니다.
+- **인사이트 대시보드**: 최근 스캔 세션, 절감 용량, 실패율, 예약 실행 이력을 별도 페이지에서 확인할 수 있습니다.
+- **세션 비교 다이얼로그**: 증분 스캔 결과의 `new / changed / revalidated` 파일을 별도 다이얼로그와 필터로 검토할 수 있습니다.
+- **감시 모드**: 선택 폴더를 계속 감시하고 변경이 감지되면 증분 재스캔을 자동 예약합니다.
 - **커스텀 단축키**: 사용자 편의에 맞춰 모든 기능의 단축키를 설정할 수 있습니다.
 - **다국어 지원**: 한국어/영어 인터페이스를 지원합니다.
 
@@ -71,6 +76,8 @@ duplicate_finder/
 │   │   ├── history.py           # Undo/Redo 트랜잭션
 │   │   ├── result_schema.py     # 결과 JSON v2 스키마/호환 로더
 │   │   ├── image_hash.py        # 유사 이미지 탐지 (pHash)
+│   │   ├── document_hash.py     # 유사 문서 탐지 (SimHash / PDF text extraction)
+│   │   ├── scan_types.py        # selection/exemption/review/collection 타입
 │   │   ├── file_lock_checker.py # 파일 잠금 감지
 │   │   ├── preset_manager.py    # 스캔 프리셋 관리
 │   │   └── empty_folder_finder.py # 빈 폴더 탐색
@@ -89,6 +96,7 @@ duplicate_finder/
 │   │   ├── controllers/         # UI 오케스트레이션 컨트롤러
 │   │   │   ├── scan_controller.py
 │   │   │   ├── scheduler_controller.py
+│   │   │   ├── watch_controller.py
 │   │   │   ├── ops_controller.py
 │   │   │   ├── operation_flow_controller.py
 │   │   │   ├── navigation_controller.py
@@ -102,6 +110,7 @@ duplicate_finder/
 │   │   │   ├── scan_page.py      # 스캔 페이지(UI)
 │   │   │   ├── results_page.py   # 결과 페이지(UI)
 │   │   │   ├── tools_page.py     # 도구 페이지(UI)
+│   │   │   ├── insights_page.py  # 인사이트 페이지(UI)
 │   │   │   └── settings_page.py  # 설정 페이지(UI)
 │   │   └── dialogs/
 │   │       ├── preset_dialog.py
@@ -109,6 +118,7 @@ duplicate_finder/
 │   │       ├── selection_rules_dialog.py
 │   │       ├── preflight_dialog.py
 │   │       ├── operation_log_dialog.py
+│   │       ├── session_compare_dialog.py
 │   │       └── shortcut_settings_dialog.py
 │   └── utils/
 │       └── i18n/                # catalog_en/catalog_ko/service 분리
@@ -129,6 +139,8 @@ duplicate_finder/
 | Pillow | 이미지 처리 |
 | send2trash | 휴지통 기능 |
 | psutil | 파일 잠금 프로세스 확인 |
+| watchdog | 실시간 폴더 감시 |
+| pypdf | PDF 텍스트 추출 기반 유사 문서 탐지 |
 
 ### 설치 단계
 
@@ -180,6 +192,7 @@ python cli.py "D:/Data" "E:/Photos" --extensions jpg,png --output-json result.js
     | 내용+파일명 모두 일치 | 해시가 같고 파일명도 같은 경우만 그룹화 |
     | 바이트 단위 정밀 비교 | 해시가 같은 후보를 바이트 단위로 재검증 |
     | 유사 이미지 탐지 | 시각적 유사성 분석 (0.1~1.0 임계값) |
+    | 유사 문서 탐지 | SimHash 기반 near-duplicate 문서 그룹화 |
     | 휴지통 사용 | 영구 삭제 대신 휴지통으로 이동 |
     | 숨김/시스템 파일 제외 | .으로 시작하는 파일/폴더 및 OS 메타데이터를 제외 |
     | 심볼릭 링크 따라가기 | 심볼릭 링크를 따라 스캔 (루프 감지 포함) |
@@ -213,6 +226,10 @@ python cli.py "D:/Data" "E:/Photos" --extensions jpg,png --output-json result.js
 | 작업 기록 | 삭제/복구/정리/하드링크 작업 기록 및 내보내기 |
 | 하드링크 통합 | (고급) 중복 파일을 하드링크로 통합하여 공간 절감 |
 | 예약 스캔 스냅샷 | 저장된 예약 설정(`scan_jobs.config_json`)으로 실행되며, 폴더 일부 누락 시 유효 폴더만 실행/전체 누락 시 `skipped(no_valid_folders)` 처리 |
+| 다중 예약 작업 | 이름별 scan job 저장/편집/삭제/수동 실행과 최근 실행 이력 확인 |
+| 감시 모드 | 폴더 변경 감지 후 debounce 기반 증분 재스캔 예약 |
+| 인사이트 | 최근 세션, 절감 용량, 실패율, 예약 실행 이력 표시 |
+| 세션 비교 | 증분 스캔 delta(`new`, `changed`, `revalidated`) 검토 |
 | 캐시 유지 정책 | 세션 보존 개수(`cache/session_keep_latest`)와 해시 캐시 보존 일수(`cache/hash_cleanup_days`)를 설정하고 즉시 적용 |
 | 헤드리스 CLI 스캔 | GUI 없이 폴더 스캔 후 JSON/CSV 결과 출력 |
 
@@ -261,7 +278,7 @@ MIT License
 - 예약 스캔(기본): 설정 화면에서 일/주 단위 스케줄 + 자동 JSON/CSV 출력
 - 예약 스캔 실행 정책: UI 현재 상태가 아닌 저장 스냅샷(`scan_jobs.config_json`) 기준 실행, 누락 폴더 정책은 `유효 폴더만 실행 / 전체 누락 시 skipped(no_valid_folders)`
 - 결과 뷰/내보내기 강화: `FOLDER_DUP` 그룹 라벨 개선, CSV에 `group_kind`, `bytes_reclaim_est`, `baseline_delta` 컬럼 추가
-- 결과 JSON 스키마 통합: GUI/CLI 저장은 `version=2` 포맷 사용, 로더는 legacy GUI/legacy CLI/v2를 모두 수용
+- 결과 JSON 스키마 통합: GUI/CLI 저장은 `version=3` 포맷 사용, 로더는 legacy GUI/legacy CLI/v2/v3를 모두 수용
 - 삭제 복구성 강화: Quarantine DB insert 실패 시 파일 이동 롤백 처리(고아 파일 방지)
 - 미리보기 동시성 강화: preview cache에 `RLock` 적용, 시그널 연결을 `Qt.QueuedConnection`으로 명시
 - 프리셋 스키마 정합성: `schema_version=2` 저장 및 구버전 preset 로드 시 누락 키 기본값 자동 병합
@@ -380,17 +397,30 @@ python cli.py "D:/Data" --strict-mode --strict-max-errors 0 --output-json result
 - Config hash canonicalization is applied for better baseline reuse.
 - Baseline policy remains `completed`-only (`partial` excluded).
 
-## 구현 상태 (2026-04-12)
+## 구현 상태 (2026-04-14)
 
-- 주간 예약 스캔의 첫 실행 판정을 수정했습니다.
-  - 새로 활성화한 weekly 작업은 이미 지난 요일 때문에 즉시 실행되지 않고, 다음 예약 슬롯을 기다립니다.
-- 0바이트 파일은 `min_size_kb`가 `0`일 때만 중복 후보에 포함됩니다.
-- 결과 JSON `version=2`는 하위 호환을 유지하면서 `meta.selected_paths`, `meta.file_meta`(`size`, `mtime`, `exists`), `meta.baseline_delta_map`(`new|changed|revalidated`)을 함께 저장할 수 있습니다.
-- 저장된 JSON을 GUI에서 불러오면 체크 상태, 파일 메타데이터, 누락 배지, incremental delta 표시까지 함께 복원됩니다.
-- 예약 스캔이 정상 완료되었더라도 JSON/CSV export가 실패하면 실행 상태는 `partial`로 기록됩니다.
-  - 실행 메시지에는 `missing_folders:1`, `export_failed:csv` 같은 반구조화 suffix가 함께 남습니다.
-- CLI `--quiet`는 이제 진행률, 완료 요약, `Saved JSON/CSV`를 포함한 성공 stdout을 모두 숨깁니다.
-  - 오류와 취소 알림은 계속 `stderr`로 출력됩니다.
-- 격리함 retention 정리는 5,000건 제한 없이 배치 순회로 적용됩니다.
-- 패키징 점검 결과 `PyDuplicateFinder.spec`는 이번 변경에 필요한 모듈을 이미 포함하고 있어 hidden import 수정이 필요하지 않았습니다.
-- 회귀 검증 기준은 `pytest -q` -> `122 passed`입니다.
+- DB 스키마 버전이 `6`으로 확장되었습니다.
+  - `scan_exemptions`, `review_marks`, `file_signatures` 테이블이 추가되었습니다.
+- 선택 정책 엔진이 통합되었습니다.
+  - `smart`, `oldest`, `newest`, `path_shortest`, `extension_priority`, `primary_keep`
+  - 명시적 규칙 → safelist → 컬렉션 역할 → 속성 우선순위 → fallback 순서로 평가합니다.
+- Safelist / Ignore / Review state가 결과와 JSON v3, CSV export에 반영됩니다.
+- 결과 JSON `version=3`는 파일 단위 상태를 함께 저장합니다.
+  - `selection_reason`, `exemption_status`, `review_state`, `collection_role`, `baseline_delta`
+- Results 화면에 delta filter(`new`, `changed`, `revalidated`)와 Session Compare 다이얼로그가 추가되었습니다.
+- Settings 화면에 다중 예약 작업 관리 UI가 추가되었습니다.
+  - job 생성/수정/삭제/수동 실행
+  - 최근 실행 이력 테이블 표시
+- Insights 페이지가 추가되었습니다.
+  - 최근 세션, 절감 용량, 실패율, 격리함 사용량, 예약 실행 이력 확인
+- Watch mode 실제 동작이 연결되었습니다.
+  - `watchdog` 사용 가능 시 실시간 감시, 미설치 환경에서는 polling fallback
+  - 스캔 중 변경은 `pending rerun` 1건으로 합쳐지고, 완료 후 증분 재스캔됩니다.
+- 삭제 후 빈 폴더 후처리가 실제 실행 경로에 연결되었습니다.
+  - 삭제/하드링크 작업 후 비게 된 상위 폴더를 다시 검사하고 별도 operation log로 남깁니다.
+- 유사 문서 탐지가 `.txt`, `.md`, `.csv`, `.json`, `.py`, `.pdf`에 대해 활성화되었습니다.
+  - `pypdf`가 있으면 PDF 텍스트 기반 SimHash 그룹핑을 수행합니다.
+- 현재 이 워크스페이스 기준 자동 회귀 결과:
+  - `pytest -q` -> `131 passed, 1 skipped`
+
+- 이전 2026-04-12 변경사항도 유지됩니다.

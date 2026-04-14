@@ -4,8 +4,13 @@ import os
 import sys
 from typing import Any
 
-from src.core.result_schema import dump_results_v2
-from src.core.scan_engine import ScanConfig, build_scan_worker_kwargs, validate_similar_image_dependency
+from src.core.result_schema import dump_results_v3
+from src.core.scan_engine import (
+    ScanConfig,
+    build_scan_worker_kwargs,
+    validate_similar_document_dependency,
+    validate_similar_image_dependency,
+)
 from src.core.scanner import ScanWorker
 from src.ui.exporting import export_scan_results_csv
 from src.utils.i18n import strings
@@ -37,13 +42,26 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--byte-compare", action="store_true")
 
     p.add_argument("--similar-image", action="store_true")
+    p.add_argument("--similar-document", action="store_true")
     p.add_argument("--mixed-mode", action="store_true")
     p.add_argument("--detect-folder-dup", action="store_true")
     p.add_argument("--incremental-rescan", action="store_true")
     p.add_argument("--baseline-session", type=int, default=0)
     p.add_argument("--similarity-threshold", type=_similarity_threshold_type, default=0.9)
+    p.add_argument("--document-threshold", type=_similarity_threshold_type, default=0.9)
     p.add_argument("--strict-mode", action="store_true")
     p.add_argument("--strict-max-errors", type=int, default=0)
+    p.add_argument(
+        "--selection-policy",
+        choices=["smart", "oldest", "newest", "path_shortest", "extension_priority", "primary_keep"],
+        default="smart",
+    )
+    p.add_argument("--compare-mode", choices=["none", "collections"], default="none")
+    p.add_argument("--watch", action="store_true")
+    p.add_argument("--respect-exemptions", action="store_true")
+    p.add_argument("--post-cleanup-empty-dirs", action="store_true")
+    p.add_argument("--collection-a", action="append", default=[], help="Primary collection folder (repeatable)")
+    p.add_argument("--collection-b", action="append", default=[], help="Secondary collection folder (repeatable)")
 
     p.add_argument("--no-protect-system", action="store_true")
     p.add_argument("--skip-hidden", action="store_true")
@@ -99,15 +117,34 @@ def main() -> int:
         exclude_patterns=list(args.exclude or []),
         # Mixed mode always requires similar-image pass.
         use_similar_image=bool(args.similar_image or args.mixed_mode),
+        use_similar_document=bool(getattr(args, "similar_document", False)),
         use_mixed_mode=bool(args.mixed_mode),
         detect_duplicate_folders=bool(args.detect_folder_dup),
         incremental_rescan=bool(args.incremental_rescan),
         baseline_session_id=int(args.baseline_session) if int(args.baseline_session or 0) > 0 else None,
         similarity_threshold=float(args.similarity_threshold or 0.9),
+        document_similarity_threshold=float(getattr(args, "document_threshold", 0.9) or 0.9),
+        selection_policy=str(getattr(args, "selection_policy", "smart") or "smart"),
+        compare_mode=str(getattr(args, "compare_mode", "none") or "none"),
+        watch_mode=bool(getattr(args, "watch", False)),
+        apply_exemptions=bool(getattr(args, "respect_exemptions", False)),
+        post_cleanup_empty_dirs=bool(getattr(args, "post_cleanup_empty_dirs", False)),
         strict_mode=bool(getattr(args, "strict_mode", False)),
         strict_max_errors=max(0, int(getattr(args, "strict_max_errors", 0) or 0)),
     )
+    if cfg.compare_mode == "collections":
+        folder_roles = {}
+        for path in list(getattr(args, "collection_a", []) or []):
+            folder_roles[os.path.abspath(path)] = "primary"
+        for path in list(getattr(args, "collection_b", []) or []):
+            folder_roles[os.path.abspath(path)] = "secondary"
+        if not folder_roles and len(folders) >= 2:
+            folder_roles[folders[0]] = "primary"
+            folder_roles[folders[1]] = "secondary"
+        cfg.folder_roles = folder_roles
     dep_error_key = validate_similar_image_dependency(cfg)
+    if not dep_error_key:
+        dep_error_key = validate_similar_document_dependency(cfg)
     if dep_error_key:
         print(strings.tr(dep_error_key), file=sys.stderr)
         return 2
@@ -159,14 +196,18 @@ def main() -> int:
 
     if args.output_json:
         out_json = os.path.abspath(args.output_json)
-        payload = dump_results_v2(
+        payload = dump_results_v3(
             scan_results=results,
             folders=folders,
             source="cli",
             selected_paths=[],
             file_meta=dict(getattr(worker, "latest_file_meta", {}) or {}),
-            baseline_delta_map=dict(getattr(worker, "latest_baseline_delta_map", {}) or {}),
             existence_map={p: True for p in dict(getattr(worker, "latest_file_meta", {}) or {}).keys()},
+            selection_reason_map=dict(getattr(worker, "latest_selection_reason_map", {}) or {}),
+            exemption_status_map=dict(getattr(worker, "latest_exemption_status_map", {}) or {}),
+            review_state_map=dict(getattr(worker, "latest_result_review_state_map", {}) or {}),
+            collection_role_map=dict(getattr(worker, "latest_collection_role_map", {}) or {}),
+            baseline_delta_map=dict(getattr(worker, "latest_baseline_delta_map", {}) or {}),
         )
         payload_meta = payload.setdefault("meta", {})
         payload_meta["scan_status"] = scan_status
@@ -191,6 +232,10 @@ def main() -> int:
             selected_paths=[],
             file_meta=dict(getattr(worker, "latest_file_meta", {}) or {}),
             baseline_delta_map=baseline_delta_map,
+            selection_reason_map=dict(getattr(worker, "latest_selection_reason_map", {}) or {}),
+            exemption_status_map=dict(getattr(worker, "latest_exemption_status_map", {}) or {}),
+            review_state_map=dict(getattr(worker, "latest_result_review_state_map", {}) or {}),
+            collection_role_map=dict(getattr(worker, "latest_collection_role_map", {}) or {}),
         )
         emit_success(f"Saved CSV: {out_csv} (groups={g}, rows={r})")
 

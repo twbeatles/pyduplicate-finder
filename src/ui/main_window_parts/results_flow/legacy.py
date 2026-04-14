@@ -25,7 +25,7 @@ from src.core.preflight import PreflightAnalyzer
 from src.core.selection_rules import parse_rules
 from src.core.operation_queue import Operation
 from src.core.scan_engine import ScanConfig, validate_similar_image_dependency
-from src.core.result_schema import dump_results_v2, load_results_bundle_any
+from src.core.result_schema import dump_results_v3, load_file_state_map, load_results_bundle_any
 from src.core.scheduler import ScheduleConfig
 from src.ui.empty_folder_dialog import EmptyFolderDialog
 from src.ui.components.results_tree import ResultsTreeWidget
@@ -37,6 +37,7 @@ from src.ui.dialogs.shortcut_settings_dialog import ShortcutSettingsDialog
 from src.ui.dialogs.selection_rules_dialog import SelectionRulesDialog
 from src.ui.dialogs.preflight_dialog import PreflightDialog
 from src.ui.dialogs.operation_log_dialog import OperationLogDialog
+from src.ui.dialogs.session_compare_dialog import SessionCompareDialog
 from src.utils.i18n import strings
 from src.ui.theme import ModernTheme
 from src.ui.pages.scan_page import build_scan_page
@@ -103,6 +104,10 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
                 selected_paths=selected,
                 file_meta=self._current_result_meta,
                 baseline_delta_map=self._current_baseline_delta_map,
+                selection_reason_map=self._current_selection_reason_map,
+                exemption_status_map=self._current_exemption_status_map,
+                review_state_map=self._current_review_state_map,
+                collection_role_map=self._current_collection_role_map,
             )
             _mw().QMessageBox.information(self, strings.tr("status_done"), strings.tr("status_done") + f":\n{path}")
         except Exception as e:
@@ -126,8 +131,57 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
                     mtime = float((self._current_result_meta.get(path) or (0, 0.0))[1] or 0.0)
                 except Exception:
                     mtime = 0.0
-            entries.append((ResultEntry(path=path, mtime=mtime), item))
+            entries.append(
+                (
+                    ResultEntry(
+                        path=path,
+                        mtime=mtime,
+                        extension=os.path.splitext(path)[1].lower().lstrip("."),
+                        collection_role=str((self._current_collection_role_map or {}).get(path) or ""),
+                        explicit_keep=False,
+                        explicit_delete=False,
+                        safelisted=str((self._current_exemption_status_map or {}).get(path) or "") == "safelisted",
+                        readonly=not os.access(path, os.W_OK) if os.path.exists(path) else False,
+                    ),
+                    item,
+                )
+            )
         return entries
+
+    def _remember_selection_reasons(self: Any, decision):
+        reasons = dict(getattr(decision, "reasons", {}) or {})
+        if not reasons:
+            return
+        self._current_selection_reason_map.update(reasons)
+
+    def _set_review_state(self: Any, paths, state: str):
+        values = [str(p) for p in (paths or []) if p]
+        if not values:
+            return
+        for path in values:
+            if state:
+                self._current_review_state_map[path] = state
+            else:
+                self._current_review_state_map.pop(path, None)
+            if not self.current_session_id:
+                continue
+            try:
+                if state:
+                    self.cache_manager.save_review_mark(
+                        int(self.current_session_id),
+                        target_type="file",
+                        target_key=path,
+                        state=state,
+                    )
+                else:
+                    self.cache_manager.clear_review_mark(
+                        int(self.current_session_id),
+                        target_type="file",
+                        target_key=path,
+                    )
+            except Exception:
+                pass
+        self.status_label.setText(strings.tr("status_done"))
 
     def _apply_keep_set_to_group(self: Any, group, keep_set: set[str]):
         for _entry, item in self._group_entries_with_items(group):
@@ -152,8 +206,9 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
             for i in range(root.childCount()):
                 group = root.child(i)
                 entries = [e for e, _ in self._group_entries_with_items(group)]
-                keep_set, _ = self.results_controller.build_keep_delete(entries, strategy="smart")
-                self._apply_keep_set_to_group(group, keep_set)
+                decision = self.results_controller.build_selection_decision(entries, strategy="smart")
+                self._remember_selection_reasons(decision)
+                self._apply_keep_set_to_group(group, decision.keep_set)
         finally:
             self.tree_widget.end_bulk_check_update()
 
@@ -165,8 +220,9 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
             for i in range(root.childCount()):
                 group = root.child(i)
                 entries = [e for e, _ in self._group_entries_with_items(group)]
-                keep_set, _ = self.results_controller.build_keep_delete(entries, strategy="oldest")
-                self._apply_keep_set_to_group(group, keep_set)
+                decision = self.results_controller.build_selection_decision(entries, strategy="oldest")
+                self._remember_selection_reasons(decision)
+                self._apply_keep_set_to_group(group, decision.keep_set)
         finally:
             self.tree_widget.end_bulk_check_update()
 
@@ -178,8 +234,9 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
             for i in range(root.childCount()):
                 group = root.child(i)
                 entries = [e for e, _ in self._group_entries_with_items(group)]
-                keep_set, _ = self.results_controller.build_keep_delete(entries, strategy="newest")
-                self._apply_keep_set_to_group(group, keep_set)
+                decision = self.results_controller.build_selection_decision(entries, strategy="newest")
+                self._remember_selection_reasons(decision)
+                self._apply_keep_set_to_group(group, decision.keep_set)
         finally:
             self.tree_widget.end_bulk_check_update()
 
@@ -220,7 +277,13 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
 
     def filter_results_tree(self: Any, text):
         """Filter the result tree by filename/path."""
-        visible_files, total_files = self.tree_widget.apply_filter(text)
+        delta_filter = ""
+        if hasattr(self, "cmb_delta_filter"):
+            try:
+                delta_filter = str(self.cmb_delta_filter.currentData() or "")
+            except Exception:
+                delta_filter = ""
+        visible_files, total_files = self.tree_widget.apply_filter(text, delta_filter=delta_filter)
         if hasattr(self, "lbl_filter_count"):
             if total_files == 0:
                 self.lbl_filter_count.setText("")
@@ -228,6 +291,8 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
                 self.lbl_filter_count.setText(
                     strings.tr("msg_filter_count").format(visible=visible_files, total=total_files)
                 )
+        if hasattr(self, "btn_session_compare"):
+            self.btn_session_compare.setEnabled(bool(self._current_baseline_delta_map))
         try:
             self._update_action_buttons_state()
         except Exception:
@@ -255,6 +320,7 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
             selected_paths=selected,
             file_meta=self._current_result_meta,
             existence_map=self._current_result_existence_map,
+            baseline_delta_map=self._current_baseline_delta_map,
         )
         self._saved_selected_paths = set(selected)
         self._pending_selected_add.clear()
@@ -266,6 +332,24 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
             selected_count = len(selected)
         self._update_results_summary(selected_count)
         self._update_action_buttons_state(selected_count=selected_count)
+
+    def open_session_compare_dialog(self: Any):
+        delta_map = dict(self._current_baseline_delta_map or {})
+        if not delta_map:
+            _mw().QMessageBox.information(self, strings.tr("app_title"), strings.tr("msg_session_compare_empty"))
+            return
+        baseline_session_id = 0
+        try:
+            baseline_session_id = int((self._last_incremental_stats or {}).get("base_session_id") or 0)
+        except Exception:
+            baseline_session_id = 0
+        dlg = SessionCompareDialog(
+            current_session_id=int(self.current_session_id or 0),
+            baseline_session_id=baseline_session_id,
+            delta_map=delta_map,
+            parent=self,
+        )
+        dlg.exec()
 
     def delete_selected_files(self: Any):
         targets = []
@@ -701,6 +785,23 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
             action_copy.triggered.connect(lambda: self.copy_to_clipboard(path))
             menu.addAction(action_copy)
 
+            menu.addSeparator()
+            action_review_keep = QAction(strings.tr("ctx_review_keep"), self)
+            action_review_keep.triggered.connect(
+                lambda: self._set_review_state([path], "reviewed_keep")
+            )
+            menu.addAction(action_review_keep)
+
+            action_review_delete = QAction(strings.tr("ctx_review_delete_later"), self)
+            action_review_delete.triggered.connect(
+                lambda: self._set_review_state([path], "reviewed_delete_later")
+            )
+            menu.addAction(action_review_delete)
+
+            action_review_clear = QAction(strings.tr("ctx_review_clear"), self)
+            action_review_clear.triggered.connect(lambda: self._set_review_state([path], ""))
+            menu.addAction(action_review_clear)
+
         else:
             # Group item context
             if item.childCount() <= 0:
@@ -715,12 +816,33 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
             act_uncheck_all.triggered.connect(lambda: self.tree_widget.set_group_checked(item, False))
             menu.addAction(act_uncheck_all)
 
+            menu.addSeparator()
+            act_group_review_keep = QAction(strings.tr("ctx_group_review_keep"), self)
+            act_group_review_keep.triggered.connect(
+                lambda: self._set_review_state(self.tree_widget.get_group_paths(item), "reviewed_keep")
+            )
+            menu.addAction(act_group_review_keep)
+
+            act_group_review_delete = QAction(strings.tr("ctx_group_review_delete_later"), self)
+            act_group_review_delete.triggered.connect(
+                lambda: self._set_review_state(self.tree_widget.get_group_paths(item), "reviewed_delete_later")
+            )
+            menu.addAction(act_group_review_delete)
+
+            act_group_review_clear = QAction(strings.tr("ctx_group_review_clear"), self)
+            act_group_review_clear.triggered.connect(
+                lambda: self._set_review_state(self.tree_widget.get_group_paths(item), "")
+            )
+            menu.addAction(act_group_review_clear)
+
             if self.selection_rules:
                 act_apply_rules = QAction(strings.tr("ctx_group_apply_rules"), self)
 
                 def apply_rules():
-                    paths = self.tree_widget.get_group_paths(item)
-                    keep_set, _delete_set = self.results_controller.build_keep_delete_by_rules(paths, self.selection_rules)
+                    entries = [e for e, _ in self._group_entries_with_items(item)]
+                    decision = self.results_controller.build_selection_decision(entries, strategy="smart", rules=self.selection_rules)
+                    keep_set = set(decision.keep_set or [])
+                    self._remember_selection_reasons(decision)
                     self.tree_widget.begin_bulk_check_update()
                     try:
                         for j in range(item.childCount()):
@@ -809,14 +931,18 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
         except Exception:
             selected_paths = []
         try:
-            payload = dump_results_v2(
+            payload = dump_results_v3(
                 scan_results=self.scan_results,
                 folders=list(self.selected_folders or []),
                 source="gui",
                 selected_paths=selected_paths,
                 file_meta=self._current_result_meta,
-                baseline_delta_map=self._current_baseline_delta_map,
                 existence_map=self._current_result_existence_map,
+                selection_reason_map=self._current_selection_reason_map,
+                exemption_status_map=self._current_exemption_status_map,
+                review_state_map=self._current_review_state_map,
+                collection_role_map=self._current_collection_role_map,
+                baseline_delta_map=self._current_baseline_delta_map,
             )
             payload_meta = payload.setdefault("meta", {})
             payload_meta["scan_status"] = str(self._last_scan_status or "completed")
@@ -847,14 +973,42 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
                 data = json.load(f)
             bundle = load_results_bundle_any(data)
             self.scan_results = dict(bundle.get("results") or {})
-            self._current_baseline_delta_map = dict(bundle.get("baseline_delta_map") or {})
+            bundle_delta_map = dict(bundle.get("baseline_delta_map") or {})
+            self._current_baseline_delta_map = dict(bundle_delta_map)
             self._last_scan_status = str(bundle.get("scan_status") or "completed")
             self._last_scan_metrics = dict(bundle.get("metrics") or {})
             self._last_scan_warnings = list(bundle.get("warnings") or [])
             selected_paths = list(bundle.get("selected_paths") or [])
             file_meta = dict(bundle.get("file_meta") or {})
             existence_map = dict(bundle.get("existence_map") or {})
-
+            file_state = load_file_state_map(data)
+            self._current_selection_reason_map = {
+                path: row.get("selection_reason") or ""
+                for path, row in file_state.items()
+                if row.get("selection_reason")
+            }
+            self._current_exemption_status_map = {
+                path: row.get("exemption_status") or ""
+                for path, row in file_state.items()
+                if row.get("exemption_status")
+            }
+            self._current_review_state_map = {
+                path: row.get("review_state") or ""
+                for path, row in file_state.items()
+                if row.get("review_state")
+            }
+            self._current_collection_role_map = {
+                path: row.get("collection_role") or ""
+                for path, row in file_state.items()
+                if row.get("collection_role")
+            }
+            file_state_delta_map = {
+                path: row.get("baseline_delta") or ""
+                for path, row in file_state.items()
+                if row.get("baseline_delta")
+            }
+            if file_state_delta_map:
+                self._current_baseline_delta_map = file_state_delta_map
             self._render_results(
                 self.scan_results,
                 selected_paths=selected_paths,

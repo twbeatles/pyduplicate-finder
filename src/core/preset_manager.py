@@ -211,5 +211,13 @@ def get_default_config() -> Dict[str, Any]:
         'incremental_rescan': False,
         'baseline_session_id': 0,
         'similarity_threshold': 0.9,
-        'use_trash': False
+        'use_trash': False,
+        'selection_policy': 'smart',
+        'compare_mode': 'none',
+        'folder_roles': {},
+        'use_similar_document': False,
+        'document_similarity_threshold': 0.9,
+        'watch_mode': False,
+        'apply_exemptions': True,
+        'post_cleanup_empty_dirs': False,
     }

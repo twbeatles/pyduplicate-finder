@@ -26,6 +26,7 @@ _ROLE_GROUP_BASE_LABEL = _ROLE_BASE + 3
 _ROLE_LOWER_PATH = _ROLE_BASE + 4
 _ROLE_MTIME = _ROLE_BASE + 5
 _ROLE_GROUP_ID = _ROLE_BASE + 6
+_ROLE_DELTA = _ROLE_BASE + 7
 
 # Kept on column=1 with Qt.ItemDataRole.UserRole for backward compatibility with main_window.
 _ROLE_SIZE_BYTES = _ROLE_BASE
@@ -154,7 +155,7 @@ class ResultsTreeWidget(QTreeWidget):
                 item.setBackground(col, QBrush(bg_color))
                 item.setForeground(col, QBrush(fg_color))
 
-    def populate(self, results, selected_paths=None, file_meta=None, existence_map=None):
+    def populate(self, results, selected_paths=None, file_meta=None, existence_map=None, baseline_delta_map=None):
         self._populate_timer.stop()
         self.clear()
         if not results:
@@ -169,6 +170,11 @@ class ResultsTreeWidget(QTreeWidget):
         self._checked_paths = set(self._selected_paths)
         self._file_meta_map = dict(file_meta or {})
         self._existence_map = dict(existence_map or {})
+        self._baseline_delta_map = {
+            str(path): str(delta or "")
+            for path, delta in dict(baseline_delta_map or {}).items()
+            if str(delta or "") in {"new", "changed", "revalidated"}
+        }
         self._group_states = {}
         self._next_group_id = 1
         self._last_filter_query = None
@@ -391,7 +397,9 @@ class ResultsTreeWidget(QTreeWidget):
                 exists = True
 
             missing_badge = f" [{strings.tr('badge_missing')}]" if not exists else ""
-            child.setText(0, f"  {icon} {p}{missing_badge}")
+            delta = str(self._baseline_delta_map.get(str(p)) or "")
+            delta_badge = f" [{delta.upper()}]" if delta else ""
+            child.setText(0, f"  {icon} {p}{missing_badge}{delta_badge}")
             child.setToolTip(0, p)
 
             file_size = sizes[idx] if idx < len(sizes) else None
@@ -424,6 +432,7 @@ class ResultsTreeWidget(QTreeWidget):
             child.setData(0, _ROLE_PATH, p)
             child.setData(0, _ROLE_LOWER_PATH, str(p or "").lower())
             child.setData(0, _ROLE_EXISTS, 1 if exists else 0)
+            child.setData(0, _ROLE_DELTA, delta)
 
             if p in self._selected_paths:
                 child.setCheckState(0, Qt.CheckState.Checked)
@@ -532,9 +541,11 @@ class ResultsTreeWidget(QTreeWidget):
     def get_checked_files(self):
         return list(self._checked_paths)
 
-    def apply_filter(self, text: str) -> tuple[int, int]:
+    def apply_filter(self, text: str, delta_filter: str = "") -> tuple[int, int]:
         query = str(text or "").strip().lower()
-        if query == self._last_filter_query:
+        normalized_delta = str(delta_filter or "").strip().lower()
+        query_key = f"{query}|{normalized_delta}"
+        if query_key == self._last_filter_query:
             return self._last_filter_counts
 
         root = self.invisibleRootItem()
@@ -547,14 +558,15 @@ class ResultsTreeWidget(QTreeWidget):
                 item = group.child(j)
                 total_files += 1
                 lower_path = str(item.data(0, _ROLE_LOWER_PATH) or "")
-                matched = (not query) or (query in lower_path)
+                delta = str(item.data(0, _ROLE_DELTA) or "").lower()
+                matched = ((not query) or (query in lower_path)) and ((not normalized_delta) or (delta == normalized_delta))
                 item.setHidden(not matched)
                 if matched:
                     group_visible = True
                     visible_files += 1
             group.setHidden(not group_visible)
 
-        self._last_filter_query = query
+        self._last_filter_query = query_key
         self._last_filter_counts = (visible_files, total_files)
         return visible_files, total_files
 

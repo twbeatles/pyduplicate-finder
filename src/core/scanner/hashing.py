@@ -146,6 +146,8 @@ class ScanHashingMixin:
                         digest = cached[0]
                         if digest:
                             hash_map[(size, digest, type_str)].append(filepath)
+                            if type_str == "FULL":
+                                self._full_hash_values[filepath] = digest
                             self._inc_metric("files_hashed", 1)
                             if self.session_id:
                                 session_hash_batch[(filepath, type_str)] = (filepath, size, mtime, type_str, digest)
@@ -177,6 +179,8 @@ class ScanHashingMixin:
                             if digest:
                                 type_str = "PARTIAL" if partial else "FULL"
                                 hash_map[(size, digest, type_str)].append(filepath)
+                                if type_str == "FULL":
+                                    self._full_hash_values[filepath] = digest
                                 self._inc_metric("files_hashed", 1)
                                 if self.session_id:
                                     session_hash_batch[(filepath, type_str)] = (filepath, size, mtime, type_str, digest)

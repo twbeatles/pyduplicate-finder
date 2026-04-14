@@ -24,8 +24,7 @@ from src.core.quarantine_manager import QuarantineManager
 from src.core.preflight import PreflightAnalyzer
 from src.core.selection_rules import parse_rules
 from src.core.operation_queue import Operation
-from src.core.scan_engine import ScanConfig, validate_similar_image_dependency
-from src.core.result_schema import dump_results_v2
+from src.core.result_schema import dump_results_v3
 from src.core.scheduler import ScheduleConfig
 from src.ui.empty_folder_dialog import EmptyFolderDialog
 from src.ui.components.results_tree import ResultsTreeWidget
@@ -79,9 +78,51 @@ class MainWindowScheduleFlowMixin(DuplicateFinderTypingContract):
             self.cmb_schedule_weekday.setEnabled(enabled and weekly)
         if hasattr(self, "lbl_schedule_weekday"):
             self.lbl_schedule_weekday.setEnabled(enabled and weekly)
-        for wname in ("txt_schedule_time", "txt_schedule_output", "chk_schedule_export_json", "chk_schedule_export_csv", "btn_schedule_pick"):
+        for wname in (
+            "txt_schedule_time",
+            "txt_schedule_output",
+            "chk_schedule_export_json",
+            "chk_schedule_export_csv",
+            "btn_schedule_pick",
+            "txt_schedule_job_name",
+            "btn_schedule_new",
+            "btn_schedule_run_now",
+            "btn_schedule_refresh",
+            "btn_schedule_delete",
+            "tbl_schedule_jobs",
+            "tbl_schedule_runs",
+        ):
             if hasattr(self, wname):
                 getattr(self, wname).setEnabled(enabled)
+
+    def _current_schedule_job_name(self: Any) -> str:
+        raw = ""
+        if hasattr(self, "txt_schedule_job_name"):
+            raw = str(self.txt_schedule_job_name.text() or "").strip()
+        return raw or "default"
+
+    def _selected_schedule_job(self: Any) -> dict:
+        if not hasattr(self, "tbl_schedule_jobs"):
+            return {}
+        try:
+            row = self.tbl_schedule_jobs.currentRow()
+            if row < 0:
+                return {}
+            item = self.tbl_schedule_jobs.item(row, 0)
+            if not item:
+                return {}
+            return dict(item.data(Qt.ItemDataRole.UserRole) or {})
+        except Exception:
+            return {}
+
+    def prepare_new_schedule_job(self: Any):
+        if hasattr(self, "tbl_schedule_jobs"):
+            try:
+                self.tbl_schedule_jobs.clearSelection()
+            except Exception:
+                pass
+        if hasattr(self, "txt_schedule_job_name"):
+            self.txt_schedule_job_name.setText(datetime.now().strftime("job_%Y%m%d_%H%M%S"))
 
     def _build_schedule_config(self: Any) -> ScheduleConfig:
         return self.scheduler_controller.build_config(
@@ -100,11 +141,92 @@ class MainWindowScheduleFlowMixin(DuplicateFinderTypingContract):
             time_hhmm=str(ctx.get("time_hhmm") or "03:00").strip() or "03:00",
         )
 
+    def _load_schedule_job_into_form(self: Any, job: dict):
+        if not job:
+            return
+        if hasattr(self, "txt_schedule_job_name"):
+            self.txt_schedule_job_name.setText(str(job.get("name") or "default"))
+        if hasattr(self, "chk_schedule_enabled"):
+            self.chk_schedule_enabled.setChecked(bool(job.get("enabled")))
+        if hasattr(self, "cmb_schedule_frequency"):
+            idx = self.cmb_schedule_frequency.findData(str(job.get("schedule_type") or "daily"))
+            self.cmb_schedule_frequency.setCurrentIndex(idx if idx >= 0 else 0)
+        if hasattr(self, "cmb_schedule_weekday"):
+            idx = self.cmb_schedule_weekday.findData(int(job.get("weekday") or 0))
+            self.cmb_schedule_weekday.setCurrentIndex(idx if idx >= 0 else 0)
+        if hasattr(self, "txt_schedule_time"):
+            self.txt_schedule_time.setText(str(job.get("time_hhmm") or "03:00"))
+        if hasattr(self, "txt_schedule_output"):
+            self.txt_schedule_output.setText(str(job.get("output_dir") or ""))
+        if hasattr(self, "chk_schedule_export_json"):
+            self.chk_schedule_export_json.setChecked(bool(job.get("output_json", True)))
+        if hasattr(self, "chk_schedule_export_csv"):
+            self.chk_schedule_export_csv.setChecked(bool(job.get("output_csv", True)))
+        self._sync_schedule_ui()
+        try:
+            cfg = self.scheduler_controller.parse_scan_config(job)
+            if cfg:
+                self._apply_config(cfg)
+        except Exception:
+            logger.warning("Failed to apply schedule job scan config", exc_info=True)
+
+    def _refresh_schedule_runs_view(self: Any, job_name: str = ""):
+        if not hasattr(self, "tbl_schedule_runs"):
+            return
+        runs = self.cache_manager.list_scan_job_runs(job_name or None, limit=20)
+        self.tbl_schedule_runs.setRowCount(len(runs))
+        for row_idx, run in enumerate(runs):
+            started = float(run.get("started_at") or 0.0)
+            dt = datetime.fromtimestamp(started).strftime("%Y-%m-%d %H:%M") if started else "-"
+            self.tbl_schedule_runs.setItem(row_idx, 0, QTableWidgetItem(dt))
+            self.tbl_schedule_runs.setItem(row_idx, 1, QTableWidgetItem(str(run.get("status") or "")))
+            self.tbl_schedule_runs.setItem(row_idx, 2, QTableWidgetItem(str(int(run.get("groups_count") or 0))))
+            self.tbl_schedule_runs.setItem(row_idx, 3, QTableWidgetItem(str(int(run.get("files_count") or 0))))
+            self.tbl_schedule_runs.setItem(row_idx, 4, QTableWidgetItem(str(run.get("message") or "")))
+
+    def refresh_schedule_jobs_view(self: Any):
+        if not hasattr(self, "tbl_schedule_jobs"):
+            return
+        current_name = self._current_schedule_job_name()
+        jobs = self.cache_manager.list_scan_jobs()
+        self.tbl_schedule_jobs.setRowCount(len(jobs))
+        selected_row = -1
+        for row_idx, job in enumerate(jobs):
+            next_run = float(job.get("next_run_at") or 0.0)
+            next_label = datetime.fromtimestamp(next_run).strftime("%Y-%m-%d %H:%M") if next_run else "-"
+            status = str(job.get("last_status") or ("enabled" if job.get("enabled") else "disabled"))
+            name_item = QTableWidgetItem(str(job.get("name") or "default"))
+            name_item.setData(Qt.ItemDataRole.UserRole, dict(job))
+            self.tbl_schedule_jobs.setItem(row_idx, 0, name_item)
+            self.tbl_schedule_jobs.setItem(row_idx, 1, QTableWidgetItem(status))
+            self.tbl_schedule_jobs.setItem(row_idx, 2, QTableWidgetItem(str(job.get("schedule_type") or "daily")))
+            self.tbl_schedule_jobs.setItem(row_idx, 3, QTableWidgetItem(str(job.get("time_hhmm") or "03:00")))
+            self.tbl_schedule_jobs.setItem(row_idx, 4, QTableWidgetItem(next_label))
+            if str(job.get("name") or "") == current_name:
+                selected_row = row_idx
+
+        if selected_row >= 0:
+            self.tbl_schedule_jobs.selectRow(selected_row)
+            self._refresh_schedule_runs_view(current_name)
+        elif jobs:
+            self.tbl_schedule_jobs.selectRow(0)
+            self._refresh_schedule_runs_view(str(jobs[0].get("name") or "default"))
+        else:
+            self._refresh_schedule_runs_view("")
+
+    def on_schedule_job_selection_changed(self: Any):
+        job = self._selected_schedule_job()
+        if not job:
+            return
+        self._load_schedule_job_into_form(job)
+        self._refresh_schedule_runs_view(str(job.get("name") or "default"))
+
     def _persist_schedule_job(self: Any):
         cfg = self._build_schedule_config()
         if not self._validate_schedule_time_hhmm(cfg.time_hhmm):
             raise ValueError(strings.tr("err_schedule_time_hhmm").format(value=cfg.time_hhmm))
         scan_cfg = self._get_current_config()
+        job_name = self._current_schedule_job_name()
         try:
             self.scheduler_controller.persist_job(
                 cache_manager=self.cache_manager,
@@ -113,7 +235,9 @@ class MainWindowScheduleFlowMixin(DuplicateFinderTypingContract):
                 output_dir=str(self.txt_schedule_output.text() if hasattr(self, "txt_schedule_output") else "").strip(),
                 output_json=bool(self.chk_schedule_export_json.isChecked() if hasattr(self, "chk_schedule_export_json") else True),
                 output_csv=bool(self.chk_schedule_export_csv.isChecked() if hasattr(self, "chk_schedule_export_csv") else True),
+                job_name=job_name,
             )
+            self.refresh_schedule_jobs_view()
         except Exception:
             logger.exception("Failed to persist scheduled scan job")
             raise
@@ -134,24 +258,35 @@ class MainWindowScheduleFlowMixin(DuplicateFinderTypingContract):
         except Exception as e:
             _mw().QMessageBox.warning(self, strings.tr("app_title"), str(e))
 
-    def _scheduler_tick(self: Any):
-        if self._scheduled_run_context:
+    def delete_selected_schedule_job(self: Any):
+        job = self._selected_schedule_job()
+        if not job:
             return
-        is_scanning = bool(getattr(self, "btn_stop_scan", None) and self.btn_stop_scan.isEnabled())
-        job, cfg = self.scheduler_controller.get_due_job(
-            cache_manager=self.cache_manager,
-            is_scanning=is_scanning,
-        )
-        if not job or not cfg:
-            return
+        job_name = str(job.get("name") or "default")
+        self.cache_manager.delete_scan_job(job_name)
+        if hasattr(self, "txt_schedule_job_name") and self._current_schedule_job_name() == job_name:
+            self.txt_schedule_job_name.setText("default")
+        self.refresh_schedule_jobs_view()
 
+    def _start_scheduled_job(self: Any, job: dict, cfg: ScheduleConfig):
         snapshot_cfg = self.scheduler_controller.parse_scan_config(job)
         valid_folders, missing_folders = self.scheduler_controller.resolve_snapshot_folders(snapshot_cfg)
+        job_name = str(job.get("name") or "default")
         if not valid_folders:
-            self.scheduler_controller.record_skip_no_valid_folders(
-                cache_manager=self.cache_manager,
-                cfg=cfg,
-            )
+            try:
+                self.scheduler_controller.record_skip_no_valid_folders(
+                    cache_manager=self.cache_manager,
+                    cfg=cfg,
+                    job_name=job_name,
+                )
+            except TypeError:
+                # Preserve compatibility with older controller/test doubles that
+                # do not accept the newer job_name keyword yet.
+                self.scheduler_controller.record_skip_no_valid_folders(
+                    cache_manager=self.cache_manager,
+                    cfg=cfg,
+                )
+            self.refresh_schedule_jobs_view()
             return
 
         snapshot_cfg["folders"] = list(valid_folders)
@@ -165,6 +300,7 @@ class MainWindowScheduleFlowMixin(DuplicateFinderTypingContract):
         self._scheduled_job_run_id = self.scheduler_controller.create_job_run(
             cache_manager=self.cache_manager,
             session_id=self.current_session_id or 0,
+            job_name=job_name,
         )
         self.start_scan(
             force_new=False,
@@ -172,6 +308,36 @@ class MainWindowScheduleFlowMixin(DuplicateFinderTypingContract):
             folders_override=list(valid_folders),
             scheduled_context=dict(self._scheduled_run_context or {}),
         )
+
+    def run_selected_schedule_job_now(self: Any):
+        if self._scheduled_run_context:
+            return
+        if bool(getattr(self, "btn_stop_scan", None) and self.btn_stop_scan.isEnabled()):
+            return
+        job = self._selected_schedule_job()
+        if not job:
+            job = self.cache_manager.get_scan_job(self._current_schedule_job_name()) or {}
+        if not job:
+            return
+        cfg = self.scheduler_controller.build_config(
+            enabled=True,
+            schedule_type=str(job.get("schedule_type") or "daily"),
+            weekday=int(job.get("weekday") or 0),
+            time_hhmm=str(job.get("time_hhmm") or "03:00"),
+        )
+        self._start_scheduled_job(job, cfg)
+
+    def _scheduler_tick(self: Any):
+        if self._scheduled_run_context:
+            return
+        is_scanning = bool(getattr(self, "btn_stop_scan", None) and self.btn_stop_scan.isEnabled())
+        job, cfg = self.scheduler_controller.get_due_job(
+            cache_manager=self.cache_manager,
+            is_scanning=is_scanning,
+        )
+        if not job or not cfg:
+            return
+        self._start_scheduled_job(job, cfg)
 
     def _scheduled_export_results(self: Any, results: dict):
         ctx = dict(self._scheduled_run_context or {})
@@ -198,14 +364,18 @@ class MainWindowScheduleFlowMixin(DuplicateFinderTypingContract):
                 out_json = os.path.join(out_dir, f"scan_{stamp}.json")
                 snapshot_folders = ctx.get("snapshot_folders")
                 folders_payload = list(snapshot_folders) if isinstance(snapshot_folders, (list, tuple, set)) else []
-                payload = dump_results_v2(
+                payload = dump_results_v3(
                     scan_results=results or {},
                     folders=folders_payload,
                     source="gui",
                     selected_paths=[],
                     file_meta=self._current_result_meta,
-                    baseline_delta_map=self._current_baseline_delta_map,
                     existence_map=self._current_result_existence_map,
+                    selection_reason_map=self._current_selection_reason_map,
+                    exemption_status_map=self._current_exemption_status_map,
+                    review_state_map=self._current_review_state_map,
+                    collection_role_map=self._current_collection_role_map,
+                    baseline_delta_map=self._current_baseline_delta_map,
                 )
                 payload_meta = payload.setdefault("meta", {})
                 payload_meta["scan_status"] = str(self._last_scan_status or "completed")
@@ -230,6 +400,10 @@ class MainWindowScheduleFlowMixin(DuplicateFinderTypingContract):
                     selected_paths=[],
                     file_meta=self._current_result_meta,
                     baseline_delta_map=self._current_baseline_delta_map,
+                    selection_reason_map=self._current_selection_reason_map,
+                    exemption_status_map=self._current_exemption_status_map,
+                    review_state_map=self._current_review_state_map,
+                    collection_role_map=self._current_collection_role_map,
                 )
         except Exception:
             logger.warning("Scheduled CSV export failed", exc_info=True)
@@ -271,8 +445,10 @@ class MainWindowScheduleFlowMixin(DuplicateFinderTypingContract):
                 files_count=files,
                 output_json_path=out_json,
                 output_csv_path=out_csv,
+                job_name=str((self._scheduled_run_context or {}).get("job_name") or "default"),
             )
         except Exception:
             logger.exception("Failed to finish scheduled run bookkeeping")
         self._scheduled_job_run_id = 0
         self._scheduled_run_context = None
+        self.refresh_schedule_jobs_view()

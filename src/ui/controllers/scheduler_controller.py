@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class ScheduledRunContext:
+    job_name: str = "default"
     output_dir: str = ""
     output_json: bool = True
     output_csv: bool = True
@@ -28,6 +29,7 @@ class ScheduledRunContext:
 
     def as_dict(self) -> dict[str, object]:
         return {
+            "job_name": self.job_name,
             "output_dir": self.output_dir,
             "output_json": self.output_json,
             "output_csv": self.output_csv,
@@ -43,6 +45,10 @@ class ScheduledRunContext:
 
 
 class SchedulerController:
+    @staticmethod
+    def _job_name(job: dict | None, fallback: str = "default") -> str:
+        return str((job or {}).get("name") or fallback or "default").strip() or "default"
+
     @staticmethod
     def _normalize_for_hash(scan_config: dict) -> str:
         try:
@@ -113,11 +119,12 @@ class SchedulerController:
         output_dir: str,
         output_json: bool,
         output_csv: bool,
+        job_name: str = "default",
     ) -> None:
         next_dt = compute_next_run(cfg)
         next_ts = next_dt.timestamp() if next_dt else None
         cache_manager.upsert_scan_job(
-            name="default",
+            name=str(job_name or "default"),
             enabled=cfg.enabled,
             schedule_type=cfg.schedule_type,
             weekday=cfg.weekday,
@@ -138,18 +145,31 @@ class SchedulerController:
     ) -> tuple[Optional[dict], Optional[ScheduleConfig]]:
         if is_scanning:
             return None, None
-        job = cache_manager.get_scan_job("default")
-        if not job or not bool(job.get("enabled")):
+        jobs = []
+        try:
+            jobs = list(cache_manager.list_scan_jobs() or [])
+        except Exception:
+            job = cache_manager.get_scan_job("default")
+            if job:
+                jobs = [job]
+        due_jobs: list[tuple[float, str, dict, ScheduleConfig]] = []
+        for job in jobs:
+            if not job or not bool(job.get("enabled")):
+                continue
+            cfg = self.build_config(
+                enabled=bool(job.get("enabled")),
+                schedule_type=str(job.get("schedule_type") or "daily"),
+                weekday=int(job.get("weekday") or 0),
+                time_hhmm=str(job.get("time_hhmm") or "03:00"),
+            )
+            if not is_due(cfg, last_run_at=job.get("last_run_at"), now_ts=now_ts):
+                continue
+            next_run_at = float(job.get("next_run_at") or 0.0)
+            due_jobs.append((next_run_at, self._job_name(job), dict(job), cfg))
+        if not due_jobs:
             return None, None
-
-        cfg = self.build_config(
-            enabled=bool(job.get("enabled")),
-            schedule_type=str(job.get("schedule_type") or "daily"),
-            weekday=int(job.get("weekday") or 0),
-            time_hhmm=str(job.get("time_hhmm") or "03:00"),
-        )
-        if not is_due(cfg, last_run_at=job.get("last_run_at"), now_ts=now_ts):
-            return None, None
+        due_jobs.sort(key=lambda row: (row[0], row[1]))
+        _next_run, _name, job, cfg = due_jobs[0]
         return job, cfg
 
     def record_skip_no_folders(
@@ -158,11 +178,12 @@ class SchedulerController:
         cache_manager,
         cfg: ScheduleConfig,
         now_ts: Optional[float] = None,
+        job_name: str = "default",
     ) -> None:
         now = float(now_ts) if now_ts is not None else datetime.now().timestamp()
         next_dt = compute_next_run(cfg, now=datetime.fromtimestamp(now))
         cache_manager.update_scan_job_runtime(
-            "default",
+            str(job_name or "default"),
             last_run_at=now,
             last_status="skipped",
             last_message="no_folders",
@@ -175,11 +196,12 @@ class SchedulerController:
         cache_manager,
         cfg: ScheduleConfig,
         now_ts: Optional[float] = None,
+        job_name: str = "default",
     ) -> None:
         now = float(now_ts) if now_ts is not None else datetime.now().timestamp()
         next_dt = compute_next_run(cfg, now=datetime.fromtimestamp(now))
         cache_manager.update_scan_job_runtime(
-            "default",
+            str(job_name or "default"),
             last_run_at=now,
             last_status="skipped",
             last_message="no_valid_folders",
@@ -197,6 +219,7 @@ class SchedulerController:
     ) -> ScheduledRunContext:
         snap_cfg = dict(scan_config or {})
         return ScheduledRunContext(
+            job_name=self._job_name(job),
             output_dir=str(job.get("output_dir") or "").strip(),
             output_json=bool(job.get("output_json")),
             output_csv=bool(job.get("output_csv")),
@@ -209,10 +232,10 @@ class SchedulerController:
         )
 
     @staticmethod
-    def create_job_run(*, cache_manager, session_id: Optional[int]) -> int:
+    def create_job_run(*, cache_manager, session_id: Optional[int], job_name: str = "default") -> int:
         return int(
             cache_manager.create_scan_job_run(
-                "default",
+                str(job_name or "default"),
                 session_id=int(session_id or 0),
                 status="running",
             )
@@ -232,6 +255,7 @@ class SchedulerController:
         output_json_path: str = "",
         output_csv_path: str = "",
         now_ts: Optional[float] = None,
+        job_name: str = "default",
     ) -> None:
         now = float(now_ts) if now_ts is not None else datetime.now().timestamp()
         if run_id:
@@ -246,7 +270,7 @@ class SchedulerController:
             )
         next_dt = compute_next_run(cfg, now=datetime.fromtimestamp(now))
         cache_manager.update_scan_job_runtime(
-            "default",
+            str(job_name or "default"),
             last_run_at=now,
             next_run_at=next_dt.timestamp() if next_dt else None,
             last_status=status,

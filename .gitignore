@@ -20,12 +20,14 @@ env/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
+.pytest_tmp/
 
 # Distribution / Build
 build/
 dist/
 build_work/
 dist_build/
+.pyinstaller/
 *.spec
 !PyDuplicateFinder.spec
 *.pkg
@@ -55,3 +57,5 @@ scan_cache.db-*
 backup/
 * (1).py
 * (2).py
+*.orig
+*.tmp

@@ -10,6 +10,9 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QLineEdit,
     QComboBox,
+    QTableWidget,
+    QHeaderView,
+    QAbstractItemView,
 )
 from PySide6.QtCore import Qt
 
@@ -275,6 +278,92 @@ def build_settings_page(window) -> QWidget:
     window.btn_schedule_pick.clicked.connect(window.choose_schedule_output_folder)
     row_s3.addWidget(window.btn_schedule_pick)
     schedule_layout.addLayout(row_s3)
+
+    row_s4 = QHBoxLayout()
+    row_s4.setSpacing(8)
+    window.lbl_schedule_job_name = QLabel(strings.tr("settings_schedule_job_name"))
+    row_s4.addWidget(window.lbl_schedule_job_name)
+    window.txt_schedule_job_name = QLineEdit()
+    window.txt_schedule_job_name.setPlaceholderText(strings.tr("ph_schedule_job_name"))
+    row_s4.addWidget(window.txt_schedule_job_name, 1)
+
+    window.btn_schedule_new = QPushButton(strings.tr("btn_schedule_new"))
+    window.btn_schedule_new.clicked.connect(window.prepare_new_schedule_job)
+    row_s4.addWidget(window.btn_schedule_new)
+    window.btn_schedule_run_now = QPushButton(strings.tr("btn_schedule_run_now"))
+    window.btn_schedule_run_now.clicked.connect(window.run_selected_schedule_job_now)
+    row_s4.addWidget(window.btn_schedule_run_now)
+    schedule_layout.addLayout(row_s4)
+
+    window.tbl_schedule_jobs = QTableWidget()
+    window.tbl_schedule_jobs.setColumnCount(5)
+    window.tbl_schedule_jobs.setHorizontalHeaderLabels(
+        [
+            strings.tr("col_job_name"),
+            strings.tr("col_status"),
+            strings.tr("settings_schedule_frequency"),
+            strings.tr("settings_schedule_time"),
+            strings.tr("col_next_run"),
+        ]
+    )
+    shdr = window.tbl_schedule_jobs.horizontalHeader()
+    shdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+    shdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+    shdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+    shdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+    shdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+    window.tbl_schedule_jobs.setColumnWidth(1, 110)
+    window.tbl_schedule_jobs.setColumnWidth(2, 110)
+    window.tbl_schedule_jobs.setColumnWidth(3, 90)
+    window.tbl_schedule_jobs.setColumnWidth(4, 170)
+    window.tbl_schedule_jobs.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+    window.tbl_schedule_jobs.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+    window.tbl_schedule_jobs.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+    window.tbl_schedule_jobs.itemSelectionChanged.connect(window.on_schedule_job_selection_changed)
+    window.tbl_schedule_jobs.setMinimumHeight(150)
+    schedule_layout.addWidget(window.tbl_schedule_jobs)
+
+    row_s5 = QHBoxLayout()
+    row_s5.setSpacing(8)
+    window.btn_schedule_refresh = QPushButton(strings.tr("btn_refresh"))
+    window.btn_schedule_refresh.clicked.connect(window.refresh_schedule_jobs_view)
+    row_s5.addWidget(window.btn_schedule_refresh)
+    window.btn_schedule_delete = QPushButton(strings.tr("btn_delete"))
+    window.btn_schedule_delete.clicked.connect(window.delete_selected_schedule_job)
+    row_s5.addWidget(window.btn_schedule_delete)
+    row_s5.addStretch()
+    schedule_layout.addLayout(row_s5)
+
+    window.lbl_schedule_runs = QLabel(strings.tr("settings_schedule_runs"))
+    window.lbl_schedule_runs.setObjectName("card_desc")
+    schedule_layout.addWidget(window.lbl_schedule_runs)
+
+    window.tbl_schedule_runs = QTableWidget()
+    window.tbl_schedule_runs.setColumnCount(5)
+    window.tbl_schedule_runs.setHorizontalHeaderLabels(
+        [
+            strings.tr("col_created"),
+            strings.tr("col_status"),
+            strings.tr("col_groups"),
+            strings.tr("col_files"),
+            strings.tr("col_message"),
+        ]
+    )
+    rhdr = window.tbl_schedule_runs.horizontalHeader()
+    rhdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+    rhdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+    rhdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+    rhdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+    rhdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+    window.tbl_schedule_runs.setColumnWidth(0, 170)
+    window.tbl_schedule_runs.setColumnWidth(1, 110)
+    window.tbl_schedule_runs.setColumnWidth(2, 80)
+    window.tbl_schedule_runs.setColumnWidth(3, 80)
+    window.tbl_schedule_runs.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+    window.tbl_schedule_runs.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+    window.tbl_schedule_runs.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+    window.tbl_schedule_runs.setMinimumHeight(140)
+    schedule_layout.addWidget(window.tbl_schedule_runs)
 
     window.btn_schedule_apply = QPushButton(strings.tr("btn_apply"))
     window.btn_schedule_apply.clicked.connect(window.apply_schedule_settings)

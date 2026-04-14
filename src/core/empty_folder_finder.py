@@ -2,6 +2,54 @@ import os
 from PySide6.QtCore import QThread, Signal
 from src.utils.i18n import strings
 
+
+def _norm_path(path: str) -> str:
+    return os.path.normcase(os.path.normpath(os.path.abspath(str(path or ""))))
+
+
+def _is_within(path: str, root: str) -> bool:
+    norm_path = _norm_path(path)
+    norm_root = _norm_path(root)
+    return norm_path == norm_root or norm_path.startswith(norm_root + os.sep)
+
+
+def cleanup_empty_parent_folders(paths, stop_roots=None):
+    deleted = []
+    failed = []
+    roots = [_norm_path(p) for p in (stop_roots or []) if p]
+    seen = set()
+    candidates = []
+
+    for raw in paths or []:
+        current = os.path.dirname(os.path.abspath(str(raw or "")))
+        while current:
+            norm_current = _norm_path(current)
+            if norm_current in seen:
+                break
+            seen.add(norm_current)
+            if roots and any(norm_current == root for root in roots):
+                break
+            if roots and not any(_is_within(current, root) for root in roots):
+                break
+            candidates.append(current)
+            parent = os.path.dirname(current)
+            if not parent or parent == current:
+                break
+            current = parent
+
+    for folder in sorted(candidates, key=len, reverse=True):
+        try:
+            if not os.path.isdir(folder):
+                continue
+            if os.listdir(folder):
+                continue
+            os.rmdir(folder)
+            deleted.append(folder)
+        except Exception as exc:
+            failed.append((folder, str(exc)))
+    return deleted, failed
+
+
 class EmptyFolderFinder:
     """빈 폴더 탐색기 (동기 버전)"""
     def __init__(self, roots):

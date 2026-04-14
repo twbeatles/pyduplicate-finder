@@ -18,8 +18,10 @@ src/
 │   ├── cache_manager/           # CacheManager façade + DB/schema/session/quarantine/jobs helper 모듈
 │   ├── history.py               # Undo/Redo 트랜잭션 + atexit 자동 정리 + 디스크 공간 체크
 │   ├── operation_queue.py       # OperationWorker: 삭제/복구/하드링크 작업 큐
-│   ├── result_schema.py         # 결과 JSON v2 스키마 및 legacy 호환 로더
+│   ├── result_schema.py         # 결과 JSON v3 스키마 및 legacy/v2/v3 호환 로더
 │   ├── image_hash.py            # pHash 기반 유사 이미지 탐지 (BK-Tree + Union-Find)
+│   ├── document_hash.py         # SimHash 기반 유사 문서 탐지
+│   ├── scan_types.py            # selection/exemption/review/collection 타입
 │   ├── file_lock_checker.py     # 파일 잠금 상태 확인
 │   ├── preset_manager.py        # 스캔 프리셋 JSON 관리 (기본값 병합)
 │   └── empty_folder_finder.py   # 빈 폴더 탐색 + EmptyFolderWorker (비동기)
@@ -38,6 +40,7 @@ src/
 │   ├── controllers/
 │   │   ├── scan_controller.py
 │   │   ├── scheduler_controller.py
+│   │   ├── watch_controller.py
 │   │   ├── ops_controller.py
 │   │   ├── operation_flow_controller.py
 │   │   ├── navigation_controller.py
@@ -50,6 +53,7 @@ src/
 │   └── dialogs/
 │       ├── preset_dialog.py
 │       ├── exclude_patterns_dialog.py
+│       ├── session_compare_dialog.py
 │       └── shortcut_settings_dialog.py  # 테마 상속 지원
 └── utils/
     └── i18n/                    # 한국어/영어 다국어 지원 + DEBUG_I18N
@@ -105,6 +109,8 @@ imagehash>=4.3.0     # 유사 이미지 탐지
 Pillow>=9.0.0        # 이미지 처리
 send2trash>=1.8.0    # 휴지통 기능
 psutil>=5.9.0        # 파일 잠금 프로세스 확인
+watchdog>=4.0.0      # 실시간 폴더 감시
+pypdf>=5.0.0         # PDF 텍스트 추출 기반 유사 문서 탐지
 ```
 
 ## 5. 유지보수 가이드
@@ -243,3 +249,30 @@ psutil>=5.9.0        # 파일 잠금 프로세스 확인
 - Current regression baseline:
   - `pytest -q` -> `122 passed`
   - `pyright src tests cli.py main.py` was attempted in this workspace, but local dependency resolution for `imagehash` / `send2trash` is currently missing.
+
+## Update Memo (2026-04-14)
+
+- Database schema version advanced to `6`.
+  - Added `scan_exemptions`, `review_marks`, and `file_signatures`.
+- Result persistence now targets JSON `version=3`.
+  - File-level state is saved/restored: `selection_reason`, `exemption_status`, `review_state`, `collection_role`, `baseline_delta`.
+- Selection policy flow was unified.
+  - explicit keep/delete -> safelist -> collection role -> attribute priority -> fallback keep-one
+- Incremental scan review UX was extended.
+  - Results page adds a delta filter for `new|changed|revalidated`.
+  - `src/ui/dialogs/session_compare_dialog.py` provides dedicated session-delta review.
+- Scheduler moved from single-job assumptions to named multi-job workflow.
+  - Settings now support create/edit/delete/run-now per saved job and show recent run history.
+- Added `Insights` page and navigation slot.
+  - Sidebar/page stack now includes `scan/results/tools/insights/settings`.
+  - Metrics summarize recent sessions, reclaim estimates, failure rate, quarantine usage, and scheduled runs.
+- Watch mode now triggers real rerun behavior.
+  - `src/ui/controllers/watch_controller.py` uses `watchdog` when available and polling fallback otherwise.
+  - File events during an active scan are coalesced into one pending rerun.
+- Post-delete empty-folder cleanup is now executed from operation flow.
+  - `src/core.empty_folder_finder.cleanup_empty_parent_folders(...)`
+  - cleanup runs only for affected parent trees and is logged as a separate operation.
+- Similar-document detection is enabled for `.txt`, `.md`, `.csv`, `.json`, `.py`, `.pdf`.
+  - `pypdf` is used for PDF text extraction.
+- Current regression baseline in this workspace:
+  - `pytest -q` -> `131 passed, 1 skipped`
