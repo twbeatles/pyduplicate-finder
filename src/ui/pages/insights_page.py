@@ -82,13 +82,14 @@ def build_insights_page(window) -> QWidget:
     sessions_layout.addWidget(window.lbl_insights_sessions_title)
 
     window.tbl_insight_sessions = QTableWidget()
-    window.tbl_insight_sessions.setColumnCount(5)
+    window.tbl_insight_sessions.setColumnCount(6)
     window.tbl_insight_sessions.setHorizontalHeaderLabels(
         [
             strings.tr("col_id"),
             strings.tr("col_created"),
             strings.tr("col_status"),
             strings.tr("col_groups"),
+            strings.tr("col_watch_events"),
             strings.tr("col_message"),
         ]
     )
@@ -97,11 +98,13 @@ def build_insights_page(window) -> QWidget:
     session_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
     session_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
     session_header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
-    session_header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+    session_header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+    session_header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
     window.tbl_insight_sessions.setColumnWidth(0, 80)
     window.tbl_insight_sessions.setColumnWidth(1, 170)
     window.tbl_insight_sessions.setColumnWidth(2, 110)
     window.tbl_insight_sessions.setColumnWidth(3, 90)
+    window.tbl_insight_sessions.setColumnWidth(4, 100)
     window.tbl_insight_sessions.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
     window.tbl_insight_sessions.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
     window.tbl_insight_sessions.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -121,7 +124,7 @@ def build_insights_page(window) -> QWidget:
     jobs_layout.addWidget(window.lbl_insights_jobs_title)
 
     window.tbl_insight_jobs = QTableWidget()
-    window.tbl_insight_jobs.setColumnCount(6)
+    window.tbl_insight_jobs.setColumnCount(9)
     window.tbl_insight_jobs.setHorizontalHeaderLabels(
         [
             strings.tr("col_created"),
@@ -129,6 +132,9 @@ def build_insights_page(window) -> QWidget:
             strings.tr("col_status"),
             strings.tr("col_groups"),
             strings.tr("col_files"),
+            strings.tr("col_missing_folders"),
+            strings.tr("col_export_failed"),
+            strings.tr("col_watch_events"),
             strings.tr("col_message"),
         ]
     )
@@ -138,12 +144,18 @@ def build_insights_page(window) -> QWidget:
     job_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
     job_header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
     job_header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
-    job_header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+    job_header.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
+    job_header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
+    job_header.setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)
+    job_header.setSectionResizeMode(8, QHeaderView.ResizeMode.Stretch)
     window.tbl_insight_jobs.setColumnWidth(0, 170)
     window.tbl_insight_jobs.setColumnWidth(1, 150)
     window.tbl_insight_jobs.setColumnWidth(2, 110)
     window.tbl_insight_jobs.setColumnWidth(3, 90)
     window.tbl_insight_jobs.setColumnWidth(4, 90)
+    window.tbl_insight_jobs.setColumnWidth(5, 110)
+    window.tbl_insight_jobs.setColumnWidth(6, 110)
+    window.tbl_insight_jobs.setColumnWidth(7, 100)
     window.tbl_insight_jobs.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
     window.tbl_insight_jobs.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
     window.tbl_insight_jobs.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)

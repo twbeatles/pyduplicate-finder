@@ -46,12 +46,20 @@ htmlcov/
 coverage/
 bench_perf.json
 
-# Temp
-tmp/
-
-# Local app cache
+# Local scan/export artifacts
 scan_cache.db
 scan_cache.db-*
+*.db-shm
+*.db-wal
+*.db-journal
+duplicates.csv
+result.csv
+result.json
+operation_plan*.json
+
+# Temp
+tmp/
+temp/
 
 # Local backups/artifacts
 backup/

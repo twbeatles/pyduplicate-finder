@@ -17,6 +17,9 @@ EXEMPTION_KIND_CONTENT_HASH = "content_hash"
 EXEMPTION_ACTION_SAFELIST = "safelist"
 EXEMPTION_ACTION_IGNORE = "ignore"
 
+EXEMPTION_STATUS_SAFELISTED = "safelisted"
+EXEMPTION_STATUS_IGNORE = "ignore"
+
 REVIEW_STATE_UNREVIEWED = "unreviewed"
 REVIEW_STATE_KEEP = "reviewed_keep"
 REVIEW_STATE_DELETE_LATER = "reviewed_delete_later"
@@ -27,6 +30,15 @@ COLLECTION_ROLE_NONE = ""
 
 COMPARE_MODE_NONE = "none"
 COMPARE_MODE_COLLECTIONS = "collections"
+
+
+def normalize_exemption_status(value: object) -> str:
+    token = str(value or "").strip().lower()
+    if token in {EXEMPTION_STATUS_SAFELISTED, EXEMPTION_ACTION_SAFELIST}:
+        return EXEMPTION_STATUS_SAFELISTED
+    if token == EXEMPTION_STATUS_IGNORE:
+        return EXEMPTION_STATUS_IGNORE
+    return ""
 
 
 @dataclass(frozen=True)

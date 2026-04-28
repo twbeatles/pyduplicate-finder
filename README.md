@@ -22,6 +22,7 @@
 - **휴지통 옵션**: 파일을 영구 삭제하는 대신 시스템 휴지통으로 이동시켜 안전하게 복구할 수 있는 옵션을 제공합니다.
 - **파일 잠금 감지**: 삭제 전 다른 프로세스에서 사용 중인 파일을 자동으로 감지하여 오류를 방지합니다.
 - **격리함 유지/보존 정책**: Undo 가능한 삭제는 persistent 격리함에 보관되며, 설정한 보존 기간/용량 정책에 따라 정리됩니다.
+- **결과 그룹 안전 분류**: 정확 중복, 이름 중복, 폴더 중복, 유사 이미지, 유사 문서를 공통 classifier로 분류하고, 유사/이름/폴더 그룹은 하드링크 통합 대상에서 제외합니다.
 
 ### 🎨 모던 UI & 사용자 경험
 - **다양한 스캔 모드**: 
@@ -38,14 +39,17 @@
 - **실시간 결과 필터**: 이름/경로 기준으로 결과를 빠르게 필터링할 수 있습니다.
 - **사이드바 네비게이션**: 스캔/결과/도구/인사이트/설정 화면을 빠르게 이동할 수 있습니다.
 - **인사이트 대시보드**: 최근 스캔 세션, 절감 용량, 실패율, 예약 실행 이력을 별도 페이지에서 확인할 수 있습니다.
-- **세션 비교 다이얼로그**: 증분 스캔 결과의 `new / changed / revalidated` 파일을 별도 다이얼로그와 필터로 검토할 수 있습니다.
+- **세션 비교 다이얼로그**: 증분 스캔 결과의 `new / changed / revalidated` 파일을 필터링하고, 결과 트리 선택/검토 상태 변경/CSV 내보내기로 바로 이어갈 수 있습니다.
+- **컬렉션 역할 테이블**: 스캔 폴더를 Path/Role 테이블로 관리하고 `primary`, `secondary`, `none` 역할을 설정해 보존 정책과 예약 job snapshot에 반영합니다.
 - **감시 모드**: 선택 폴더를 계속 감시하고 변경이 감지되면 증분 재스캔을 자동 예약합니다.
 - **커스텀 단축키**: 사용자 편의에 맞춰 모든 기능의 단축키를 설정할 수 있습니다.
 - **다국어 지원**: 한국어/영어 인터페이스를 지원합니다.
 
 ### 🧰 도구 (Tools)
 - **격리함(Quarantine) 관리**: Undo 가능한 삭제 모드로 삭제된 파일을 격리함에서 복구/영구삭제할 수 있습니다.
+- **Safelist / Ignore 관리**: Tools 화면에서 path/hash/glob 기반 예외 규칙을 추가, 수정, 삭제, 검색할 수 있으며 결과 트리 우클릭 메뉴에서도 바로 등록할 수 있습니다.
 - **자동 선택 규칙(Selection Rules)**: 경로/파일명 패턴(fnmatch) 기반으로 KEEP/DELETE 규칙을 정의하고 그룹/전체 결과에 자동 적용할 수 있습니다.
+- **작업 계획 저장/불러오기**: 선택된 삭제 계획을 `operation_plan` JSON v1로 저장하고, 다시 불러올 때 path/size/mtime을 검증해 stale/missing 항목을 제외합니다.
 - **작업 기록(Operations Log)**: 삭제/복구/영구삭제/하드링크 등 수행된 작업을 기록하고, 항목별 상세/CSV/JSON 내보내기를 지원합니다.
 - **사전 점검(Preflight)**: 하드링크 통합 등 위험도가 있는 작업 전, 잠금/권한/볼륨 조건 등을 사전 점검하여 차단/경고를 표시합니다.
 - **하드링크 통합(Hardlink Consolidation, 고급)**: 동일 내용의 중복 파일을 하드링크로 통합해 디스크 사용량을 절감할 수 있습니다(옵션).
@@ -74,7 +78,8 @@ duplicate_finder/
 │   │   │   ├── database.py
 │   │   │   └── ...
 │   │   ├── history.py           # Undo/Redo 트랜잭션
-│   │   ├── result_schema.py     # 결과 JSON v2 스키마/호환 로더
+│   │   ├── result_schema.py     # 결과 JSON v3 스키마/호환 로더
+│   │   ├── result_groups.py     # 결과 그룹 분류/위험도/하드링크 eligibility
 │   │   ├── image_hash.py        # 유사 이미지 탐지 (pHash)
 │   │   ├── document_hash.py     # 유사 문서 탐지 (SimHash / PDF text extraction)
 │   │   ├── scan_types.py        # selection/exemption/review/collection 타입
@@ -182,6 +187,7 @@ python cli.py "D:/Data" "E:/Photos" --extensions jpg,png --output-json result.js
 - `--similarity-threshold` 값은 `0.0`~`1.0`만 허용됩니다. 범위를 벗어나면 CLI는 에러(`SystemExit 2`)로 종료됩니다.
 - `--similar-image` 또는 `--mixed-mode` 사용 시 `imagehash`/`Pillow` 의존성이 없으면 CLI는 즉시 실패(fail-fast)합니다.
 - `--mixed-mode`를 사용하면 `--similar-image` 패스가 자동으로 활성화됩니다(별도 플래그 불필요).
+- `--watch`, `--post-cleanup-empty-dirs`는 GUI 전용 흐름이므로 CLI에서는 exit code `2`와 명확한 stderr 메시지로 실패합니다.
 
 ### 2. 검색 설정
 - **파일 위치 추가**: '폴더 추가' 혹은 드래그 앤 드롭으로 검색할 위치를 등록합니다.
@@ -222,14 +228,18 @@ python cli.py "D:/Data" "E:/Photos" --extensions jpg,png --output-json result.js
 | 단축키 설정 | 모든 기능의 단축키 커스터마이징 |
 | 빈 폴더 찾기 | 빈 폴더 탐색 및 일괄 삭제 |
 | 격리함 관리 | Undo 가능한 삭제로 이동된 파일 복구/영구삭제 |
+| Safelist / Ignore 관리 | path/hash/glob 예외 규칙 CRUD, 검색, 결과 트리 우클릭 등록 |
 | 자동 선택 규칙 | 패턴 기반 KEEP/DELETE 규칙으로 자동 선택 |
 | 작업 기록 | 삭제/복구/정리/하드링크 작업 기록 및 내보내기 |
+| 작업 계획 저장/로드 | 선택된 삭제 계획을 JSON으로 저장하고 로드 시 path/size/mtime 검증 |
+| 결과 위험도 표시 | 그룹별 위험도 badge 및 파괴적 작업 preflight 위험도 요약 |
 | 하드링크 통합 | (고급) 중복 파일을 하드링크로 통합하여 공간 절감 |
 | 예약 스캔 스냅샷 | 저장된 예약 설정(`scan_jobs.config_json`)으로 실행되며, 폴더 일부 누락 시 유효 폴더만 실행/전체 누락 시 `skipped(no_valid_folders)` 처리 |
 | 다중 예약 작업 | 이름별 scan job 저장/편집/삭제/수동 실행과 최근 실행 이력 확인 |
 | 감시 모드 | 폴더 변경 감지 후 debounce 기반 증분 재스캔 예약 |
 | 인사이트 | 최근 세션, 절감 용량, 실패율, 예약 실행 이력 표시 |
 | 세션 비교 | 증분 스캔 delta(`new`, `changed`, `revalidated`) 검토 |
+| 격리함 필터/페이지네이션 | status/date/size/path 필터와 페이지 이동으로 대량 격리함 목록 관리 |
 | 캐시 유지 정책 | 세션 보존 개수(`cache/session_keep_latest`)와 해시 캐시 보존 일수(`cache/hash_cleanup_days`)를 설정하고 즉시 적용 |
 | 헤드리스 CLI 스캔 | GUI 없이 폴더 스캔 후 JSON/CSV 결과 출력 |
 
@@ -420,7 +430,32 @@ python cli.py "D:/Data" --strict-mode --strict-max-errors 0 --output-json result
   - 삭제/하드링크 작업 후 비게 된 상위 폴더를 다시 검사하고 별도 operation log로 남깁니다.
 - 유사 문서 탐지가 `.txt`, `.md`, `.csv`, `.json`, `.py`, `.pdf`에 대해 활성화되었습니다.
   - `pypdf`가 있으면 PDF 텍스트 기반 SimHash 그룹핑을 수행합니다.
-- 현재 이 워크스페이스 기준 자동 회귀 결과:
+- 당시 이 워크스페이스 기준 자동 회귀 결과:
   - `pytest -q` -> `131 passed, 1 skipped`
 
 - 이전 2026-04-12 변경사항도 유지됩니다.
+
+## 구현 상태 (2026-04-28)
+
+- DB 스키마 버전이 `7`로 확장되었습니다.
+  - `scan_file_state` 저장 모델을 추가해 DB 자동 세션 복원도 JSON v3와 같은 수준으로 `file_meta`, 존재 여부, 선택 사유, 예외 상태, 검토 상태, 컬렉션 역할, baseline delta를 복원합니다.
+- `pyright src tests cli.py main.py` 기준선을 복구했습니다.
+  - core `CacheManager`/`ScanWorker` mixin host protocol과 UI host protocol 누락을 보강했고, `watchdog` optional import는 런타임 fallback을 유지하면서 타입 검사를 통과합니다.
+- 결과 그룹 분류가 `src/core/result_groups.py`로 공통화되었습니다.
+  - UI badge, CSV `group_type/group_kind`, hardlink eligibility가 같은 classifier를 사용합니다.
+  - `NAME_ONLY`, `FOLDER_DUP`, `similar_*`, `doc_similar_*`는 하드링크 통합에서 제외됩니다.
+- Safelist / Ignore 정책이 정합화되었습니다.
+  - canonical 상태는 `"safelisted"`이며 legacy `"safelist"`는 JSON/DB 로드 시 normalize됩니다.
+  - 증분 baseline-known path와 cached-resume scan 경로에도 동일한 ignore/exemption/metadata 복원 정책을 적용합니다.
+  - content-hash 예외 규칙은 exact full BLAKE2b hash 기준이며, name-only/similar 계열에서는 content-hash 액션을 비활성화합니다.
+- 사용자-facing 관리 기능을 보강했습니다.
+  - Tools Safelist/Ignore manager, 결과 트리 우클릭 예외 등록, 폴더 Path/Role 테이블, Session Compare action, 위험도 badge/preflight 요약, `operation_plan` JSON v1 저장/로드, Quarantine 필터/페이지네이션을 추가했습니다.
+  - scheduled/watch 이력은 `missing_folders`, `export_failed`, `watch_events` 구조 필드로 분리해 표시합니다.
+- CLI 미구현 옵션은 fail-fast 처리합니다.
+  - `--watch`, `--post-cleanup-empty-dirs` 지정 시 exit code `2`와 stderr 안내를 반환합니다.
+- 패키징/로컬 산출물 정합성을 갱신했습니다.
+  - `PyDuplicateFinder.spec`는 새 런타임 helper(`src.core.result_groups`, `src.ui.history_messages`)를 명시 hidden import로 포함하고, `watchdog`/`pypdf`는 설치된 경우에만 수집합니다.
+  - `.gitignore`는 로컬 DB sidecar, 결과 CSV/JSON, `operation_plan` JSON, temp 산출물을 무시합니다.
+- 현재 이 워크스페이스 기준 자동 회귀 결과:
+  - `pyright src tests cli.py main.py` -> `0 errors, 0 warnings`
+  - `pytest -q` -> `145 passed`

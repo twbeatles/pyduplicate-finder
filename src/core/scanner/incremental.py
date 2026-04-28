@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from .common import defaultdict, os, strings
+from .contracts import ScanWorkerHost
 
 
-class ScanIncrementalMixin:
+class ScanIncrementalMixin(ScanWorkerHost):
     def _scan_files_incremental(self, base_session_id: int):
         size_map = defaultdict(list)
         file_count = 0
@@ -30,6 +31,8 @@ class ScanIncrementalMixin:
             if self.skip_hidden and self._is_hidden_or_system_name(os.path.basename(path)):
                 continue
             if self._should_exclude(path):
+                continue
+            if self._should_ignore_path(path):
                 continue
             if self.extensions:
                 _, ext = os.path.splitext(path)

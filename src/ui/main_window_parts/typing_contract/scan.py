@@ -30,6 +30,8 @@ class ScanFlowHost(CommonWindowHost):
         lbl_similarity: Any
         lbl_strict_max_errors: Any
         list_folders: Any
+        tbl_folders: Any
+        selected_folder_roles: dict[str, str]
         spin_min_size: Any
         spin_similarity: Any
         spin_strict_max_errors: Any

@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -136,5 +137,54 @@ def test_scan_failed_restores_previous_result_metadata(tmp_path, monkeypatch, qa
         assert rendered["file_meta"] == {"x": (2, 20.0), "y": (2, 21.0)}
         assert rendered["existence_map"] == {"x": True, "y": True}
         assert w._current_baseline_delta_map == {"x": "revalidated"}
+    finally:
+        w.close()
+
+
+def test_operation_plan_load_validates_path_size_and_mtime(tmp_path, monkeypatch, qapp):
+    w = _setup_window(tmp_path, monkeypatch)
+    try:
+        valid = tmp_path / "valid.bin"
+        stale = tmp_path / "stale.bin"
+        valid.write_bytes(b"ok")
+        stale.write_bytes(b"old")
+        valid_stat = valid.stat()
+        stale_stat = stale.stat()
+        plan_path = tmp_path / "operation_plan.json"
+        plan_path.write_text(
+            json.dumps(
+                {
+                    "type": "operation_plan",
+                    "version": 1,
+                    "op_type": "delete_selected",
+                    "entries": [
+                        {"path": str(valid), "size": valid_stat.st_size, "mtime": valid_stat.st_mtime},
+                        {"path": str(stale), "size": stale_stat.st_size + 1, "mtime": stale_stat.st_mtime},
+                        {"path": str(tmp_path / "missing.bin"), "size": 1, "mtime": 1.0},
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *args, **kwargs: (str(plan_path), "JSON Files (*.json)"))
+
+        captured = {}
+
+        def fake_render(results, *, selected_paths=None, file_meta=None, existence_map=None, selected_count=None):
+            captured["selected_paths"] = list(selected_paths or [])
+            captured["selected_count"] = selected_count
+
+        w.scan_results = {("hash", valid_stat.st_size): [str(valid), str(stale)]}
+        w._current_result_meta = {
+            str(valid): (valid_stat.st_size, valid_stat.st_mtime),
+            str(stale): (stale_stat.st_size, stale_stat.st_mtime),
+        }
+        w._render_results = fake_render
+
+        w.load_operation_plan()
+
+        assert captured["selected_paths"] == [str(valid)]
+        assert captured["selected_count"] == 1
+        assert "1개 선택" in w.status_label.text() or "1 selected" in w.status_label.text()
     finally:
         w.close()

@@ -27,6 +27,7 @@ from src.core.operation_queue import Operation
 from src.core.result_schema import dump_results_v3
 from src.core.scheduler import ScheduleConfig
 from src.ui.empty_folder_dialog import EmptyFolderDialog
+from src.ui.history_messages import parse_structured_history_message
 from src.ui.components.results_tree import ResultsTreeWidget
 from src.ui.components.sidebar import Sidebar
 from src.ui.components.toast import ToastManager
@@ -182,7 +183,11 @@ class MainWindowScheduleFlowMixin(DuplicateFinderTypingContract):
             self.tbl_schedule_runs.setItem(row_idx, 1, QTableWidgetItem(str(run.get("status") or "")))
             self.tbl_schedule_runs.setItem(row_idx, 2, QTableWidgetItem(str(int(run.get("groups_count") or 0))))
             self.tbl_schedule_runs.setItem(row_idx, 3, QTableWidgetItem(str(int(run.get("files_count") or 0))))
-            self.tbl_schedule_runs.setItem(row_idx, 4, QTableWidgetItem(str(run.get("message") or "")))
+            fields = parse_structured_history_message(str(run.get("message") or ""))
+            self.tbl_schedule_runs.setItem(row_idx, 4, QTableWidgetItem(fields.get("missing_folders", "")))
+            self.tbl_schedule_runs.setItem(row_idx, 5, QTableWidgetItem(fields.get("export_failed", "")))
+            self.tbl_schedule_runs.setItem(row_idx, 6, QTableWidgetItem(fields.get("watch_events", "")))
+            self.tbl_schedule_runs.setItem(row_idx, 7, QTableWidgetItem(str(run.get("message") or "")))
 
     def refresh_schedule_jobs_view(self: Any):
         if not hasattr(self, "tbl_schedule_jobs"):

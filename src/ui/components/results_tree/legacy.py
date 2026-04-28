@@ -14,6 +14,13 @@ from PySide6.QtWidgets import (
     QTreeWidgetItemIterator,
 )
 
+from src.core.result_groups import (
+    GROUP_TYPE_FOLDER_DUP,
+    GROUP_TYPE_NAME_ONLY,
+    GROUP_TYPE_SIMILAR_DOCUMENT,
+    GROUP_TYPE_SIMILAR_IMAGE,
+    classify_result_group,
+)
 from src.ui.theme import ModernTheme
 from src.utils.i18n import strings
 
@@ -257,41 +264,20 @@ class ResultsTreeWidget(QTreeWidget):
                 self._update_group_summary(root.child(i))
 
     def _add_group_item(self, key, paths):
-        hash_str = "N/A"
-        is_name_only = False
-        is_similar = False
-        is_folder_dup = False
-        is_byte_compare = False
+        group_info = classify_result_group(key)
+        is_name_only = group_info.group_type == GROUP_TYPE_NAME_ONLY
+        is_similar = group_info.group_type in (GROUP_TYPE_SIMILAR_IMAGE, GROUP_TYPE_SIMILAR_DOCUMENT)
+        is_folder_dup = group_info.group_type == GROUP_TYPE_FOLDER_DUP
+        is_byte_compare = group_info.has_byte_compare
+        hash_str = group_info.label
+        if group_info.group_type == GROUP_TYPE_SIMILAR_IMAGE:
+            group_id = hash_str.split("_", 1)[1] if "_" in hash_str else hash_str
+            hash_str = strings.tr("label_similar_group").format(id=group_id)
+        elif group_info.group_type == GROUP_TYPE_SIMILAR_DOCUMENT:
+            group_id = hash_str.rsplit("_", 1)[-1] if "_" in hash_str else hash_str
+            hash_str = strings.tr("label_similar_document_group").format(id=group_id)
 
-        if isinstance(key, (tuple, list)) and key:
-            if key[0] == "NAME_ONLY":
-                is_name_only = True
-                if len(key) > 1:
-                    hash_str = str(key[1])
-            elif key[0] == "FOLDER_DUP":
-                is_folder_dup = True
-                if len(key) > 1:
-                    hash_str = str(key[1])
-            else:
-                for part in key:
-                    if isinstance(part, str) and part.startswith("similar_"):
-                        is_similar = True
-                        group_id = part.split("_", 1)[1] if "_" in part else part
-                        hash_str = strings.tr("label_similar_group").format(id=group_id)
-                        break
-                if hash_str == "N/A":
-                    for part in key:
-                        if not isinstance(part, int):
-                            hash_str = str(part)
-                            break
-            is_byte_compare = any(isinstance(part, str) and part.startswith("byte_") for part in key)
-
-        size_from_key = None
-        if isinstance(key, (tuple, list)):
-            for part in key:
-                if isinstance(part, int):
-                    size_from_key = part
-                    break
+        size_from_key = group_info.size_from_key
 
         sizes = []
         if size_from_key is not None and not is_name_only and not is_similar and not is_folder_dup:
@@ -340,11 +326,21 @@ class ResultsTreeWidget(QTreeWidget):
         if is_name_only:
             badges.append(strings.tr("badge_name_only"))
         if is_similar:
-            badges.append(strings.tr("badge_similar"))
+            badges.append(
+                strings.tr("badge_similar_document")
+                if group_info.group_type == GROUP_TYPE_SIMILAR_DOCUMENT
+                else strings.tr("badge_similar")
+            )
         if is_folder_dup:
             badges.append(strings.tr("badge_folder_dup"))
         if is_byte_compare:
             badges.append(strings.tr("badge_byte_compare"))
+        if group_info.risk_level == "high":
+            badges.append(strings.tr("badge_risk_high"))
+        elif group_info.risk_level == "medium":
+            badges.append(strings.tr("badge_risk_medium"))
+        else:
+            badges.append(strings.tr("badge_risk_low"))
         badge_text = f" [{', '.join(badges)}]" if badges else ""
 
         if is_folder_dup:

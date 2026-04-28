@@ -37,6 +37,7 @@ class NavigationController:
                 try:
                     h.refresh_quarantine_list()
                     h.refresh_operations_list()
+                    h.refresh_exemption_list()
                 except Exception:
                     pass
             elif page_name == "insights":

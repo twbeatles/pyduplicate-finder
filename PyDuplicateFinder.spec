@@ -1,5 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from importlib.util import find_spec
 from PyInstaller.utils.hooks import collect_submodules
 
 block_cipher = None
@@ -15,6 +16,7 @@ BASE_HIDDENIMPORTS = [
     'src.core.empty_folder_finder',
     'src.core.scan_engine',
     'src.core.result_schema',
+    'src.core.result_groups',
     'src.core.scheduler',
     'src.core.operation_queue',
     'src.core.preflight',
@@ -48,6 +50,7 @@ BASE_HIDDENIMPORTS = [
     'src.ui.controllers.results_controller',
     'src.ui.controllers.preview_controller',
     'src.ui.exporting',
+    'src.ui.history_messages',
     'src.ui.dialogs.preset_dialog',
     'src.ui.dialogs.exclude_patterns_dialog',
     'src.ui.dialogs.selection_rules_dialog',
@@ -62,11 +65,16 @@ BASE_HIDDENIMPORTS = [
     'PIL',
     'send2trash',
     'psutil',
-    'watchdog',
-    'pypdf',
     'sqlite3',
     'uuid',
 ]
+
+
+def collect_optional_package(package_name):
+    if find_spec(package_name) is None:
+        return []
+    return [package_name] + collect_submodules(package_name)
+
 
 PACKAGE_HIDDENIMPORTS = []
 for package_name in [
@@ -76,10 +84,14 @@ for package_name in [
     'src.utils.i18n',
     'src.ui.components.results_tree',
     'src.ui.main_window_parts',
+]:
+    PACKAGE_HIDDENIMPORTS.extend(collect_submodules(package_name))
+
+for package_name in [
     'watchdog',
     'pypdf',
 ]:
-    PACKAGE_HIDDENIMPORTS.extend(collect_submodules(package_name))
+    PACKAGE_HIDDENIMPORTS.extend(collect_optional_package(package_name))
 
 HIDDENIMPORTS = sorted(set(BASE_HIDDENIMPORTS + PACKAGE_HIDDENIMPORTS))
 

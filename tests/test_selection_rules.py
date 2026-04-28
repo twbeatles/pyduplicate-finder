@@ -3,7 +3,15 @@ import tempfile
 import time
 import unittest
 
-from src.core.scan_types import SelectionCandidate, SelectionPolicy
+from src.core.scan_types import (
+    EXEMPTION_ACTION_SAFELIST,
+    EXEMPTION_KIND_EXACT_PATH,
+    EXEMPTION_STATUS_SAFELISTED,
+    ExemptionRule,
+    SelectionCandidate,
+    SelectionPolicy,
+)
+from src.core.scanner import ScanWorker
 from src.core.selection_rules import (
     decide_keep_delete_for_group,
     decide_selection_for_candidates,
@@ -84,6 +92,33 @@ class SelectionRulesTests(unittest.TestCase):
         )
         self.assertEqual(decision.keep_set, {"/primary/b.txt"})
         self.assertEqual(decision.reasons["/primary/b.txt"], "collection_primary_keep")
+
+    def test_scanner_safelist_status_drives_selection_keep(self):
+        from src.ui.controllers.results_controller import ResultEntry, ResultsController
+
+        with tempfile.TemporaryDirectory() as td:
+            p1 = os.path.join(td, "a.bin")
+            p2 = os.path.join(td, "b.bin")
+            for p in (p1, p2):
+                with open(p, "wb") as f:
+                    f.write(b"same")
+
+            worker = ScanWorker([td], protect_system=False, apply_exemptions=True)
+            worker._exemption_rules = [
+                ExemptionRule(kind=EXEMPTION_KIND_EXACT_PATH, value=p2, action=EXEMPTION_ACTION_SAFELIST)
+            ]
+            worker._scan_files()
+            status_map = dict(worker._path_exemption_status or {})
+
+            self.assertEqual(status_map[p2], EXEMPTION_STATUS_SAFELISTED)
+            decision = ResultsController().build_selection_decision(
+                [
+                    ResultEntry(path=p1, mtime=2.0),
+                    ResultEntry(path=p2, mtime=1.0, safelisted=status_map.get(p2) == EXEMPTION_STATUS_SAFELISTED),
+                ],
+                strategy="newest",
+            )
+            self.assertEqual(decision.keep_set, {p2})
 
 
 if __name__ == "__main__":

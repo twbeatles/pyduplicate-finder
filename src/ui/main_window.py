@@ -97,6 +97,7 @@ class DuplicateFinderApp(
         self.setWindowTitle(strings.tr("app_title"))
         self.resize(1200, 850)
         self.selected_folders = []
+        self.selected_folder_roles = {}
         self.scan_results = {}
         self.cache_manager = CacheManager()
         self.quarantine_manager = QuarantineManager(self.cache_manager)
@@ -154,6 +155,7 @@ class DuplicateFinderApp(
         self._op_worker = None
         self._op_progress = None
         self._op_queue = []
+        self._quarantine_page = 0
         self._scheduler_timer = QTimer(self)
         self._scheduler_timer.setInterval(60_000)
         self._scheduler_timer.timeout.connect(self._scheduler_tick)
@@ -164,6 +166,7 @@ class DuplicateFinderApp(
         self._watch_service.state_changed.connect(self._on_watch_state_changed)
         self._watch_pending_rerun = False
         self._watch_pending_paths = []
+        self._watch_last_coalesced_event_count = 0
         self._watch_last_config = {}
         self._watch_last_folders = []
 
@@ -192,6 +195,7 @@ class DuplicateFinderApp(
         try:
             self.refresh_quarantine_list()
             self.refresh_operations_list()
+            self.refresh_exemption_list()
         except Exception:
             pass
 

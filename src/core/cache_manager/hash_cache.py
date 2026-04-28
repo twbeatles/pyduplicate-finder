@@ -4,10 +4,12 @@ import logging
 import sqlite3
 import time
 
+from .contracts import CacheManagerHost
+
 logger = logging.getLogger(__name__)
 
 
-class CacheHashMixin:
+class CacheHashMixin(CacheManagerHost):
     def get_cached_hash(self, path, size, mtime):
         try:
             conn = self._get_conn()

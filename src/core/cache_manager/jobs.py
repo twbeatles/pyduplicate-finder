@@ -4,10 +4,12 @@ import logging
 import time
 from typing import Optional
 
+from .contracts import CacheManagerHost
+
 logger = logging.getLogger(__name__)
 
 
-class CacheJobMixin:
+class CacheJobMixin(CacheManagerHost):
     def list_scan_jobs(self):
         out = []
         try:

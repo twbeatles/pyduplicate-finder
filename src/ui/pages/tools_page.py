@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QLineEdit,
+    QComboBox,
     QTableWidget,
     QHeaderView,
     QAbstractItemView,
@@ -86,8 +87,31 @@ def build_tools_page(window) -> QWidget:
     window.txt_quarantine_search.setPlaceholderText(strings.tr("ph_quarantine_search"))
     window.txt_quarantine_search.textChanged.connect(lambda _t: window.refresh_quarantine_list())
     q_top.addWidget(window.txt_quarantine_search, 1)
+    window.cmb_quarantine_status = QComboBox()
+    window.cmb_quarantine_status.addItem(strings.tr("opt_status_quarantined"), "quarantined")
+    window.cmb_quarantine_status.addItem(strings.tr("opt_status_all"), "")
+    window.cmb_quarantine_status.addItem(strings.tr("opt_status_restored"), "restored")
+    window.cmb_quarantine_status.addItem(strings.tr("opt_status_purged"), "purged")
+    window.cmb_quarantine_status.currentIndexChanged.connect(lambda _i: window.refresh_quarantine_list(reset_page=True))
+    q_top.addWidget(window.cmb_quarantine_status)
+    window.txt_quarantine_min_size = QLineEdit()
+    window.txt_quarantine_min_size.setPlaceholderText(strings.tr("ph_min_size_bytes"))
+    window.txt_quarantine_min_size.textChanged.connect(lambda _t: window.refresh_quarantine_list(reset_page=True))
+    q_top.addWidget(window.txt_quarantine_min_size)
+    window.txt_quarantine_max_size = QLineEdit()
+    window.txt_quarantine_max_size.setPlaceholderText(strings.tr("ph_max_size_bytes"))
+    window.txt_quarantine_max_size.textChanged.connect(lambda _t: window.refresh_quarantine_list(reset_page=True))
+    q_top.addWidget(window.txt_quarantine_max_size)
+    window.txt_quarantine_date_from = QLineEdit()
+    window.txt_quarantine_date_from.setPlaceholderText(strings.tr("ph_date_from"))
+    window.txt_quarantine_date_from.textChanged.connect(lambda _t: window.refresh_quarantine_list(reset_page=True))
+    q_top.addWidget(window.txt_quarantine_date_from)
+    window.txt_quarantine_date_to = QLineEdit()
+    window.txt_quarantine_date_to.setPlaceholderText(strings.tr("ph_date_to"))
+    window.txt_quarantine_date_to.textChanged.connect(lambda _t: window.refresh_quarantine_list(reset_page=True))
+    q_top.addWidget(window.txt_quarantine_date_to)
     window.btn_quarantine_refresh = QPushButton(strings.tr("btn_refresh"))
-    window.btn_quarantine_refresh.clicked.connect(window.refresh_quarantine_list)
+    window.btn_quarantine_refresh.clicked.connect(lambda: window.refresh_quarantine_list(reset_page=True))
     q_top.addWidget(window.btn_quarantine_refresh)
     quarantine_layout.addLayout(q_top)
 
@@ -128,6 +152,16 @@ def build_tools_page(window) -> QWidget:
 
     q_btns.addStretch()
 
+    window.btn_quarantine_prev = QPushButton(strings.tr("btn_prev"))
+    window.btn_quarantine_prev.clicked.connect(lambda: window.change_quarantine_page(-1))
+    q_btns.addWidget(window.btn_quarantine_prev)
+    window.lbl_quarantine_page = QLabel("")
+    window.lbl_quarantine_page.setObjectName("filter_count")
+    q_btns.addWidget(window.lbl_quarantine_page)
+    window.btn_quarantine_next = QPushButton(strings.tr("btn_next"))
+    window.btn_quarantine_next.clicked.connect(lambda: window.change_quarantine_page(1))
+    q_btns.addWidget(window.btn_quarantine_next)
+
     window.btn_quarantine_purge_all = QPushButton(strings.tr("btn_purge_all"))
     window.btn_quarantine_purge_all.setObjectName("btn_danger")
     window.btn_quarantine_purge_all.clicked.connect(window.purge_all_quarantine)
@@ -135,6 +169,96 @@ def build_tools_page(window) -> QWidget:
 
     quarantine_layout.addLayout(q_btns)
     tools_layout.addWidget(quarantine_card)
+
+    # Safelist / Ignore card
+    exemption_card = QWidget()
+    exemption_card.setObjectName("folder_card")
+    exemption_layout = QVBoxLayout(exemption_card)
+    exemption_layout.setContentsMargins(20, 16, 20, 16)
+    exemption_layout.setSpacing(12)
+
+    window.lbl_exemption_title = QLabel(strings.tr("tool_exemptions_title"))
+    window.lbl_exemption_title.setObjectName("card_title")
+    exemption_layout.addWidget(window.lbl_exemption_title)
+
+    window.lbl_exemption_desc = QLabel(strings.tr("tool_exemptions_desc"))
+    window.lbl_exemption_desc.setWordWrap(True)
+    window.lbl_exemption_desc.setObjectName("card_desc")
+    exemption_layout.addWidget(window.lbl_exemption_desc)
+
+    ex_form = QHBoxLayout()
+    ex_form.setSpacing(8)
+    window.cmb_exemption_kind = QComboBox()
+    window.cmb_exemption_kind.addItem(strings.tr("ex_kind_exact_path"), "exact_path")
+    window.cmb_exemption_kind.addItem(strings.tr("ex_kind_path_glob"), "path_glob")
+    window.cmb_exemption_kind.addItem(strings.tr("ex_kind_content_hash"), "content_hash")
+    ex_form.addWidget(window.cmb_exemption_kind)
+
+    window.cmb_exemption_action = QComboBox()
+    window.cmb_exemption_action.addItem(strings.tr("ex_action_safelist"), "safelist")
+    window.cmb_exemption_action.addItem(strings.tr("ex_action_ignore"), "ignore")
+    ex_form.addWidget(window.cmb_exemption_action)
+
+    window.txt_exemption_value = QLineEdit()
+    window.txt_exemption_value.setPlaceholderText(strings.tr("ph_exemption_value"))
+    ex_form.addWidget(window.txt_exemption_value, 2)
+
+    window.txt_exemption_note = QLineEdit()
+    window.txt_exemption_note.setPlaceholderText(strings.tr("ph_exemption_note"))
+    ex_form.addWidget(window.txt_exemption_note, 1)
+
+    window.btn_exemption_save = QPushButton(strings.tr("btn_save"))
+    window.btn_exemption_save.clicked.connect(window.save_exemption_from_form)
+    ex_form.addWidget(window.btn_exemption_save)
+
+    window.btn_exemption_delete = QPushButton(strings.tr("btn_delete"))
+    window.btn_exemption_delete.clicked.connect(window.delete_selected_exemption)
+    ex_form.addWidget(window.btn_exemption_delete)
+    exemption_layout.addLayout(ex_form)
+
+    ex_top = QHBoxLayout()
+    ex_top.setSpacing(8)
+    window.txt_exemption_search = QLineEdit()
+    window.txt_exemption_search.setPlaceholderText(strings.tr("ph_exemption_search"))
+    window.txt_exemption_search.textChanged.connect(lambda _t: window.refresh_exemption_list())
+    ex_top.addWidget(window.txt_exemption_search, 1)
+    window.btn_exemption_refresh = QPushButton(strings.tr("btn_refresh"))
+    window.btn_exemption_refresh.clicked.connect(window.refresh_exemption_list)
+    ex_top.addWidget(window.btn_exemption_refresh)
+    exemption_layout.addLayout(ex_top)
+
+    window.tbl_exemptions = QTableWidget()
+    window.tbl_exemptions.setColumnCount(6)
+    window.tbl_exemptions.setHorizontalHeaderLabels(
+        [
+            strings.tr("col_id"),
+            strings.tr("col_kind"),
+            strings.tr("col_value"),
+            strings.tr("col_action"),
+            strings.tr("col_note"),
+            strings.tr("col_created"),
+        ]
+    )
+    ehdr = window.tbl_exemptions.horizontalHeader()
+    ehdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+    ehdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+    ehdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+    ehdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+    ehdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+    ehdr.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
+    window.tbl_exemptions.setColumnWidth(0, 60)
+    window.tbl_exemptions.setColumnWidth(1, 130)
+    window.tbl_exemptions.setColumnWidth(3, 100)
+    window.tbl_exemptions.setColumnWidth(5, 150)
+    window.tbl_exemptions.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+    window.tbl_exemptions.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+    window.tbl_exemptions.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+    window.tbl_exemptions.itemSelectionChanged.connect(window.on_exemption_selection_changed)
+    window.tbl_exemptions.setMinimumHeight(150)
+    window.tbl_exemptions.setMaximumHeight(240)
+    exemption_layout.addWidget(window.tbl_exemptions, 1)
+
+    tools_layout.addWidget(exemption_card)
 
     # Rules card
     rules_card = QWidget()
@@ -225,4 +349,3 @@ def build_tools_page(window) -> QWidget:
     tools_layout.addStretch()
 
     return page
-

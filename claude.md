@@ -24,6 +24,7 @@ duplicate_finder/
     │   ├── empty_folder_finder.py # EmptyFolderFinder + EmptyFolderWorker: 비동기 빈 폴더 탐색
     │   ├── operation_queue.py      # OperationWorker: 삭제/복구/하드링크 작업 큐 워커
     │   ├── result_schema.py        # 결과 JSON v3 스키마 및 legacy/v2/v3 호환 로더
+    │   ├── result_groups.py        # 결과 그룹 분류/위험도/하드링크 eligibility
     │   ├── document_hash.py        # SimHash 기반 유사 문서 탐지
     │   ├── scan_types.py           # selection/exemption/review/collection 타입
     │   ├── image_hash.py          # ImageHasher: pHash 기반 유사 이미지 탐지 (BK-Tree)
@@ -95,6 +96,7 @@ duplicate_finder/
     - `scan_hashes (session_id, path, size, mtime, hash_type, hash_value)`
     - `scan_results (session_id, group_key, path)`
     - `scan_selected (session_id, path, selected)`
+    - `scan_file_state (session_id, path, file_exists, selection_reason, exemption_status, review_state, collection_role, baseline_delta)`
 - **최적화**:
     - **WAL Mode**: `PRAGMA journal_mode=WAL` 적용.
     - **Synchronous NORMAL**: 디스크 동기화 오버헤드 감소.
@@ -317,7 +319,7 @@ duplicate_finder/
   - `PyDuplicateFinder.spec` already includes the modules touched by this change set, so no spec edit was required.
 - Regression baseline:
   - `pytest -q` -> `122 passed`
-  - `pyright src tests cli.py main.py` was attempted in this workspace but is currently blocked by missing local dependency resolution for `imagehash` / `send2trash`.
+  - At that point, `pyright src tests cli.py main.py` was blocked in this workspace by missing local dependency resolution for `imagehash` / `send2trash`.
 
 ## Update Memo (2026-04-14)
 
@@ -346,5 +348,42 @@ duplicate_finder/
 - Post-delete empty-folder cleanup is now executed from operation completion.
   - `src/core.empty_folder_finder.cleanup_empty_parent_folders(...)`
   - separate `empty_folder_cleanup` operation log row is written
-- Current regression baseline in this workspace:
+- Regression baseline in this workspace at that point:
   - `pytest -q` -> `131 passed, 1 skipped`
+
+## Update Memo (2026-04-28)
+
+- Static type-check baseline restored:
+  - `src/core/cache_manager/contracts.py`
+  - `src/core/scanner/contracts.py`
+  - UI host protocol gaps filled in `src/ui/main_window_parts/typing_contract/`
+  - optional `watchdog` import keeps runtime fallback while passing pyright
+- Database schema version is now `7`.
+  - Added `scan_file_state` for file-level result state persistence.
+  - DB automatic session restore now restores the same user-visible state as JSON v3: `file_meta`, file existence, selection reason, exemption status, review state, collection role, and baseline delta.
+- Result-group safety is centralized in `src/core/result_groups.py`.
+  - UI labels/badges, CSV export `group_type/group_kind`, and hardlink eligibility use the same classifier.
+  - Only exact duplicate groups are hardlink eligible; `NAME_ONLY`, `FOLDER_DUP`, `similar_*`, and `doc_similar_*` are blocked.
+- Safelist / Ignore policy was normalized.
+  - Canonical status is `"safelisted"`; legacy `"safelist"` is normalized by loaders.
+  - Incremental baseline-known paths and cached-session reuse now apply the same ignore/exemption and metadata restoration path as normal scans.
+  - Content-hash exemptions require an exact full BLAKE2b hash and are disabled for name-only/similar/folder groups.
+- UI workflow additions:
+  - Tools Safelist/Ignore manager
+  - result-tree context actions for exact path, path glob, and exact content-hash exemptions
+  - scan folder Path/Role table persisted through settings, presets, and scheduled job snapshots
+  - Session Compare filter/select/bulk review/CSV actions
+  - risk badges and destructive-action preflight risk summary
+  - `operation_plan` JSON v1 save/load with path/size/mtime validation
+  - Quarantine status/date/size/path filters and pagination
+  - scheduled/watch history structured columns for `missing_folders`, `export_failed`, and `watch_events`
+- CLI unsupported options now fail fast:
+  - `--watch`
+  - `--post-cleanup-empty-dirs`
+  - both return exit code `2` with stderr guidance.
+- Packaging/local artifact alignment:
+  - `PyDuplicateFinder.spec` explicitly includes `src.core.result_groups` and `src.ui.history_messages`, and conditionally collects optional `watchdog`/`pypdf` packages only when installed.
+  - `.gitignore` ignores local DB sidecars, result CSV/JSON files, `operation_plan` JSON files, and temp artifacts.
+- Current regression baseline in this workspace:
+  - `pyright src tests cli.py main.py` -> `0 errors, 0 warnings`
+  - `pytest -q` -> `145 passed`

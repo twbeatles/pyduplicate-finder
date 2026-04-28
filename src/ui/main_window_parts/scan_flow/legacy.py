@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QLabel, QProgressBar, QCheckBox, QMessageBox, QGroupBox, QTreeWidget, QTreeWidgetItem, QToolBar, QSpinBox, QLineEdit, QMenu, QSplitter, QTextEdit, QScrollArea, QStyle, QToolButton, QSizePolicy, QListWidget, QDoubleSpinBox, QInputDialog, QStackedWidget, QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView)
+from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QLabel, QProgressBar, QCheckBox, QMessageBox, QGroupBox, QTreeWidget, QTreeWidgetItem, QToolBar, QSpinBox, QLineEdit, QMenu, QSplitter, QTextEdit, QScrollArea, QStyle, QToolButton, QSizePolicy, QListWidget, QDoubleSpinBox, QInputDialog, QStackedWidget, QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QComboBox)
 from PySide6.QtCore import Qt, Slot, QSize, QSettings, QTimer
 from PySide6.QtGui import QAction, QKeySequence, QIcon, QPixmap, QFont, QCursor
 
@@ -25,6 +25,7 @@ from src.core.preflight import PreflightAnalyzer
 from src.core.selection_rules import parse_rules
 from src.core.operation_queue import Operation
 from src.core.scan_engine import ScanConfig, validate_similar_document_dependency, validate_similar_image_dependency
+from src.core.scan_types import COLLECTION_ROLE_NONE, COLLECTION_ROLE_PRIMARY, COLLECTION_ROLE_SECONDARY
 from src.core.scheduler import ScheduleConfig
 from src.ui.empty_folder_dialog import EmptyFolderDialog
 from src.ui.components.results_tree import ResultsTreeWidget
@@ -85,13 +86,19 @@ class MainWindowScanFlowMixin(DuplicateFinderTypingContract):
     def _trigger_watch_rerun(self: Any):
         if not self._watch_last_folders:
             return
+        pending_paths = sorted(set(str(p) for p in (self._watch_pending_paths or []) if p))
+        watch_event_count = len(pending_paths)
         config_override = dict(self._watch_last_config or self._get_current_config() or {})
         config_override["folders"] = list(self._watch_last_folders)
         config_override["watch_mode"] = True
+        if watch_event_count > 0:
+            config_override["watch_coalesced_event_count"] = watch_event_count
         if self.current_session_id:
             config_override["incremental_rescan"] = True
             config_override["baseline_session_id"] = int(self.current_session_id or 0)
         self._watch_pending_rerun = False
+        self._watch_pending_paths = []
+        self._watch_last_coalesced_event_count = watch_event_count
         self.start_scan(
             force_new=False,
             config_override=config_override,
@@ -99,7 +106,9 @@ class MainWindowScanFlowMixin(DuplicateFinderTypingContract):
         )
 
     def _on_watch_activity_detected(self: Any, paths):
-        self._watch_pending_paths = list(paths or [])
+        merged_paths = set(str(p) for p in (self._watch_pending_paths or []) if p)
+        merged_paths.update(str(p) for p in (paths or []) if p)
+        self._watch_pending_paths = sorted(merged_paths)
         if bool(getattr(self, "btn_stop_scan", None) and self.btn_stop_scan.isEnabled()):
             self._watch_pending_rerun = True
             self.status_label.setText(strings.tr("msg_watch_pending_rerun"))
@@ -156,11 +165,70 @@ class MainWindowScanFlowMixin(DuplicateFinderTypingContract):
         except Exception:
             pass
 
-    def add_path_to_list(self: Any, path):
+    def _normalize_folder_role(self: Any, role: object) -> str:
+        token = str(role or "").strip()
+        return token if token in {COLLECTION_ROLE_PRIMARY, COLLECTION_ROLE_SECONDARY} else COLLECTION_ROLE_NONE
+
+    def _folder_roles_from_table(self: Any) -> dict[str, str]:
+        roles: dict[str, str] = {}
+        if not hasattr(self, "tbl_folders"):
+            return dict(getattr(self, "selected_folder_roles", {}) or {})
+        try:
+            for row in range(self.tbl_folders.rowCount()):
+                item = self.tbl_folders.item(row, 0)
+                path = str(item.data(Qt.ItemDataRole.UserRole) or item.text() or "") if item else ""
+                combo = self.tbl_folders.cellWidget(row, 1)
+                role = ""
+                if combo is not None and hasattr(combo, "currentData"):
+                    role = str(combo.currentData() or "")
+                role = self._normalize_folder_role(role)
+                if path and role:
+                    roles[path] = role
+        except Exception:
+            return dict(getattr(self, "selected_folder_roles", {}) or {})
+        return roles
+
+    def _refresh_folder_table(self: Any):
+        if not hasattr(self, "tbl_folders"):
+            return
+        roles = dict(getattr(self, "selected_folder_roles", {}) or {})
+        self.tbl_folders.blockSignals(True)
+        try:
+            self.tbl_folders.setRowCount(len(self.selected_folders or []))
+            for row, path in enumerate(self.selected_folders or []):
+                path = str(path)
+                item = QTableWidgetItem(path)
+                item.setToolTip(path)
+                item.setData(Qt.ItemDataRole.UserRole, path)
+                self.tbl_folders.setItem(row, 0, item)
+
+                combo = QComboBox()
+                combo.addItem(strings.tr("opt_select"), COLLECTION_ROLE_NONE)
+                combo.addItem(COLLECTION_ROLE_PRIMARY, COLLECTION_ROLE_PRIMARY)
+                combo.addItem(COLLECTION_ROLE_SECONDARY, COLLECTION_ROLE_SECONDARY)
+                role = self._normalize_folder_role(roles.get(path))
+                idx = combo.findData(role)
+                combo.setCurrentIndex(idx if idx >= 0 else 0)
+                combo.currentIndexChanged.connect(lambda _idx: self._on_folder_role_changed())
+                self.tbl_folders.setCellWidget(row, 1, combo)
+        finally:
+            self.tbl_folders.blockSignals(False)
+
+    def _on_folder_role_changed(self: Any):
+        self.selected_folder_roles = self._folder_roles_from_table()
+        try:
+            self.refresh_incremental_baselines()
+        except Exception:
+            pass
+
+    def add_path_to_list(self: Any, path, role: str = ""):
         path = os.path.normpath(path)
         if path not in self.selected_folders:
             self.selected_folders.append(path)
-            self.list_folders.addItem(path)
+            role = self._normalize_folder_role(role)
+            if role:
+                self.selected_folder_roles[path] = role
+            self._refresh_folder_table()
             self._on_folders_changed()
 
     def add_folder(self: Any):
@@ -190,16 +258,19 @@ class MainWindowScanFlowMixin(DuplicateFinderTypingContract):
 
     def clear_folders(self: Any):
         self.selected_folders = []
-        self.list_folders.clear()
+        self.selected_folder_roles = {}
+        self._refresh_folder_table()
         self._on_folders_changed()
 
     def remove_selected_folder(self: Any):
         """Remove the currently selected folder from the list"""
         current_row = self.list_folders.currentRow()
         if current_row >= 0:
-            self.list_folders.takeItem(current_row)
             if current_row < len(self.selected_folders):
+                removed = self.selected_folders[current_row]
                 del self.selected_folders[current_row]
+                self.selected_folder_roles.pop(removed, None)
+            self._refresh_folder_table()
             self._on_folders_changed()
         else:
             # Issue #12: Show feedback when no folder is selected
@@ -529,6 +600,22 @@ class MainWindowScanFlowMixin(DuplicateFinderTypingContract):
         if self.current_session_id:
             self.cache_manager.save_scan_results(self.current_session_id, results)
             self.cache_manager.clear_selected_paths(self.current_session_id)
+            self.cache_manager.save_scan_file_state(
+                self.current_session_id,
+                self._build_current_file_state_entries(),
+            )
+            try:
+                watch_event_count = int((self._watch_last_config or {}).get("watch_coalesced_event_count") or 0)
+            except Exception:
+                watch_event_count = 0
+            if watch_event_count > 0:
+                try:
+                    self.cache_manager.update_scan_session(
+                        self.current_session_id,
+                        progress_message=f"{base_msg};watch_events:{watch_event_count}",
+                    )
+                except Exception:
+                    logger.warning("Failed to persist watch coalesced event count", exc_info=True)
 
         # Scheduler post-actions (auto export + job run bookkeeping).
         self._finish_scheduled_run(scan_status, results)

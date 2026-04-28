@@ -8,10 +8,13 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QSpinBox,
     QLineEdit,
-    QListWidget,
     QDoubleSpinBox,
     QFrame,
     QComboBox,
+    QTableWidget,
+    QTableWidgetItem,
+    QHeaderView,
+    QAbstractItemView,
 )
 from PySide6.QtCore import Qt
 
@@ -84,10 +87,20 @@ def build_scan_page(window) -> QWidget:
     folder_header.addWidget(window.btn_clear_folder)
     top_main_layout.addLayout(folder_header)
 
-    # --- Row 2: Folder List ---
-    window.list_folders = QListWidget()
-    window.list_folders.setMinimumHeight(60)
-    top_main_layout.addWidget(window.list_folders, 1)
+    # --- Row 2: Folder Role Table ---
+    window.tbl_folders = QTableWidget()
+    window.tbl_folders.setColumnCount(2)
+    window.tbl_folders.setHorizontalHeaderLabels([strings.tr("col_path"), strings.tr("col_role")])
+    fhdr = window.tbl_folders.horizontalHeader()
+    fhdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+    fhdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+    window.tbl_folders.setColumnWidth(1, 140)
+    window.tbl_folders.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+    window.tbl_folders.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+    window.tbl_folders.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+    window.tbl_folders.setMinimumHeight(80)
+    window.list_folders = window.tbl_folders
+    top_main_layout.addWidget(window.tbl_folders, 1)
 
     # --- Row 3: Collapsible Filter Options ---
     window.btn_filter_toggle = QPushButton(strings.tr("lbl_filter_options") + " ▼")
@@ -382,9 +395,9 @@ def build_scan_page(window) -> QWidget:
 
     main_layout.addWidget(window.top_container, 0)
 
-    # Drag & Drop folder support lives on the main window; the list is here.
+    # Drag & Drop folder support lives on the main window; the table is here.
     try:
-        window.list_folders.itemSelectionChanged.connect(window._on_folders_changed)
+        window.tbl_folders.itemSelectionChanged.connect(window._on_folders_changed)
     except Exception:
         pass
 

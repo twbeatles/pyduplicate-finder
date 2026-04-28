@@ -7,6 +7,8 @@ import os
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Tuple
 
+from src.core.result_groups import classify_result_group
+
 logger = logging.getLogger(__name__)
 
 
@@ -32,76 +34,16 @@ def _read_fs_meta(path: str) -> tuple[str, str]:
 
 
 def _parse_group_key(key) -> GroupInfo:
-    try:
-        key_json = json.dumps(key, ensure_ascii=False, default=str)
-    except Exception:
-        key_json = json.dumps(str(key), ensure_ascii=False)
-
-    group_type = "unknown"
-    has_byte_compare = False
-    label = ""
-    size_from_key = None
-    bytes_reclaim_est = 0
-    baseline_delta = ""
-
-    parts: List = []
-    if isinstance(key, (tuple, list)):
-        parts = list(key)
-    else:
-        parts = [key]
-
-    for p in parts:
-        if isinstance(p, int):
-            size_from_key = p
-        if isinstance(p, str) and p.startswith("byte_"):
-            has_byte_compare = True
-
-    if parts and isinstance(parts[0], str) and parts[0] == "FOLDER_DUP":
-        group_type = "folder_dup"
-        if len(parts) > 1:
-            label = str(parts[1])
-        if len(parts) > 2 and isinstance(parts[2], int):
-            bytes_reclaim_est = int(parts[2] or 0)
-    elif parts and isinstance(parts[0], str) and parts[0] == "NAME_ONLY":
-        group_type = "name_only"
-        if len(parts) > 1:
-            label = str(parts[1])
-    else:
-        sim = None
-        for p in parts:
-            if isinstance(p, str) and p.startswith("similar_"):
-                sim = p
-                break
-        if sim:
-            group_type = "similar"
-            label = sim
-        else:
-            group_type = "duplicate"
-            # Prefer first non-int part as label (typically a hash string).
-            for p in parts:
-                if not isinstance(p, int):
-                    label = str(p)
-                    break
-
-    if not label:
-        label = "group"
-
-    if group_type == "folder_dup":
-        group_kind = "folder"
-    elif group_type == "similar":
-        group_kind = "similar"
-    else:
-        group_kind = "file"
-
+    info = classify_result_group(key)
     return GroupInfo(
-        group_key_json=key_json,
-        group_type=group_type,
-        group_kind=group_kind,
-        has_byte_compare=has_byte_compare,
-        label=label,
-        size_from_key=size_from_key,
-        bytes_reclaim_est=bytes_reclaim_est,
-        baseline_delta=baseline_delta,
+        group_key_json=info.group_key_json,
+        group_type=info.group_type,
+        group_kind=info.group_kind,
+        has_byte_compare=info.has_byte_compare,
+        label=info.label,
+        size_from_key=info.size_from_key,
+        bytes_reclaim_est=info.bytes_reclaim_est,
+        baseline_delta="",
     )
 
 

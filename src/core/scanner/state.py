@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from .common import QMutexLocker, time
+from .contracts import ScanWorkerHost
 
 
-class ScanStateMixin:
+class ScanStateMixin(ScanWorkerHost):
     def stop(self):
         self._stop_event.set()
 

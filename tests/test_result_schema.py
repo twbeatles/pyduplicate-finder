@@ -108,3 +108,20 @@ def test_dump_results_v3_round_trip_with_file_state():
     assert payload["meta"]["file_state"]["b"]["exemption_status"] == "safelisted"
     assert load_results_any(payload) == source
     assert load_file_state_map(payload)["a"]["baseline_delta"] == "new"
+
+
+def test_file_state_normalizes_legacy_safelist_status():
+    source = {
+        ("deadbeef", 10): ["a", "b"],
+    }
+    payload = dump_results_v3(
+        scan_results=source,
+        exemption_status_map={"a": "safelist", "b": "safelisted"},
+    )
+
+    assert payload["meta"]["file_state"]["a"]["exemption_status"] == "safelisted"
+    assert payload["meta"]["file_state"]["b"]["exemption_status"] == "safelisted"
+
+    payload["meta"]["file_state"]["a"]["exemption_status"] = "safelist"
+    states = load_file_state_map(payload)
+    assert states["a"]["exemption_status"] == "safelisted"

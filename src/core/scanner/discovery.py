@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from .common import DEBUG_SCAN, defaultdict, logger, os, strings
+from .contracts import ScanWorkerHost
 
 
-class ScanDiscoveryMixin:
+class ScanDiscoveryMixin(ScanWorkerHost):
     def _scandir_recursive(self, path, base_dir_mtimes=None):
         self._record_scan_dir(path)
         try:
@@ -73,7 +74,7 @@ class ScanDiscoveryMixin:
         except Exception:
             pass
 
-    def _track_file_record(self, path: str, size: int, mtime: float, size_map, db_batch) -> None:
+    def _track_file_record(self, path: str, size: int, mtime: float, size_map, db_batch=None) -> None:
         self._file_meta[path] = (size, mtime)
         self._collect_image_candidate(path)
         self._collect_document_candidate(path)
@@ -84,7 +85,7 @@ class ScanDiscoveryMixin:
         if size >= self.min_size and (size > 0 or self.min_size <= 0):
             size_map[size].append(path)
 
-        if self.session_id:
+        if self.session_id and db_batch is not None:
             db_batch.append((path, size, mtime))
 
     def _scan_files(self):
@@ -206,13 +207,8 @@ class ScanDiscoveryMixin:
             if size != cached_size or mtime != cached_mtime:
                 update_entries.append((path, size, mtime))
 
-            if size >= self.min_size and (size > 0 or self.min_size <= 0):
-                size_map[size].append(path)
-
-            self._file_meta[path] = (int(size), float(mtime))
-            self._collect_image_candidate(path)
+            self._track_file_record(path, int(size), float(mtime), size_map)
             self._record_scan_dir(os.path.dirname(path))
-            self._inc_metric("files_scanned", 1)
 
             file_count += 1
             if file_count % 1000 == 0:

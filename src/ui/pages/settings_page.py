@@ -339,13 +339,16 @@ def build_settings_page(window) -> QWidget:
     schedule_layout.addWidget(window.lbl_schedule_runs)
 
     window.tbl_schedule_runs = QTableWidget()
-    window.tbl_schedule_runs.setColumnCount(5)
+    window.tbl_schedule_runs.setColumnCount(8)
     window.tbl_schedule_runs.setHorizontalHeaderLabels(
         [
             strings.tr("col_created"),
             strings.tr("col_status"),
             strings.tr("col_groups"),
             strings.tr("col_files"),
+            strings.tr("col_missing_folders"),
+            strings.tr("col_export_failed"),
+            strings.tr("col_watch_events"),
             strings.tr("col_message"),
         ]
     )
@@ -354,11 +357,17 @@ def build_settings_page(window) -> QWidget:
     rhdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
     rhdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
     rhdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
-    rhdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+    rhdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+    rhdr.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
+    rhdr.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
+    rhdr.setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)
     window.tbl_schedule_runs.setColumnWidth(0, 170)
     window.tbl_schedule_runs.setColumnWidth(1, 110)
     window.tbl_schedule_runs.setColumnWidth(2, 80)
     window.tbl_schedule_runs.setColumnWidth(3, 80)
+    window.tbl_schedule_runs.setColumnWidth(4, 110)
+    window.tbl_schedule_runs.setColumnWidth(5, 110)
+    window.tbl_schedule_runs.setColumnWidth(6, 100)
     window.tbl_schedule_runs.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
     window.tbl_schedule_runs.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
     window.tbl_schedule_runs.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)

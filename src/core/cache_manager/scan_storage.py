@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any, Optional
+
+from src.core.scan_types import normalize_exemption_status
+
+from .contracts import CacheManagerHost
 
 logger = logging.getLogger(__name__)
 
 
-class CacheScanStorageMixin:
+class CacheScanStorageMixin(CacheManagerHost):
     def save_scan_files_batch(self, session_id: int, entries):
         if not session_id or not entries:
             return
@@ -239,6 +244,7 @@ class CacheScanStorageMixin:
             conn = self._get_conn()
             with conn:
                 conn.execute("DELETE FROM scan_results WHERE session_id=?", (session_id,))
+                conn.execute("DELETE FROM scan_file_state WHERE session_id=?", (session_id,))
         except Exception:
             logger.exception("Clear scan results error")
 
@@ -264,6 +270,110 @@ class CacheScanStorageMixin:
                     )
         except Exception:
             logger.exception("Save scan results error")
+
+    def _normalize_scan_file_state_entries(self, entries) -> list[tuple]:
+        rows = []
+        if isinstance(entries, dict):
+            iterator = entries.items()
+        else:
+            iterator = []
+            try:
+                iterator = [(row.get("path"), row) for row in (entries or []) if isinstance(row, dict)]
+            except Exception:
+                iterator = []
+
+        now = time.time()
+        for path, row in iterator:
+            try:
+                path_str = str(path or row.get("path") or "")
+                if not path_str:
+                    continue
+                size_value = row.get("size")
+                mtime_value = row.get("mtime")
+                exists_raw = row.get("exists")
+                exists_value = None if exists_raw is None else (1 if bool(exists_raw) else 0)
+                delta = str(row.get("baseline_delta") or "")
+                if delta not in {"new", "changed", "revalidated"}:
+                    delta = ""
+                rows.append(
+                    (
+                        path_str,
+                        int(size_value) if size_value is not None else None,
+                        float(mtime_value) if mtime_value is not None else None,
+                        exists_value,
+                        str(row.get("selection_reason") or ""),
+                        normalize_exemption_status(row.get("exemption_status")),
+                        str(row.get("review_state") or ""),
+                        str(row.get("collection_role") or ""),
+                        delta,
+                        now,
+                    )
+                )
+            except Exception:
+                continue
+        return rows
+
+    def save_scan_file_state(self, session_id: int, entries) -> None:
+        if not session_id:
+            return
+        rows = self._normalize_scan_file_state_entries(entries)
+        try:
+            conn = self._get_conn()
+            with conn:
+                conn.execute("DELETE FROM scan_file_state WHERE session_id=?", (session_id,))
+                if rows:
+                    conn.executemany(
+                        """
+                        INSERT OR REPLACE INTO scan_file_state
+                        (
+                            session_id, path, size, mtime, file_exists, selection_reason,
+                            exemption_status, review_state, collection_role,
+                            baseline_delta, updated_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        [(session_id, *row) for row in rows],
+                    )
+        except Exception:
+            logger.exception("Save scan file state error")
+
+    def load_scan_file_state(self, session_id: int) -> dict[str, dict[str, Any]]:
+        out: dict[str, dict[str, Any]] = {}
+        if not session_id:
+            return out
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT path, size, mtime, file_exists, selection_reason, exemption_status,
+                       review_state, collection_role, baseline_delta
+                FROM scan_file_state
+                WHERE session_id=?
+                """,
+                (session_id,),
+            )
+            for path, size, mtime, exists, reason, status, review, role, delta in cursor.fetchall():
+                path_str = str(path or "")
+                if not path_str:
+                    continue
+                row: dict[str, Any] = {
+                    "selection_reason": str(reason or ""),
+                    "exemption_status": normalize_exemption_status(status),
+                    "review_state": str(review or ""),
+                    "collection_role": str(role or ""),
+                    "baseline_delta": str(delta or "") if str(delta or "") in {"new", "changed", "revalidated"} else "",
+                }
+                if size is not None:
+                    row["size"] = int(size)
+                if mtime is not None:
+                    row["mtime"] = float(mtime)
+                if exists is not None:
+                    row["exists"] = bool(exists)
+                out[path_str] = row
+        except Exception:
+            logger.exception("Load scan file state error")
+        return out
 
     def load_scan_results(self, session_id: int):
         results = {}

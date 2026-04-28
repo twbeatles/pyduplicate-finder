@@ -3,9 +3,10 @@ from __future__ import annotations
 import concurrent.futures
 
 from .common import os, strings, time
+from .contracts import ScanWorkerHost
 
 
-class ScanSimilarImagesMixin:
+class ScanSimilarImagesMixin(ScanWorkerHost):
     def _run_similar_image_scan(self, image_files=None, emit_result=True):
         try:
             start_time = time.time()

@@ -27,8 +27,17 @@ from src.core.selection_rules import parse_rules
 from src.core.operation_queue import Operation
 from src.core.scan_engine import ScanConfig, validate_similar_image_dependency
 from src.core.result_schema import dump_results_v2, load_results_any
+from src.core.result_groups import classify_result_group
+from src.core.scan_types import (
+    EXEMPTION_ACTION_IGNORE,
+    EXEMPTION_ACTION_SAFELIST,
+    EXEMPTION_KIND_CONTENT_HASH,
+    EXEMPTION_KIND_EXACT_PATH,
+    EXEMPTION_KIND_PATH_GLOB,
+)
 from src.core.scheduler import ScheduleConfig
 from src.ui.empty_folder_dialog import EmptyFolderDialog
+from src.ui.history_messages import parse_structured_history_message
 from src.ui.components.results_tree import ResultsTreeWidget
 from src.ui.components.sidebar import Sidebar
 from src.ui.components.toast import ToastManager
@@ -118,7 +127,9 @@ class MainWindowToolsFlowMixin(DuplicateFinderTypingContract):
                 self.tbl_insight_sessions.setItem(row_idx, 1, QTableWidgetItem(dt))
                 self.tbl_insight_sessions.setItem(row_idx, 2, QTableWidgetItem(str(row[2] or "")))
                 self.tbl_insight_sessions.setItem(row_idx, 3, QTableWidgetItem(str(int(row[4] or 0))))
-                self.tbl_insight_sessions.setItem(row_idx, 4, QTableWidgetItem(str(row[3] or "")))
+                fields = parse_structured_history_message(str(row[3] or ""))
+                self.tbl_insight_sessions.setItem(row_idx, 4, QTableWidgetItem(fields.get("watch_events", "")))
+                self.tbl_insight_sessions.setItem(row_idx, 5, QTableWidgetItem(str(row[3] or "")))
 
         if hasattr(self, "tbl_insight_jobs"):
             runs = self.cache_manager.list_scan_job_runs(limit=10)
@@ -131,7 +142,11 @@ class MainWindowToolsFlowMixin(DuplicateFinderTypingContract):
                 self.tbl_insight_jobs.setItem(row_idx, 2, QTableWidgetItem(str(run.get("status") or "")))
                 self.tbl_insight_jobs.setItem(row_idx, 3, QTableWidgetItem(str(int(run.get("groups_count") or 0))))
                 self.tbl_insight_jobs.setItem(row_idx, 4, QTableWidgetItem(str(int(run.get("files_count") or 0))))
-                self.tbl_insight_jobs.setItem(row_idx, 5, QTableWidgetItem(str(run.get("message") or "")))
+                fields = parse_structured_history_message(str(run.get("message") or ""))
+                self.tbl_insight_jobs.setItem(row_idx, 5, QTableWidgetItem(fields.get("missing_folders", "")))
+                self.tbl_insight_jobs.setItem(row_idx, 6, QTableWidgetItem(fields.get("export_failed", "")))
+                self.tbl_insight_jobs.setItem(row_idx, 7, QTableWidgetItem(fields.get("watch_events", "")))
+                self.tbl_insight_jobs.setItem(row_idx, 8, QTableWidgetItem(str(run.get("message") or "")))
 
     def perform_post_cleanup_empty_dirs(self: Any, removed_paths):
         if not removed_paths:
@@ -235,6 +250,100 @@ class MainWindowToolsFlowMixin(DuplicateFinderTypingContract):
         except Exception as e:
             _mw().QMessageBox.warning(self, strings.tr("app_title"), str(e))
 
+    def refresh_exemption_list(self: Any):
+        if not hasattr(self, "tbl_exemptions"):
+            return
+        search = ""
+        try:
+            search = str(self.txt_exemption_search.text() or "").strip().lower()
+        except Exception:
+            search = ""
+        items = self.cache_manager.list_scan_exemptions()
+        if search:
+            items = [
+                item
+                for item in items
+                if search
+                in " ".join(
+                    [
+                        str(item.get("kind") or ""),
+                        str(item.get("value") or ""),
+                        str(item.get("action") or ""),
+                        str(item.get("note") or ""),
+                    ]
+                ).lower()
+            ]
+        self.tbl_exemptions.setRowCount(len(items))
+        for row_idx, item in enumerate(items):
+            created = float(item.get("created_at") or 0.0)
+            dt = datetime.fromtimestamp(created).strftime("%Y-%m-%d %H:%M") if created else "-"
+            id_item = QTableWidgetItem(str(int(item.get("id") or 0)))
+            id_item.setData(Qt.ItemDataRole.UserRole, dict(item))
+            self.tbl_exemptions.setItem(row_idx, 0, id_item)
+            self.tbl_exemptions.setItem(row_idx, 1, QTableWidgetItem(str(item.get("kind") or "")))
+            self.tbl_exemptions.setItem(row_idx, 2, QTableWidgetItem(str(item.get("value") or "")))
+            self.tbl_exemptions.setItem(row_idx, 3, QTableWidgetItem(str(item.get("action") or "")))
+            self.tbl_exemptions.setItem(row_idx, 4, QTableWidgetItem(str(item.get("note") or "")))
+            self.tbl_exemptions.setItem(row_idx, 5, QTableWidgetItem(dt))
+
+    def _selected_exemption_row(self: Any) -> dict:
+        try:
+            row = self.tbl_exemptions.currentRow()
+            if row < 0:
+                return {}
+            item = self.tbl_exemptions.item(row, 0)
+            return dict(item.data(Qt.ItemDataRole.UserRole) or {}) if item else {}
+        except Exception:
+            return {}
+
+    def on_exemption_selection_changed(self: Any):
+        item = self._selected_exemption_row()
+        if not item:
+            return
+        try:
+            idx = self.cmb_exemption_kind.findData(str(item.get("kind") or ""))
+            self.cmb_exemption_kind.setCurrentIndex(idx if idx >= 0 else 0)
+            idx = self.cmb_exemption_action.findData(str(item.get("action") or ""))
+            self.cmb_exemption_action.setCurrentIndex(idx if idx >= 0 else 0)
+            self.txt_exemption_value.setText(str(item.get("value") or ""))
+            self.txt_exemption_note.setText(str(item.get("note") or ""))
+        except Exception:
+            pass
+
+    def save_exemption_from_form(self: Any):
+        try:
+            kind = str(self.cmb_exemption_kind.currentData() or "")
+            action = str(self.cmb_exemption_action.currentData() or "")
+            value = str(self.txt_exemption_value.text() or "").strip()
+            note = str(self.txt_exemption_note.text() or "").strip()
+            if not kind or not action or not value:
+                _mw().QMessageBox.information(self, strings.tr("app_title"), strings.tr("msg_no_items"))
+                return
+            self.cache_manager.add_scan_exemption(kind=kind, value=value, action=action, note=note)
+            self.refresh_exemption_list()
+            if hasattr(self, "toast_manager") and self.toast_manager:
+                self.toast_manager.info(strings.tr("msg_rules_saved"), duration=1800)
+        except Exception as e:
+            _mw().QMessageBox.warning(self, strings.tr("app_title"), str(e))
+
+    def delete_selected_exemption(self: Any):
+        item = self._selected_exemption_row()
+        if not item:
+            return
+        self.cache_manager.delete_scan_exemption(int(item.get("id") or 0))
+        self.refresh_exemption_list()
+
+    def _save_scan_exemption_rule(self: Any, *, kind: str, value: str, action: str, note: str = ""):
+        if not kind or not value or not action:
+            return
+        self.cache_manager.add_scan_exemption(kind=kind, value=value, action=action, note=note)
+        try:
+            self.refresh_exemption_list()
+        except Exception:
+            pass
+        if hasattr(self, "toast_manager") and self.toast_manager:
+            self.toast_manager.info(strings.tr("msg_rules_saved"), duration=1800)
+
     def open_selection_rules_dialog(self: Any):
         dlg = SelectionRulesDialog(self.selection_rules_json, self)
         if dlg.exec():
@@ -247,15 +356,71 @@ class MainWindowToolsFlowMixin(DuplicateFinderTypingContract):
             if hasattr(self, "toast_manager") and self.toast_manager:
                 self.toast_manager.info(strings.tr("msg_rules_saved"), duration=2000)
 
-    def refresh_quarantine_list(self: Any):
+    def _parse_quarantine_date(self: Any, value: str, *, end_of_day: bool = False):
+        text = str(value or "").strip()
+        if not text:
+            return None
+        try:
+            dt = datetime.strptime(text, "%Y-%m-%d")
+            if end_of_day:
+                dt = dt.replace(hour=23, minute=59, second=59)
+            return float(dt.timestamp())
+        except Exception:
+            return None
+
+    def change_quarantine_page(self: Any, delta: int):
+        current = int(getattr(self, "_quarantine_page", 0) or 0)
+        self._quarantine_page = max(0, current + int(delta or 0))
+        self.refresh_quarantine_list()
+
+    def refresh_quarantine_list(self: Any, reset_page: bool = False):
         if not hasattr(self, "tbl_quarantine"):
             return
+        if reset_page:
+            self._quarantine_page = 0
         search = ""
         try:
             search = str(self.txt_quarantine_search.text() or "").strip()
         except Exception:
             search = ""
-        items = self.cache_manager.list_quarantine_items(limit=200, offset=0, status_filter="quarantined", search=search)
+        status_filter = "quarantined"
+        try:
+            status_filter = str(self.cmb_quarantine_status.currentData() or "")
+        except Exception:
+            status_filter = "quarantined"
+        size_min = None
+        size_max = None
+        try:
+            raw = str(self.txt_quarantine_min_size.text() or "").strip()
+            size_min = int(raw) if raw else None
+        except Exception:
+            size_min = None
+        try:
+            raw = str(self.txt_quarantine_max_size.text() or "").strip()
+            size_max = int(raw) if raw else None
+        except Exception:
+            size_max = None
+        created_from = None
+        created_to = None
+        try:
+            created_from = self._parse_quarantine_date(str(self.txt_quarantine_date_from.text() or ""))
+            created_to = self._parse_quarantine_date(str(self.txt_quarantine_date_to.text() or ""), end_of_day=True)
+        except Exception:
+            pass
+        page_size = 50
+        page = max(0, int(getattr(self, "_quarantine_page", 0) or 0))
+        items = self.cache_manager.list_quarantine_items(
+            limit=page_size + 1,
+            offset=page * page_size,
+            status_filter=status_filter or None,
+            search=search,
+            size_min=size_min,
+            size_max=size_max,
+            created_from=created_from,
+            created_to=created_to,
+        )
+        has_next = len(items) > page_size
+        items = items[:page_size]
         self.tbl_quarantine.setRowCount(len(items))
         from datetime import datetime
 
@@ -276,6 +441,12 @@ class MainWindowToolsFlowMixin(DuplicateFinderTypingContract):
 
             i3 = QTableWidgetItem(it.get("status") or "")
             self.tbl_quarantine.setItem(r, 3, i3)
+        if hasattr(self, "lbl_quarantine_page"):
+            self.lbl_quarantine_page.setText(f"{page + 1}")
+        if hasattr(self, "btn_quarantine_prev"):
+            self.btn_quarantine_prev.setEnabled(page > 0)
+        if hasattr(self, "btn_quarantine_next"):
+            self.btn_quarantine_next.setEnabled(has_next)
 
     def _selected_quarantine_item_ids(self: Any) -> list:
         ids = []
@@ -467,13 +638,7 @@ class MainWindowToolsFlowMixin(DuplicateFinderTypingContract):
 
     def _is_group_key_hardlink_eligible(self: Any, key) -> bool:
         try:
-            if isinstance(key, (tuple, list)) and key:
-                if key[0] == "NAME_ONLY":
-                    return False
-                for part in key:
-                    if isinstance(part, str) and part.startswith("similar_"):
-                        return False
-            return True
+            return bool(classify_result_group(key).hardlink_eligible)
         except Exception:
             return False
 

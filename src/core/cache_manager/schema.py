@@ -3,10 +3,12 @@ from __future__ import annotations
 import logging
 import sqlite3
 
+from .contracts import CacheManagerHost
+
 logger = logging.getLogger(__name__)
 
 
-class CacheSchemaMixin:
+class CacheSchemaMixin(CacheManagerHost):
     def _file_operation_items_has_surrogate_id(self, conn: sqlite3.Connection) -> bool:
         cols = self._get_table_columns(conn, "file_operation_items")
         return "id" in cols
@@ -212,6 +214,27 @@ class CacheSchemaMixin:
                     """
                 )
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_selected_session ON scan_selected(session_id)")
+
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS scan_file_state (
+                        session_id INTEGER NOT NULL,
+                        path TEXT NOT NULL,
+                        size INTEGER,
+                        mtime REAL,
+                        file_exists INTEGER,
+                        selection_reason TEXT,
+                        exemption_status TEXT,
+                        review_state TEXT,
+                        collection_role TEXT,
+                        baseline_delta TEXT,
+                        updated_at REAL NOT NULL,
+                        PRIMARY KEY (session_id, path)
+                    )
+                    """
+                )
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_file_state_session ON scan_file_state(session_id)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_file_state_delta ON scan_file_state(session_id, baseline_delta)")
 
                 conn.execute(
                     """

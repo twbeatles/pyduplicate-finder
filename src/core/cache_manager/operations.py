@@ -4,10 +4,12 @@ import logging
 import time
 from typing import Any, Optional
 
+from .contracts import CacheManagerHost
+
 logger = logging.getLogger(__name__)
 
 
-class CacheOperationMixin:
+class CacheOperationMixin(CacheManagerHost):
     def create_operation(self, op_type: str, options: Optional[dict[str, Any]] = None, status: str = "running") -> int:
         try:
             now = time.time()

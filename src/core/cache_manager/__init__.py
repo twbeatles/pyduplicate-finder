@@ -24,7 +24,7 @@ class CacheManager(
     CacheSchemaMixin,
     CacheDatabaseMixin,
 ):
-    SCHEMA_VERSION = 6
+    SCHEMA_VERSION = 7
 
 
 __all__ = ["CacheManager"]

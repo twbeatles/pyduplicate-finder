@@ -24,6 +24,30 @@ def _setup_window(tmp_path, monkeypatch):
     return w
 
 
+def test_folder_role_table_round_trips_current_config(tmp_path, monkeypatch, qapp):
+    w = _setup_window(tmp_path, monkeypatch)
+    try:
+        primary = tmp_path / "primary"
+        secondary = tmp_path / "secondary"
+        primary.mkdir()
+        secondary.mkdir()
+        w.clear_folders()
+
+        w.add_path_to_list(str(primary), role="primary")
+        w.add_path_to_list(str(secondary), role="secondary")
+        cfg = w._get_current_config()
+
+        assert cfg["folders"] == [str(primary), str(secondary)]
+        assert cfg["folder_roles"] == {str(primary): "primary", str(secondary): "secondary"}
+
+        w._apply_config({"folders": [str(secondary), str(primary)], "folder_roles": {str(primary): "primary"}})
+        cfg = w._get_current_config()
+        assert cfg["folders"] == [str(secondary), str(primary)]
+        assert cfg["folder_roles"] == {str(primary): "primary"}
+    finally:
+        w.close()
+
+
 def test_scheduler_tick_uses_snapshot_config_not_ui_state(tmp_path, monkeypatch, qapp):
     w = _setup_window(tmp_path, monkeypatch)
     try:

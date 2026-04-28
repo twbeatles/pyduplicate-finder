@@ -6,8 +6,9 @@ from typing import TYPE_CHECKING, Any
 class CommonWindowHost:
     if TYPE_CHECKING:
         current_session_id: int | None
-        scan_results: dict[str, object]
+        scan_results: dict[Any, list[str]]
         selected_folders: list[str]
+        selected_folder_roles: dict[str, str]
         _scheduled_run_context: dict[str, object] | None
         _current_scan_stage_code: str | None
         _current_result_meta: dict[str, tuple[int, float]]

@@ -35,7 +35,7 @@ def test_update_cache_batch_preserves_existing_hashes(tmp_path):
             pass
 
 
-def test_schema_version_migrates_to_v6(tmp_path):
+def test_schema_version_migrates_to_v7(tmp_path):
     db_path = tmp_path / "scan_cache.db"
     conn = sqlite3.connect(str(db_path))
     try:
@@ -51,7 +51,7 @@ def test_schema_version_migrates_to_v6(tmp_path):
         try:
             row = conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
             assert row is not None
-            assert str(row[0]) == "6"
+            assert str(row[0]) == "7"
             # Scheduler tables should be present in v4+.
             t1 = conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='scan_jobs'"
@@ -62,11 +62,15 @@ def test_schema_version_migrates_to_v6(tmp_path):
             t3 = conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='scan_exemptions'"
             ).fetchone()
+            t4 = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='scan_file_state'"
+            ).fetchone()
             cols = conn.execute("PRAGMA table_info(file_operation_items)").fetchall()
             col_names = [str(c[1]) for c in cols]
             assert t1 is not None
             assert t2 is not None
             assert t3 is not None
+            assert t4 is not None
             assert "id" in col_names
         finally:
             conn.close()
@@ -125,7 +129,7 @@ def test_file_operation_items_legacy_schema_auto_migrates_and_preserves_rows(tmp
         try:
             row = conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
             assert row is not None
-            assert str(row[0]) == "6"
+            assert str(row[0]) == "7"
             cols = conn.execute("PRAGMA table_info(file_operation_items)").fetchall()
             col_names = [str(c[1]) for c in cols]
             assert "id" in col_names
@@ -150,6 +154,70 @@ def test_save_selected_paths_delta_upsert_and_delete(tmp_path):
         assert cm.load_selected_paths(sid) == {"a", "b"}
         cm.save_selected_paths_delta(sid, add_paths=["c"], remove_paths=["a"])
         assert cm.load_selected_paths(sid) == {"b", "c"}
+    finally:
+        try:
+            cm.close_all()
+        except Exception:
+            pass
+
+
+def test_save_and_load_scan_file_state_normalizes_legacy_safelist(tmp_path):
+    db_path = tmp_path / "scan_cache.db"
+    cm = CacheManager(db_path=str(db_path))
+    try:
+        sid = cm.create_scan_session({"folders": ["x"]})
+        assert sid > 0
+        cm.save_scan_file_state(
+            sid,
+            {
+                "a": {
+                    "size": 10,
+                    "mtime": 1.5,
+                    "exists": True,
+                    "selection_reason": "policy:smart",
+                    "exemption_status": "safelist",
+                    "review_state": "reviewed_keep",
+                    "collection_role": "primary",
+                    "baseline_delta": "new",
+                }
+            },
+        )
+
+        state = cm.load_scan_file_state(sid)
+        assert state["a"]["size"] == 10
+        assert state["a"]["mtime"] == 1.5
+        assert state["a"]["exists"] is True
+        assert state["a"]["selection_reason"] == "policy:smart"
+        assert state["a"]["exemption_status"] == "safelisted"
+        assert state["a"]["review_state"] == "reviewed_keep"
+        assert state["a"]["collection_role"] == "primary"
+        assert state["a"]["baseline_delta"] == "new"
+    finally:
+        try:
+            cm.close_all()
+        except Exception:
+            pass
+
+
+def test_scan_exemption_crud(tmp_path):
+    db_path = tmp_path / "scan_cache.db"
+    cm = CacheManager(db_path=str(db_path))
+    try:
+        item_id = cm.add_scan_exemption(kind="exact_path", value="a.txt", action="safelist", note="n1")
+        assert item_id > 0
+        rows = cm.list_scan_exemptions()
+        assert len(rows) == 1
+        assert rows[0]["kind"] == "exact_path"
+        assert rows[0]["value"] == "a.txt"
+        assert rows[0]["action"] == "safelist"
+
+        cm.add_scan_exemption(kind="exact_path", value="a.txt", action="safelist", note="updated")
+        rows = cm.list_scan_exemptions(action_filter="safelist")
+        assert len(rows) == 1
+        assert rows[0]["note"] == "updated"
+
+        cm.delete_scan_exemption(int(rows[0]["id"]))
+        assert cm.list_scan_exemptions() == []
     finally:
         try:
             cm.close_all()

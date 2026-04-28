@@ -3,10 +3,12 @@ from __future__ import annotations
 import logging
 import time
 
+from .contracts import CacheManagerHost
+
 logger = logging.getLogger(__name__)
 
 
-class CacheSignatureMixin:
+class CacheSignatureMixin(CacheManagerHost):
     def get_cached_signature(self, path: str, size: int, mtime: float, sig_type: str):
         if not path or not sig_type:
             return None

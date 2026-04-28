@@ -175,9 +175,19 @@ class OperationFlowController:
                         if h.current_session_id
                         else []
                     )
-                    h._render_results(h.scan_results, selected_paths=list(selected))
+                    h._render_results(
+                        h.scan_results,
+                        selected_paths=list(selected),
+                        file_meta=h._current_result_meta,
+                        existence_map=h._current_result_existence_map,
+                        selected_count=len(selected),
+                    )
                     if h.current_session_id:
                         h.cache_manager.save_scan_results(h.current_session_id, h.scan_results)
+                        h.cache_manager.save_scan_file_state(
+                            h.current_session_id,
+                            h._build_current_file_state_entries(),
+                        )
         except Exception:
             pass
 

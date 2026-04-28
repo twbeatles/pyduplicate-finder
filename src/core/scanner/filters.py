@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 from .common import fnmatch, os, platform
+from .contracts import ScanWorkerHost
 from src.core.scan_types import (
     COLLECTION_ROLE_NONE,
     EXEMPTION_ACTION_IGNORE,
     EXEMPTION_ACTION_SAFELIST,
+    EXEMPTION_STATUS_IGNORE,
+    EXEMPTION_STATUS_SAFELISTED,
     EXEMPTION_KIND_EXACT_PATH,
     EXEMPTION_KIND_PATH_GLOB,
 )
 
 
-class ScanFilterMixin:
+class ScanFilterMixin(ScanWorkerHost):
     def _init_protected_paths(self):
         self.protected_paths = []
         if self.protect_system:
@@ -181,7 +184,7 @@ class ScanFilterMixin:
         rule = self._match_path_exemption(path)
         if not rule:
             return False
-        status = "safelist" if rule.action == EXEMPTION_ACTION_SAFELIST else "ignore"
+        status = EXEMPTION_STATUS_SAFELISTED if rule.action == EXEMPTION_ACTION_SAFELIST else EXEMPTION_STATUS_IGNORE
         self._path_exemption_status[str(path)] = status
         return rule.action == EXEMPTION_ACTION_IGNORE
 
@@ -189,4 +192,6 @@ class ScanFilterMixin:
         rule = self._match_path_exemption(path)
         if not rule:
             return
-        self._path_exemption_status[str(path)] = "safelist" if rule.action == EXEMPTION_ACTION_SAFELIST else "ignore"
+        self._path_exemption_status[str(path)] = (
+            EXEMPTION_STATUS_SAFELISTED if rule.action == EXEMPTION_ACTION_SAFELIST else EXEMPTION_STATUS_IGNORE
+        )

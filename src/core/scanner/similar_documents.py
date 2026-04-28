@@ -3,9 +3,10 @@ from __future__ import annotations
 import concurrent.futures
 
 from .common import os, strings, time
+from .contracts import ScanWorkerHost
 
 
-class ScanSimilarDocumentsMixin:
+class ScanSimilarDocumentsMixin(ScanWorkerHost):
     def _run_similar_document_scan(self, document_files=None, emit_result=True):
         try:
             start_time = time.time()

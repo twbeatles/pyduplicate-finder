@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from typing import Any
+
 from .common import DEBUG_SCAN, errno, logger
+from .contracts import ScanWorkerHost
 
 
-class ScanMetricsMixin:
+class ScanMetricsMixin(ScanWorkerHost):
     def _reset_metrics(self):
         with self._metrics_lock:
             self._metrics = {
@@ -59,7 +62,7 @@ class ScanMetricsMixin:
 
     def _snapshot_metrics(self):
         with self._metrics_lock:
-            out: dict[str, object] = dict(self._metrics or {})
+            out: dict[str, Any] = dict(self._metrics or {})
             if self._error_samples:
                 out["error_samples"] = list(self._error_samples)
         return out

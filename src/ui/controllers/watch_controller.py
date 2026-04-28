@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import os
+import importlib
 from collections.abc import Iterable
+from typing import Any
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
+FileSystemEventHandler: Any = object
+Observer: Any = None
 try:
-    from watchdog.events import FileSystemEventHandler
-    from watchdog.observers import Observer
+    FileSystemEventHandler = getattr(importlib.import_module("watchdog.events"), "FileSystemEventHandler", object)
+    Observer = getattr(importlib.import_module("watchdog.observers"), "Observer", None)
 except Exception:  # pragma: no cover - optional dependency
     FileSystemEventHandler = object
     Observer = None

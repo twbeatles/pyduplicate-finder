@@ -260,6 +260,16 @@ def build_results_page(window) -> QWidget:
     window.btn_export.setCursor(Qt.CursorShape.PointingHandCursor)
     window.btn_export.clicked.connect(window.export_results)
 
+    window.btn_save_plan = QPushButton(strings.tr("btn_save_operation_plan"))
+    window.btn_save_plan.setMinimumHeight(44)
+    window.btn_save_plan.setCursor(Qt.CursorShape.PointingHandCursor)
+    window.btn_save_plan.clicked.connect(window.save_operation_plan)
+
+    window.btn_load_plan = QPushButton(strings.tr("btn_load_operation_plan"))
+    window.btn_load_plan.setMinimumHeight(44)
+    window.btn_load_plan.setCursor(Qt.CursorShape.PointingHandCursor)
+    window.btn_load_plan.clicked.connect(window.load_operation_plan)
+
     window.btn_delete = QPushButton(strings.tr("btn_delete_selected"))
     window.btn_delete.setObjectName("btn_danger")
     window.btn_delete.setMinimumHeight(44)
@@ -269,6 +279,8 @@ def build_results_page(window) -> QWidget:
     bottom_layout.addWidget(window.btn_select_smart)
     bottom_layout.addWidget(window.btn_select_rules)
     bottom_layout.addWidget(window.btn_export)
+    bottom_layout.addWidget(window.btn_save_plan)
+    bottom_layout.addWidget(window.btn_load_plan)
 
     window.lbl_action_meta = QLabel("")
     window.lbl_action_meta.setObjectName("filter_count")

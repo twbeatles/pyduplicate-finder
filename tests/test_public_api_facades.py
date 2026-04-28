@@ -36,7 +36,7 @@ def test_cache_manager_public_inventory():
     ]:
         assert hasattr(CacheManager, name), name
 
-    assert CacheManager.SCHEMA_VERSION == 6
+    assert CacheManager.SCHEMA_VERSION == 7
 
 
 def test_scanner_public_inventory():

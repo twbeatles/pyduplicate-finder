@@ -90,6 +90,20 @@ def main() -> int:
         print(f"Invalid folder(s): {missing}", file=sys.stderr)
         return 2
 
+    unsupported = []
+    if bool(getattr(args, "watch", False)):
+        unsupported.append("--watch")
+    if bool(getattr(args, "post_cleanup_empty_dirs", False)):
+        unsupported.append("--post-cleanup-empty-dirs")
+    if unsupported:
+        print(
+            "Unsupported CLI option(s): "
+            + ", ".join(unsupported)
+            + ". These options are currently available only in the GUI workflow.",
+            file=sys.stderr,
+        )
+        return 2
+
     exts = [x.strip() for x in str(args.extensions or "").split(",") if x.strip()]
 
     state: dict[str, Any] = {

@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 from .common import defaultdict, hashlib, os
+from .contracts import ScanWorkerHost
 from src.core.scan_types import (
     COLLECTION_ROLE_PRIMARY,
     COLLECTION_ROLE_SECONDARY,
     COMPARE_MODE_COLLECTIONS,
     EXEMPTION_ACTION_IGNORE,
+    EXEMPTION_STATUS_IGNORE,
+    EXEMPTION_STATUS_SAFELISTED,
 )
 
 
-class ScanFolderDuplicatesMixin:
+class ScanFolderDuplicatesMixin(ScanWorkerHost):
     def _apply_post_scan_filters(self, results):
         filtered = {}
         for key, paths in (results or {}).items():
@@ -29,10 +32,10 @@ class ScanFolderDuplicatesMixin:
                     except Exception:
                         ignore_rule = None
                 if ignore_rule and ignore_rule.action == EXEMPTION_ACTION_IGNORE:
-                    self._path_exemption_status[path] = "ignore"
+                    self._path_exemption_status[path] = EXEMPTION_STATUS_IGNORE
                     continue
                 if ignore_rule and ignore_rule.action != EXEMPTION_ACTION_IGNORE:
-                    self._path_exemption_status[path] = "safelist"
+                    self._path_exemption_status[path] = EXEMPTION_STATUS_SAFELISTED
                 kept_paths.append(path)
 
             if self.compare_mode == COMPARE_MODE_COLLECTIONS:

@@ -3,9 +3,10 @@ from __future__ import annotations
 import concurrent.futures
 
 from .common import BUFFER_SIZE, defaultdict, hashlib, os, strings
+from .contracts import ScanWorkerHost
 
 
-class ScanHashingMixin:
+class ScanHashingMixin(ScanWorkerHost):
     def get_file_hash(self, filepath, size=None, mtime=None, block_size=BUFFER_SIZE, partial=False):
         if size is None or mtime is None:
             try:

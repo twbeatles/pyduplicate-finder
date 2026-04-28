@@ -3,10 +3,12 @@ from __future__ import annotations
 import logging
 import time
 
+from .contracts import CacheManagerHost
+
 logger = logging.getLogger(__name__)
 
 
-class CacheExemptionMixin:
+class CacheExemptionMixin(CacheManagerHost):
     def list_scan_exemptions(self, *, action_filter: str | None = None):
         out = []
         try:

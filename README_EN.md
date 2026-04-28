@@ -22,6 +22,7 @@
 - **Recycle Bin Option**: Move files to system Recycle Bin instead of permanent deletion.
 - **File Lock Detection**: Automatically detects files in use by other processes before deletion.
 - **Persistent Quarantine + Retention**: Undoable deletes are kept in persistent Quarantine and cleaned by configured retention rules (age/size).
+- **Safe Result Group Classification**: Exact duplicates, name-only groups, folder duplicates, similar images, and similar documents share one classifier; similar/name/folder groups are excluded from hardlink consolidation.
 
 ### 🎨 Modern UI & User Experience
 - **Multiple Scan Modes**: 
@@ -36,14 +37,17 @@
 - **Session Restore**: Detects the latest session and lets you resume or start a new scan.
 - **Intuitive Tree View**: Expand/collapse all groups, right-click context menu for quick actions.
 - **Insights Dashboard**: Dedicated page for recent scan sessions, reclaim estimates, failure rate, quarantine usage, and scheduled run history.
-- **Session Compare**: Review incremental `new / changed / revalidated` deltas in a dedicated dialog and filter.
+- **Session Compare**: Filter incremental `new / changed / revalidated` deltas and continue directly to result selection, bulk review-state changes, or CSV export.
+- **Collection Role Table**: Manage scan folders in a Path/Role table and persist `primary`, `secondary`, or `none` roles into selection policy and scheduled job snapshots.
 - **Watch Mode**: Monitor selected folders and queue an incremental rescan when changes are detected.
 - **Custom Shortcuts**: Configure keyboard shortcuts for all functions.
 - **Multi-language Support**: Full Korean and English interface support.
 
 ### 🧰 Tools
 - **Quarantine Management**: Files deleted in undoable mode are moved to Quarantine; restore or permanently purge them later.
+- **Safelist / Ignore Management**: Add, edit, delete, and search path/hash/glob exemptions from Tools, or add rules directly from the result-tree context menu.
 - **Selection Rules**: Define ordered KEEP/DELETE rules using fnmatch-style wildcards and apply them to groups/results.
+- **Operation Plan Save/Load**: Save selected delete plans as `operation_plan` JSON v1 and validate path/size/mtime on load, excluding stale or missing entries.
 - **Operations Log**: Tracks operations (delete/restore/purge/hardlink, etc.) and supports per-item details plus CSV/JSON export.
 - **Preflight Checks**: Runs safety checks (locks/permissions/volume constraints) before advanced operations.
 - **Hardlink Consolidation (Advanced)**: Consolidate duplicates via hardlinks to reduce disk usage (optional).
@@ -73,6 +77,7 @@ duplicate_finder/
 │   │   │   └── ...
 │   │   ├── history.py           # Undo/Redo transactions
 │   │   ├── result_schema.py     # Result JSON v3 schema + compatibility loader
+│   │   ├── result_groups.py     # Result group classification/risk/hardlink eligibility
 │   │   ├── image_hash.py        # Similar image detection (pHash)
 │   │   ├── document_hash.py     # Similar document detection (SimHash / PDF extraction)
 │   │   ├── scan_types.py        # selection/exemption/review/collection types
@@ -180,6 +185,7 @@ python cli.py "D:/Data" "E:/Photos" --extensions jpg,png --output-json result.js
 - `--similarity-threshold` only accepts values in `0.0`~`1.0`. Out-of-range input is rejected with CLI error (`SystemExit 2`).
 - When `--similar-image` or `--mixed-mode` is requested, missing `imagehash`/`Pillow` dependencies cause immediate fail-fast exit.
 - `--mixed-mode` implicitly enables the similar-image pass (no separate `--similar-image` flag required).
+- `--watch` and `--post-cleanup-empty-dirs` are GUI-only workflows; in CLI they fail fast with exit code `2` and a clear stderr message.
 
 ### (Optional) Run strict-mode CLI scan with telemetry
 ```bash
@@ -222,14 +228,18 @@ python cli.py "D:/Data" --strict-mode --strict-max-errors 0 --output-json result
 | Shortcut Settings | Customize keyboard shortcuts |
 | Find Empty Folders | Scan and batch delete empty folders |
 | Quarantine | Restore/purge files deleted in undoable mode |
+| Safelist / Ignore Management | CRUD/search for path/hash/glob exemptions, plus result-tree context actions |
 | Selection Rules | Pattern-based KEEP/DELETE auto-selection |
 | Operations Log | Operation history with details + CSV/JSON export |
+| Operation Plan Save/Load | Save selected delete plans as JSON and validate path/size/mtime on load |
+| Result Risk Badges | Group risk badges plus destructive-action preflight risk summary |
 | Hardlink Consolidation | (Advanced) Save disk space via hardlinks |
 | Scheduled Scan Snapshot | Scheduled runs use saved config snapshot (`scan_jobs.config_json`); if some folders are missing, run valid folders only; if all are missing, mark run as `skipped(no_valid_folders)` |
 | Multi-job Scheduling | Create/edit/delete/run named jobs and inspect recent run history |
 | Watch Mode | Queue debounce-based incremental rescans after folder changes |
 | Insights | Review recent sessions, reclaim estimates, failure rate, quarantine usage, and scheduled runs |
 | Session Compare | Inspect `new`, `changed`, `revalidated` delta markers in a dedicated dialog |
+| Quarantine Filtering/Pagination | Manage large quarantine sets with status/date/size/path filters and page navigation |
 | Cache Retention Policy | Configure session keep count (`cache/session_keep_latest`) and hash cache retention days (`cache/hash_cleanup_days`) and apply immediately |
 | Headless CLI Scan | Run scans without GUI and export JSON/CSV outputs |
 
@@ -445,5 +455,30 @@ python tests/benchmarks/bench_perf.py --files 200000 --groups 5000 --output benc
 - Post-delete empty-folder cleanup is now executed from the operation flow and logged separately.
 - Similar-document detection is now available for `.txt`, `.md`, `.csv`, `.json`, `.py`, and `.pdf`.
   - `pypdf` is used for PDF text extraction.
-- Current automated baseline in this workspace:
+- Automated baseline in this workspace at that point:
   - `pytest -q` -> `131 passed, 1 skipped`
+
+## Documentation Sync (2026-04-28)
+
+- Database schema version is now `7`.
+  - Added `scan_file_state` so DB session restore now matches JSON v3 restore for `file_meta`, existence, selection reason, exemption status, review state, collection role, and baseline delta.
+- Restored the `pyright src tests cli.py main.py` baseline.
+  - Added core `CacheManager`/`ScanWorker` mixin host protocols, filled UI host protocol gaps, and kept optional `watchdog` runtime fallback while satisfying static analysis.
+- Result group classification is centralized in `src/core/result_groups.py`.
+  - UI badges, CSV `group_type/group_kind`, and hardlink eligibility now use the same classifier.
+  - `NAME_ONLY`, `FOLDER_DUP`, `similar_*`, and `doc_similar_*` are excluded from hardlink consolidation.
+- Safelist / Ignore policy is consistent end-to-end.
+  - Canonical status is `"safelisted"`; legacy `"safelist"` is normalized on JSON/DB load.
+  - Incremental baseline-known paths and cached-resume scans now apply the same ignore/exemption/metadata restore policy as normal scans.
+  - Content-hash exemptions use exact full BLAKE2b hashes only; content-hash actions are disabled for name-only/similar groups.
+- User-facing workflow additions:
+  - Tools Safelist/Ignore manager, result-tree exemption context actions, folder Path/Role table, Session Compare actions, risk badges/preflight summary, `operation_plan` JSON v1 save/load, and Quarantine filters/pagination.
+  - Scheduled/watch history splits `missing_folders`, `export_failed`, and `watch_events` into structured columns.
+- CLI unsupported options now fail fast.
+  - `--watch` and `--post-cleanup-empty-dirs` return exit code `2` with a clear stderr message.
+- Packaging/local artifact alignment:
+  - `PyDuplicateFinder.spec` explicitly includes new runtime helpers (`src.core.result_groups`, `src.ui.history_messages`) as hidden imports and collects `watchdog`/`pypdf` only when installed.
+  - `.gitignore` ignores local DB sidecars, result CSV/JSON files, `operation_plan` JSON files, and temp artifacts.
+- Current automated baseline in this workspace:
+  - `pyright src tests cli.py main.py` -> `0 errors, 0 warnings`
+  - `pytest -q` -> `145 passed`

@@ -92,11 +92,35 @@ python tests/verify_image_hash.py
    - Remove or temporarily break `pypdf` in a controlled environment and request similar-document scanning on a folder containing PDFs.
    - Confirm GUI and CLI both fail fast with a clear dependency error instead of silently skipping PDF text extraction.
 
+## Additional Manual Checks (2026-04-28)
+
+1. Safelist / Ignore manager:
+   - Open Tools and create exact-path, path-glob, and content-hash exemption rules.
+   - Confirm search, edit, delete, and result-tree context-menu creation all persist to the same rule table.
+2. Hardlink eligibility safety:
+   - Scan exact duplicates, name-only duplicates, folder duplicates, similar images, and similar documents.
+   - Confirm hardlink consolidation is available only for exact duplicate groups.
+3. DB session restore parity:
+   - Complete a scan, mark review states, set collection roles, save selected paths, then restart.
+   - Confirm DB auto restore preserves file metadata, existence flags, selection reason, exemption status, review state, collection role, and baseline delta.
+4. Operation plan validation:
+   - Save a selected delete plan, modify or remove one referenced file, then load the plan.
+   - Confirm stale/missing entries are excluded and still-valid entries remain selected.
+5. Scheduled/watch structured history:
+   - Trigger a scheduled run with missing folders and export failure, and a watch rerun with multiple coalesced events.
+   - Confirm `missing_folders`, `export_failed`, and `watch_events` appear in dedicated history columns.
+6. CLI unsupported options:
+   - Run `python cli.py <folder> --watch` and `python cli.py <folder> --post-cleanup-empty-dirs`.
+   - Confirm both fail with exit code `2` and clear stderr guidance.
+
 ## Current Automated Baseline
 
 1. Full suite:
    - `pytest -q`
-   - Expected result in this workspace: `131 passed, 1 skipped`
-2. Build smoke:
+   - Expected result in this workspace: `145 passed`
+2. Static typing:
+   - `pyright src tests cli.py main.py`
+   - Expected result in this workspace: `0 errors, 0 warnings`
+3. Build smoke:
    - `pyinstaller PyDuplicateFinder.spec --clean`
    - Expected result: `dist/PyDuplicateFinderPro.exe` is produced successfully.

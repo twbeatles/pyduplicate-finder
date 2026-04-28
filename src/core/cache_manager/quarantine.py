@@ -4,10 +4,12 @@ import logging
 import time
 from typing import Optional
 
+from .contracts import CacheManagerHost
+
 logger = logging.getLogger(__name__)
 
 
-class CacheQuarantineMixin:
+class CacheQuarantineMixin(CacheManagerHost):
     def insert_quarantine_item(
         self,
         orig_path: str,
@@ -39,6 +41,10 @@ class CacheQuarantineMixin:
         offset: int = 0,
         status_filter: Optional[str] = None,
         search: Optional[str] = None,
+        size_min: Optional[int] = None,
+        size_max: Optional[int] = None,
+        created_from: Optional[float] = None,
+        created_to: Optional[float] = None,
     ):
         try:
             conn = self._get_conn()
@@ -51,6 +57,18 @@ class CacheQuarantineMixin:
             if search:
                 where.append("orig_path LIKE ?")
                 params.append(f"%{search}%")
+            if size_min is not None:
+                where.append("COALESCE(size, 0) >= ?")
+                params.append(int(size_min))
+            if size_max is not None:
+                where.append("COALESCE(size, 0) <= ?")
+                params.append(int(size_max))
+            if created_from is not None:
+                where.append("created_at >= ?")
+                params.append(float(created_from))
+            if created_to is not None:
+                where.append("created_at <= ?")
+                params.append(float(created_to))
             where_sql = ("WHERE " + " AND ".join(where)) if where else ""
             cur.execute(
                 f"""

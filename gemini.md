@@ -19,6 +19,7 @@ src/
 │   ├── history.py               # Undo/Redo 트랜잭션 + atexit 자동 정리 + 디스크 공간 체크
 │   ├── operation_queue.py       # OperationWorker: 삭제/복구/하드링크 작업 큐
 │   ├── result_schema.py         # 결과 JSON v3 스키마 및 legacy/v2/v3 호환 로더
+│   ├── result_groups.py         # 결과 그룹 분류/위험도/하드링크 eligibility
 │   ├── image_hash.py            # pHash 기반 유사 이미지 탐지 (BK-Tree + Union-Find)
 │   ├── document_hash.py         # SimHash 기반 유사 문서 탐지
 │   ├── scan_types.py            # selection/exemption/review/collection 타입
@@ -93,7 +94,7 @@ PRAGMA cache_size=-64000    # 64MB 캐시
 ```
 - **Thread-Local**: `threading.local()`로 스레드별 커넥션 관리
 - **Connection Tracking**: `weakref.WeakSet`으로 모든 커넥션 추적
-- **세션 캐시**: scan_sessions/scan_files/scan_hashes/scan_results/scan_selected로 스캔 진행 상태 저장
+- **세션 캐시**: scan_sessions/scan_files/scan_hashes/scan_results/scan_selected/scan_file_state로 스캔 진행 상태와 결과 파일 상태 저장
 
 ### 유사 이미지 탐지 (`image_hash.py`)
 - **알고리즘**: Perceptual Hash (pHash)
@@ -276,3 +277,31 @@ pypdf>=5.0.0         # PDF 텍스트 추출 기반 유사 문서 탐지
   - `pypdf` is used for PDF text extraction.
 - Current regression baseline in this workspace:
   - `pytest -q` -> `131 passed, 1 skipped`
+
+## Update Memo (2026-04-28)
+
+- Static typing baseline is restored.
+  - `src/core/cache_manager/contracts.py` and `src/core/scanner/contracts.py` define core mixin host protocols.
+  - UI host protocol gaps were filled without relaxing pyright diagnostics.
+  - Current baseline: `pyright src tests cli.py main.py` -> `0 errors, 0 warnings`.
+- Database schema version advanced to `7`.
+  - Added `scan_file_state` so DB session restore matches JSON v3 restore for file metadata, existence, selection reason, exemption status, review state, collection role, and baseline delta.
+- Result-group safety is centralized.
+  - `src/core/result_groups.py` classifies exact duplicates, name-only groups, folder duplicates, similar images, and similar documents.
+  - UI badges, CSV `group_type/group_kind`, and hardlink eligibility use the same classifier.
+  - `NAME_ONLY`, `FOLDER_DUP`, `similar_*`, and `doc_similar_*` are blocked from hardlink consolidation.
+- Safelist / Ignore policy is normalized.
+  - Canonical exemption status is `"safelisted"`; legacy `"safelist"` is normalized when loading JSON/DB state.
+  - Incremental baseline-known paths and cached-session reuse now apply the same ignore/exemption/metadata restoration policy as normal scans.
+- UI workflow additions:
+  - Tools Safelist/Ignore manager and result-tree context actions.
+  - Scan folder Path/Role table persisted through settings, presets, and scheduled job snapshots.
+  - Session Compare filtering, result selection, bulk review-state marking, and CSV export.
+  - Risk badges, destructive preflight risk summary, `operation_plan` JSON v1 save/load, and Quarantine filters/pagination.
+  - Scheduled/watch history structured columns for `missing_folders`, `export_failed`, and `watch_events`.
+- CLI unsupported options fail fast.
+  - `--watch` and `--post-cleanup-empty-dirs` return exit code `2` with stderr guidance.
+- Packaging sync:
+  - `PyDuplicateFinder.spec` explicitly lists new runtime helpers `src.core.result_groups` and `src.ui.history_messages`, and conditionally collects optional `watchdog`/`pypdf` packages only when installed.
+- Current regression baseline:
+  - `pytest -q` -> `145 passed`

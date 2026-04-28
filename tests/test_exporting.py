@@ -18,6 +18,7 @@ def test_export_scan_results_handles_various_group_keys(tmp_path):
         ("NAME_ONLY", "foo.txt"): [a, b],
         ("deadbeefcafebabe", 123): [c],
         ("similar_1", 999): [a],
+        ("doc_similar_1", 999): [b],
         ("byte_compare", "byte_1", 10): [b],
         ("FOLDER_DUP", "sig", 4096, 3): [str(tmp_path / "dirA"), str(tmp_path / "dirB")],
     }
@@ -25,8 +26,8 @@ def test_export_scan_results_handles_various_group_keys(tmp_path):
     out = tmp_path / "out.csv"
     groups, rows = export_scan_results_csv(scan_results=scan_results, out_path=str(out), selected_paths=[a])
 
-    assert groups == 5
-    assert rows == 7
+    assert groups == 6
+    assert rows == 8
     assert out.exists()
 
     # Basic CSV sanity: header + rows
@@ -35,6 +36,9 @@ def test_export_scan_results_handles_various_group_keys(tmp_path):
     assert len(r) == 1 + rows
     assert r[0][0] == "group_type"
     assert "group_kind" in r[0]
+    rows_by_label = {row[2]: row for row in r[1:]}
+    assert rows_by_label["doc_similar_1"][0] == "similar_document"
+    assert rows_by_label["doc_similar_1"][1] == "similar"
 
 
 def test_export_scan_results_prefers_file_meta_without_fs_calls(tmp_path, monkeypatch):

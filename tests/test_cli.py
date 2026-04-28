@@ -347,3 +347,20 @@ def test_parse_args_supports_new_policy_and_compare_flags():
     assert float(args.document_threshold) == 0.8
     assert args.watch is True
     assert args.respect_exemptions is True
+
+
+def test_cli_unsupported_watch_and_post_cleanup_fail_fast(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "pyduplicate-cli",
+            str(tmp_path),
+            "--watch",
+            "--post-cleanup-empty-dirs",
+        ],
+    )
+
+    assert cli.main() == 2
+    captured = capsys.readouterr()
+    assert "--watch" in captured.err
+    assert "--post-cleanup-empty-dirs" in captured.err

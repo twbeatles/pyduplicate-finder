@@ -1,6 +1,7 @@
 # PyDuplicate Finder Pro 프로젝트 분석 및 기능 확장 로드맵
 
 작성일: 2026-04-14
+최종 갱신: 2026-04-28
 
 참조 문서:
 - `README.md`
@@ -303,58 +304,61 @@
 
 | 기능 | 가치 | 난이도 | 비고 |
 |---|---|---|---|
-| 다중 예약 작업 | 여러 폴더 세트 자동 스캔 | 중상 | 현재 `default` job 구조 확장 필요 |
-| 실시간 감시 모드 | 폴더 변경 시 빠른 재검사 | 상 | 파일시스템 watcher 필요 |
+| 폴더 병합 마법사 | 중복 폴더 그룹 병합/충돌 해결 | 상 | preview와 충돌 전략 필요 |
+| 아카이브 내부 스캔 | zip 내부까지 분석 | 상 | 성능/UX 복잡도 큼 |
+| 리포트 대시보드 확장 | 용량 절감 추이, 작업 이력 분석 | 중상 | 현재 Insights를 확장하는 방향 |
 
-## 10. 구현 상태 메모 (2026-04-14 업데이트)
+1순위와 2순위의 핵심 안전 기능은 2026-04-28 기준 대부분 구현되었으므로, 이후에는 폴더 병합/아카이브 스캔처럼 더 큰 UX 설계가 필요한 기능을 별도 단계로 다루는 편이 낫다.
+
+### 7.4 구현 상태 메모 (2026-04-28 업데이트)
 
 이 문서의 초안 이후 아래 항목은 실제 코드에 반영되었다.
 
 - 선택 정책 파이프라인 통합
-  - 명시 규칙 → safelist → 컬렉션 우선순위 → 속성 우선순위 → fallback keep-one
-- 예외 규칙/검토 상태 저장
-  - `scan_exemptions`, `review_marks`, `file_signatures`
-  - 결과 JSON `version=3` 및 CSV export 반영
+  - 명시 규칙 -> safelist -> 컬렉션 우선순위 -> 속성 우선순위 -> fallback keep-one
+- 예외 규칙/검토 상태 저장 및 관리
+  - `scan_exemptions`, `review_marks`, `file_signatures`, `scan_file_state`
+  - DB schema `v7`, 결과 JSON `version=3`, CSV export 반영
+  - Tools Safelist/Ignore manager와 결과 트리 우클릭 예외 등록 액션 추가
+- 결과 그룹 안전 분류
+  - `src/core/result_groups.py` 공통 classifier 추가
+  - UI badge, CSV `group_type/group_kind`, hardlink eligibility 정합화
+  - `NAME_ONLY`, `FOLDER_DUP`, `similar_*`, `doc_similar_*` hardlink 차단
 - Results 증분 검토 UX
   - delta filter(`new`, `changed`, `revalidated`)
-  - `Session Compare` 다이얼로그
+  - `Session Compare` 다이얼로그의 결과 선택, bulk review mark, CSV export 액션
 - 컬렉션 비교 모드
-  - `primary` / `secondary` 역할 기반 선택
-- 다중 예약 작업 UI
-  - job 생성/수정/삭제/수동 실행
-  - 최근 실행 이력 테이블
-- 실시간 감시 모드 실제 동작
-  - `watchdog` 우선, 미설치 시 polling fallback
-  - 스캔 중 이벤트는 1건의 pending rerun으로 합침
-- 삭제 후 빈 폴더 후처리 실제 실행
-  - 영향 받은 상위 트리만 재검사 후 별도 operation log 기록
-- Similar-document 탐지
-  - `.txt`, `.md`, `.csv`, `.json`, `.py`, `.pdf`
-  - PDF는 `pypdf` 기반 텍스트 추출 사용
-- Insights 페이지 추가
-  - 최근 세션, 절감 용량, 실패율, 격리함 사용량, 예약 실행 이력 집계
+  - 폴더 선택 UI를 Path/Role 테이블로 교체
+  - `primary` / `secondary` / `none` 역할을 설정, 프리셋, 예약 job snapshot에 반영
+- 작업 계획/위험도/격리함 UX
+  - `operation_plan` JSON v1 저장/불러오기와 path/size/mtime 검증
+  - 결과 그룹 위험도 badge와 destructive preflight 위험도 요약
+  - Quarantine status/date/size/path 필터와 pagination
+  - scheduled/watch 이력의 `missing_folders`, `export_failed`, `watch_events` 구조 컬럼 표시
+- 패키징/로컬 산출물 정합성
+  - `PyDuplicateFinder.spec`에 `src.core.result_groups`, `src.ui.history_messages` hidden import 명시
+  - 선택 의존성 `watchdog`/`pypdf`는 설치된 경우에만 collect하도록 조정
+  - `.gitignore`에 로컬 DB sidecar, 결과 CSV/JSON, `operation_plan` JSON, temp 산출물 패턴 추가
+- 다중 예약 작업 UI, watch mode, 삭제 후 빈 폴더 후처리, Similar-document 탐지, Insights 페이지는 2026-04-14 업데이트의 구현 상태를 유지한다.
 
 현재 자동 회귀 기준선:
 
-- `pytest -q` -> `131 passed, 1 skipped`
-| near-duplicate 문서 탐지 | 텍스트/PDF 유사 문서 정리 | 상 | 새 알고리즘 필요 |
-| 아카이브 내부 스캔 | zip 내부까지 분석 | 상 | 성능/UX 복잡도 큼 |
-| 리포트 대시보드 | 용량 절감 추이, 작업 이력 분석 | 중상 | DB/시각화/UI 추가 |
+- `pyright src tests cli.py main.py` -> `0 errors, 0 warnings`
+- `pytest -q` -> `145 passed`
 
-개인적으로는 위 기능들은 "당장"보다
-1순위와 2순위가 자리 잡은 뒤 진행하는 편이 낫다.
+## 8. 기존 추천 기능의 현재 상태
 
-## 8. 가장 추천하는 기능 5개
+2026-04-14 초안에서 가장 효율이 좋다고 판단한 기능들의 2026-04-28 상태:
 
-실제로 지금 이 코드베이스에서 시작했을 때 효율이 좋은 순서:
+| 기능 | 현재 상태 |
+|---|---|
+| Safelist / Ignore list | 구현됨: Tools 관리 UI, 결과 트리 우클릭 등록, JSON/DB 호환 normalize |
+| 보존 우선순위 정책 확장 | 구현됨: selection policy pipeline과 collection role 기반 보존 |
+| 증분 스캔 결과 UI 노출 | 구현됨: delta filter와 Session Compare 액션 |
+| 컬렉션 비교 모드 | 구현됨: Path/Role 테이블, preset/settings/scheduled snapshot 반영 |
+| 빈 폴더 후처리 자동화 | 구현됨: 삭제/하드링크 후 operation flow에 연결 |
 
-1. Safelist / Ignore list
-2. 보존 우선순위 정책 확장
-3. 증분 스캔 결과 UI 노출
-4. 컬렉션 비교 모드
-5. 빈 폴더 후처리 자동화
-
-이 순서를 추천하는 이유:
+이 순서를 추천했던 이유:
 
 - 기존 구조를 크게 깨지 않는다.
 - 사용자 체감이 바로 난다.
@@ -432,18 +436,13 @@
 
 현재 기준:
 
-1. 워크스페이스 로컬 temp 경로를 사용한 전체 회귀
-   - `pytest -q` -> `131 passed, 1 skipped`
+1. 정적 타입 검사
+   - `pyright src tests cli.py main.py` -> `0 errors, 0 warnings`
 
-2. 남은 skip 1건
-   - `tests/test_hardlink_undo.py`
-   - 현재 실행 환경에서 Windows hardlink 생성(`os.link`)을 지원하지 않아 환경 의존적으로 skip 처리
-- `tests/test_selection_rules.py`
-  - `os.utime(...)` 고정 타임스탬프 세팅 실패
-  - 파일시스템 특성 영향 가능성 있음
+2. 워크스페이스 로컬 temp 경로를 사용한 전체 회귀
+   - `pytest -q` -> `145 passed`
 
-즉, 전체 구조 신뢰도는 높지만, "지금 당장 기능 추가 전"에
-예약 설정 저장 1건은 한번 점검하고 가는 편이 좋다.
+즉, 2026-04-28 기준으로 기능 안정화 범위의 정적 타입 검사와 전체 회귀 테스트가 모두 통과한다.
 
 ## 12. 결론
 
@@ -457,10 +456,12 @@
 2. 삭제보다 검토와 시뮬레이션을 강화하기
 3. 세션/이력/정책을 누적해서 점점 자동화하기
 
-가장 현실적인 다음 작업은 아래 둘 중 하나다.
+2026-04-28 안정화 작업으로 `Safelist / Ignore list`, 증분 결과 UI, 컬렉션 역할, 작업 계획 저장, 위험도 표시, Quarantine 필터링은 구현되었다.
 
-- A안: `Safelist / Ignore list`부터 구현
-- B안: `증분 스캔 결과 UI`부터 구현
+가장 현실적인 다음 작업은 아래 둘이다.
 
-둘 다 현재 구조와 궁합이 좋고, 사용자 체감 가치가 크다.
+- A안: 폴더 병합 마법사 설계 및 preview/충돌 전략 구현
+- B안: 대규모 결과 UX를 더 가볍게 만들기 위한 결과 테이블/가상화 개선
+
+둘 다 현재 구조와 궁합이 좋지만, 파괴적 작업이 포함되는 A안은 preflight/operation log/undo 모델을 먼저 더 구체화한 뒤 진행하는 편이 안전하다.
 

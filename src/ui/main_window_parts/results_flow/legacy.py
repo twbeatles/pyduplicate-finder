@@ -25,6 +25,16 @@ from src.core.preflight import PreflightAnalyzer
 from src.core.selection_rules import parse_rules
 from src.core.operation_queue import Operation
 from src.core.scan_engine import ScanConfig, validate_similar_image_dependency
+from src.core.result_groups import classify_result_group
+from src.core.scan_types import (
+    EXEMPTION_ACTION_IGNORE,
+    EXEMPTION_ACTION_SAFELIST,
+    EXEMPTION_KIND_CONTENT_HASH,
+    EXEMPTION_KIND_EXACT_PATH,
+    EXEMPTION_KIND_PATH_GLOB,
+    EXEMPTION_STATUS_SAFELISTED,
+    normalize_exemption_status,
+)
 from src.core.result_schema import dump_results_v3, load_file_state_map, load_results_bundle_any
 from src.core.scheduler import ScheduleConfig
 from src.ui.empty_folder_dialog import EmptyFolderDialog
@@ -140,7 +150,10 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
                         collection_role=str((self._current_collection_role_map or {}).get(path) or ""),
                         explicit_keep=False,
                         explicit_delete=False,
-                        safelisted=str((self._current_exemption_status_map or {}).get(path) or "") == "safelisted",
+                        safelisted=normalize_exemption_status(
+                            (self._current_exemption_status_map or {}).get(path)
+                        )
+                        == EXEMPTION_STATUS_SAFELISTED,
                         readonly=not os.access(path, os.W_OK) if os.path.exists(path) else False,
                     ),
                     item,
@@ -189,6 +202,32 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
             if not p:
                 continue
             item.setCheckState(0, Qt.CheckState.Unchecked if str(p) in keep_set else Qt.CheckState.Checked)
+
+    def select_paths_in_results(self: Any, paths):
+        target = {str(p) for p in (paths or []) if p}
+        if not target:
+            return
+        first_item = None
+        root = self.tree_widget.invisibleRootItem()
+        self.tree_widget.begin_bulk_check_update()
+        try:
+            for i in range(root.childCount()):
+                group = root.child(i)
+                for j in range(group.childCount()):
+                    child = group.child(j)
+                    path = child.data(0, Qt.ItemDataRole.UserRole)
+                    if path and str(path) in target:
+                        child.setCheckState(0, Qt.CheckState.Checked)
+                        if first_item is None:
+                            first_item = child
+        finally:
+            self.tree_widget.end_bulk_check_update()
+        if first_item is not None:
+            try:
+                self.tree_widget.setCurrentItem(first_item)
+                self.tree_widget.scrollToItem(first_item)
+            except Exception:
+                pass
 
     def _mtime_for_path(self: Any, path: str) -> float:
         try:
@@ -333,6 +372,70 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
         self._update_results_summary(selected_count)
         self._update_action_buttons_state(selected_count=selected_count)
 
+    def _build_current_file_state_entries(self: Any) -> dict[str, dict[str, Any]]:
+        paths: set[str] = set()
+        for group_paths in (self.scan_results or {}).values():
+            for path in group_paths or []:
+                if path:
+                    paths.add(str(path))
+        for mapping in (
+            self._current_result_meta,
+            self._current_result_existence_map,
+            self._current_selection_reason_map,
+            self._current_exemption_status_map,
+            self._current_review_state_map,
+            self._current_collection_role_map,
+            self._current_baseline_delta_map,
+        ):
+            try:
+                paths.update(str(p) for p in (mapping or {}).keys() if p)
+            except Exception:
+                pass
+
+        entries: dict[str, dict[str, Any]] = {}
+        for path in sorted(paths):
+            row: dict[str, Any] = {
+                "selection_reason": str((self._current_selection_reason_map or {}).get(path) or ""),
+                "exemption_status": normalize_exemption_status((self._current_exemption_status_map or {}).get(path)),
+                "review_state": str((self._current_review_state_map or {}).get(path) or ""),
+                "collection_role": str((self._current_collection_role_map or {}).get(path) or ""),
+                "baseline_delta": str((self._current_baseline_delta_map or {}).get(path) or ""),
+            }
+            try:
+                meta = (self._current_result_meta or {}).get(path)
+                if meta and len(meta) >= 2:
+                    row["size"] = int(meta[0])
+                    row["mtime"] = float(meta[1])
+            except Exception:
+                pass
+            try:
+                if path in (self._current_result_existence_map or {}):
+                    row["exists"] = bool(self._current_result_existence_map.get(path))
+                elif path in (self._current_result_meta or {}):
+                    row["exists"] = True
+                else:
+                    row["exists"] = bool(os.path.exists(path))
+            except Exception:
+                pass
+            entries[path] = row
+        return entries
+
+    def _content_hash_for_result_item(self: Any, item) -> str:
+        try:
+            parent = item.parent()
+            if not parent:
+                return ""
+            key = parent.data(0, Qt.ItemDataRole.UserRole + 1)
+            info = classify_result_group(key)
+            if not info.hardlink_eligible:
+                return ""
+            digest = str(info.label or "").strip().lower()
+            if len(digest) == 64 and all(ch in "0123456789abcdef" for ch in digest):
+                return digest
+        except Exception:
+            return ""
+        return ""
+
     def open_session_compare_dialog(self: Any):
         delta_map = dict(self._current_baseline_delta_map or {})
         if not delta_map:
@@ -374,7 +477,13 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
                     if not item.isHidden():
                         visible_checked += 1
             if group_sel > 0:
-                group_rows.append((group.text(0), group_sel, group_bytes))
+                risk = "low"
+                try:
+                    key = group.data(0, Qt.ItemDataRole.UserRole + 1)
+                    risk = classify_result_group(key).risk_level
+                except Exception:
+                    risk = "low"
+                group_rows.append((group.text(0), group_sel, group_bytes, risk))
 
         if not targets:
             _mw().QMessageBox.information(self, strings.tr("app_title"), strings.tr("msg_no_files_selected"))
@@ -430,7 +539,8 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
     def _show_delete_dry_run(self: Any, group_rows, *, total_selected: int, visible_checked: int, filter_active: bool):
         try:
             total_bytes = 0
-            for _name, _count, b in (group_rows or []):
+            for row in (group_rows or []):
+                _name, _count, b = row[:3]
                 total_bytes += int(b or 0)
 
             lines = [
@@ -444,7 +554,21 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
                 lines.append(strings.tr("msg_delete_includes_hidden"))
 
             limit = 8
-            for idx, (name, count, bytes_total) in enumerate(group_rows[:limit]):
+            risk_counts = {"high": 0, "medium": 0, "low": 0}
+            for row in group_rows or []:
+                risk = str(row[3] if len(row) > 3 else "low")
+                if risk in risk_counts:
+                    risk_counts[risk] += 1
+            lines.append(
+                strings.tr("msg_risk_summary").format(
+                    high=risk_counts["high"],
+                    medium=risk_counts["medium"],
+                    low=risk_counts["low"],
+                )
+            )
+
+            for idx, row in enumerate(group_rows[:limit]):
+                name, count, bytes_total = row[:3]
                 lines.append(
                     strings.tr("msg_delete_dry_run_group_line").format(
                         idx=idx + 1,
@@ -474,11 +598,14 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
         """Issue #13: Remove deleted paths from scan_results dict."""
         if not self.scan_results or not deleted_paths:
             return
+        removed = {str(p) for p in (deleted_paths or []) if p}
+        if not removed:
+            return
         
         keys_to_remove = []
         for key, paths in self.scan_results.items():
             # Remove deleted paths from this group
-            remaining = [p for p in paths if p not in deleted_paths]
+            remaining = [p for p in paths if str(p) not in removed]
             if len(remaining) < 2:
                 # No duplicates left in this group
                 keys_to_remove.append(key)
@@ -487,6 +614,21 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
         
         for key in keys_to_remove:
             del self.scan_results[key]
+
+        for mapping in (
+            self._current_result_meta,
+            self._current_result_existence_map,
+            self._current_selection_reason_map,
+            self._current_exemption_status_map,
+            self._current_review_state_map,
+            self._current_collection_role_map,
+            self._current_baseline_delta_map,
+        ):
+            try:
+                for path in removed:
+                    mapping.pop(path, None)
+            except Exception:
+                pass
 
         self._set_results_view(bool(self.scan_results))
         self._update_results_summary()
@@ -512,9 +654,16 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
         if not self._prune_missing_results():
             return
         selected_paths = [p for p in self._saved_selected_paths if os.path.exists(p)]
-        self._render_results(self.scan_results, selected_paths=selected_paths, selected_count=len(selected_paths))
+        self._render_results(
+            self.scan_results,
+            selected_paths=selected_paths,
+            file_meta=self._current_result_meta,
+            existence_map=self._current_result_existence_map,
+            selected_count=len(selected_paths),
+        )
         self.cache_manager.save_scan_results(self.current_session_id, self.scan_results)
         self.cache_manager.save_selected_paths(self.current_session_id, selected_paths)
+        self.cache_manager.save_scan_file_state(self.current_session_id, self._build_current_file_state_entries())
 
     def update_undo_redo_buttons(self: Any):
         self.action_undo.setEnabled(bool(self.history_manager.undo_stack))
@@ -802,6 +951,75 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
             action_review_clear.triggered.connect(lambda: self._set_review_state([path], ""))
             menu.addAction(action_review_clear)
 
+            menu.addSeparator()
+            action_safe_path = QAction(strings.tr("ctx_safelist_exact_path"), self)
+            action_safe_path.triggered.connect(
+                lambda: self._save_scan_exemption_rule(
+                    kind=EXEMPTION_KIND_EXACT_PATH,
+                    value=path,
+                    action=EXEMPTION_ACTION_SAFELIST,
+                    note="context-menu",
+                )
+            )
+            menu.addAction(action_safe_path)
+
+            action_ignore_path = QAction(strings.tr("ctx_ignore_exact_path"), self)
+            action_ignore_path.triggered.connect(
+                lambda: self._save_scan_exemption_rule(
+                    kind=EXEMPTION_KIND_EXACT_PATH,
+                    value=path,
+                    action=EXEMPTION_ACTION_IGNORE,
+                    note="context-menu",
+                )
+            )
+            menu.addAction(action_ignore_path)
+
+            action_ignore_glob = QAction(strings.tr("ctx_ignore_path_glob"), self)
+
+            def ignore_glob():
+                default_glob = os.path.join(os.path.dirname(path), "*").replace("\\", "/")
+                pattern, ok = QInputDialog.getText(
+                    self,
+                    strings.tr("ctx_ignore_path_glob"),
+                    strings.tr("ctx_path_glob_prompt"),
+                    text=default_glob,
+                )
+                if ok and str(pattern or "").strip():
+                    self._save_scan_exemption_rule(
+                        kind=EXEMPTION_KIND_PATH_GLOB,
+                        value=str(pattern or "").strip(),
+                        action=EXEMPTION_ACTION_IGNORE,
+                        note="context-menu",
+                    )
+
+            action_ignore_glob.triggered.connect(ignore_glob)
+            menu.addAction(action_ignore_glob)
+
+            content_hash = self._content_hash_for_result_item(item)
+            action_safe_hash = QAction(strings.tr("ctx_safelist_content_hash"), self)
+            action_safe_hash.setEnabled(bool(content_hash))
+            action_safe_hash.triggered.connect(
+                lambda: self._save_scan_exemption_rule(
+                    kind=EXEMPTION_KIND_CONTENT_HASH,
+                    value=content_hash,
+                    action=EXEMPTION_ACTION_SAFELIST,
+                    note="context-menu",
+                )
+            )
+            menu.addAction(action_safe_hash)
+
+            action_ignore_hash = QAction(strings.tr("ctx_ignore_content_hash"), self)
+            action_ignore_hash.setEnabled(bool(content_hash))
+            action_ignore_hash.triggered.connect(
+                lambda: self._save_scan_exemption_rule(
+                    kind=EXEMPTION_KIND_CONTENT_HASH,
+                    value=content_hash,
+                    action=EXEMPTION_ACTION_IGNORE,
+                    note="context-menu",
+                )
+            )
+            menu.addAction(action_ignore_hash)
+
         else:
             # Group item context
             if item.childCount() <= 0:
@@ -911,6 +1129,120 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
         from PySide6.QtWidgets import QApplication
         QApplication.clipboard().setText(text)
 
+    def _operation_plan_entries_for_paths(self: Any, paths) -> list[dict[str, Any]]:
+        entries = []
+        for path in paths or []:
+            path = str(path or "")
+            if not path:
+                continue
+            size = None
+            mtime = None
+            try:
+                meta = (self._current_result_meta or {}).get(path)
+                if meta and len(meta) >= 2:
+                    size = int(meta[0])
+                    mtime = float(meta[1])
+            except Exception:
+                size = None
+                mtime = None
+            if size is None or mtime is None:
+                try:
+                    st = os.stat(path)
+                    size = int(st.st_size)
+                    mtime = float(st.st_mtime)
+                except Exception:
+                    pass
+            entries.append({"path": path, "size": size, "mtime": mtime})
+        return entries
+
+    def save_operation_plan(self: Any):
+        try:
+            selected_paths = self.tree_widget.get_checked_files()
+        except Exception:
+            selected_paths = []
+        if not selected_paths:
+            _mw().QMessageBox.information(self, strings.tr("app_title"), strings.tr("msg_no_files_selected"))
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            strings.tr("btn_save_operation_plan"),
+            "operation_plan.json",
+            "JSON Files (*.json)",
+        )
+        if not path:
+            return
+        payload = {
+            "type": "operation_plan",
+            "version": 1,
+            "op_type": "delete_selected",
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "entries": self._operation_plan_entries_for_paths(selected_paths),
+        }
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            self.status_label.setText(strings.tr("msg_operation_plan_saved").format(path=path))
+        except Exception as e:
+            _mw().QMessageBox.critical(self, strings.tr("app_title"), strings.tr("err_save").format(e))
+
+    def load_operation_plan(self: Any):
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            strings.tr("btn_load_operation_plan"),
+            "",
+            "JSON Files (*.json)",
+        )
+        if not path:
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            if not isinstance(payload, dict) or payload.get("type") != "operation_plan" or int(payload.get("version") or 0) != 1:
+                raise ValueError("Unsupported operation_plan")
+            result_paths = {
+                str(p)
+                for group_paths in (self.scan_results or {}).values()
+                for p in (group_paths or [])
+                if p
+            }
+            selected = []
+            skipped = 0
+            for entry in list(payload.get("entries") or []):
+                if not isinstance(entry, dict):
+                    skipped += 1
+                    continue
+                item_path = str(entry.get("path") or "")
+                if not item_path or item_path not in result_paths or not os.path.exists(item_path):
+                    skipped += 1
+                    continue
+                try:
+                    st = os.stat(item_path)
+                    expected_size = entry.get("size")
+                    expected_mtime = entry.get("mtime")
+                    if expected_size is not None and int(expected_size) != int(st.st_size):
+                        skipped += 1
+                        continue
+                    if expected_mtime is not None and abs(float(expected_mtime) - float(st.st_mtime)) > 0.001:
+                        skipped += 1
+                        continue
+                except Exception:
+                    skipped += 1
+                    continue
+                selected.append(item_path)
+
+            self._render_results(
+                self.scan_results,
+                selected_paths=selected,
+                file_meta=self._current_result_meta,
+                existence_map=self._current_result_existence_map,
+                selected_count=len(selected),
+            )
+            self.status_label.setText(
+                strings.tr("msg_operation_plan_loaded").format(loaded=len(selected), skipped=skipped)
+            )
+        except Exception as e:
+            _mw().QMessageBox.critical(self, strings.tr("app_title"), strings.tr("err_load").format(e))
+
     def save_scan_results(self: Any):
         """Save current scan results to JSON."""
         if not self.scan_results:
@@ -988,7 +1320,7 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
                 if row.get("selection_reason")
             }
             self._current_exemption_status_map = {
-                path: row.get("exemption_status") or ""
+                path: normalize_exemption_status(row.get("exemption_status"))
                 for path, row in file_state.items()
                 if row.get("exemption_status")
             }

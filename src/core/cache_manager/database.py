@@ -6,8 +6,10 @@ import sqlite3
 import threading
 from typing import Optional
 
+from .contracts import CacheManagerHost
 
-class CacheDatabaseMixin:
+
+class CacheDatabaseMixin(CacheManagerHost):
     def __init__(self, db_path=None):
         override = os.environ.get("PYDUPLICATEFINDER_DB_PATH")
         using_custom = bool(db_path or override)

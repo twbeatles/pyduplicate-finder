@@ -199,6 +199,8 @@ class MainWindowUiShellMixin(DuplicateFinderTypingContract):
         # Labels
         if hasattr(self, 'lbl_ext'):
             self.lbl_ext.setText(strings.tr("lbl_ext"))
+        if hasattr(self, "tbl_folders"):
+            self.tbl_folders.setHorizontalHeaderLabels([strings.tr("col_path"), strings.tr("col_role")])
         if hasattr(self, 'lbl_min_size'):
             self.lbl_min_size.setText(strings.tr("lbl_min_size"))
         if hasattr(self, 'lbl_filter_basic'):
@@ -383,8 +385,20 @@ class MainWindowUiShellMixin(DuplicateFinderTypingContract):
             self.lbl_quarantine_desc.setText(strings.tr("tool_quarantine_desc"))
         if hasattr(self, "txt_quarantine_search"):
             self.txt_quarantine_search.setPlaceholderText(strings.tr("ph_quarantine_search"))
+        if hasattr(self, "txt_quarantine_min_size"):
+            self.txt_quarantine_min_size.setPlaceholderText(strings.tr("ph_min_size_bytes"))
+        if hasattr(self, "txt_quarantine_max_size"):
+            self.txt_quarantine_max_size.setPlaceholderText(strings.tr("ph_max_size_bytes"))
+        if hasattr(self, "txt_quarantine_date_from"):
+            self.txt_quarantine_date_from.setPlaceholderText(strings.tr("ph_date_from"))
+        if hasattr(self, "txt_quarantine_date_to"):
+            self.txt_quarantine_date_to.setPlaceholderText(strings.tr("ph_date_to"))
         if hasattr(self, "btn_quarantine_refresh"):
             self.btn_quarantine_refresh.setText(strings.tr("btn_refresh"))
+        if hasattr(self, "btn_quarantine_prev"):
+            self.btn_quarantine_prev.setText(strings.tr("btn_prev"))
+        if hasattr(self, "btn_quarantine_next"):
+            self.btn_quarantine_next.setText(strings.tr("btn_next"))
         if hasattr(self, "btn_quarantine_restore"):
             self.btn_quarantine_restore.setText(strings.tr("btn_restore_selected"))
         if hasattr(self, "btn_quarantine_purge"):
@@ -394,6 +408,34 @@ class MainWindowUiShellMixin(DuplicateFinderTypingContract):
         if hasattr(self, "tbl_quarantine"):
             self.tbl_quarantine.setHorizontalHeaderLabels(
                 [strings.tr("col_path"), strings.tr("col_size"), strings.tr("col_created"), strings.tr("col_status")]
+            )
+
+        if hasattr(self, "lbl_exemption_title"):
+            self.lbl_exemption_title.setText(strings.tr("tool_exemptions_title"))
+        if hasattr(self, "lbl_exemption_desc"):
+            self.lbl_exemption_desc.setText(strings.tr("tool_exemptions_desc"))
+        if hasattr(self, "txt_exemption_search"):
+            self.txt_exemption_search.setPlaceholderText(strings.tr("ph_exemption_search"))
+        if hasattr(self, "txt_exemption_value"):
+            self.txt_exemption_value.setPlaceholderText(strings.tr("ph_exemption_value"))
+        if hasattr(self, "txt_exemption_note"):
+            self.txt_exemption_note.setPlaceholderText(strings.tr("ph_exemption_note"))
+        if hasattr(self, "btn_exemption_save"):
+            self.btn_exemption_save.setText(strings.tr("btn_save"))
+        if hasattr(self, "btn_exemption_delete"):
+            self.btn_exemption_delete.setText(strings.tr("btn_delete"))
+        if hasattr(self, "btn_exemption_refresh"):
+            self.btn_exemption_refresh.setText(strings.tr("btn_refresh"))
+        if hasattr(self, "tbl_exemptions"):
+            self.tbl_exemptions.setHorizontalHeaderLabels(
+                [
+                    strings.tr("col_id"),
+                    strings.tr("col_kind"),
+                    strings.tr("col_value"),
+                    strings.tr("col_action"),
+                    strings.tr("col_note"),
+                    strings.tr("col_created"),
+                ]
             )
 
         if hasattr(self, "lbl_rules_title"):
@@ -489,6 +531,9 @@ class MainWindowUiShellMixin(DuplicateFinderTypingContract):
                     strings.tr("col_status"),
                     strings.tr("col_groups"),
                     strings.tr("col_files"),
+                    strings.tr("col_missing_folders"),
+                    strings.tr("col_export_failed"),
+                    strings.tr("col_watch_events"),
                     strings.tr("col_message"),
                 ]
             )
@@ -510,6 +555,7 @@ class MainWindowUiShellMixin(DuplicateFinderTypingContract):
                     strings.tr("col_created"),
                     strings.tr("col_status"),
                     strings.tr("col_groups"),
+                    strings.tr("col_watch_events"),
                     strings.tr("col_message"),
                 ]
             )
@@ -521,6 +567,9 @@ class MainWindowUiShellMixin(DuplicateFinderTypingContract):
                     strings.tr("col_status"),
                     strings.tr("col_groups"),
                     strings.tr("col_files"),
+                    strings.tr("col_missing_folders"),
+                    strings.tr("col_export_failed"),
+                    strings.tr("col_watch_events"),
                     strings.tr("col_message"),
                 ]
             )
@@ -570,6 +619,10 @@ class MainWindowUiShellMixin(DuplicateFinderTypingContract):
             self.action_pattern.setText(strings.tr("action_select_pattern"))
 
         self.btn_export.setText(strings.tr("btn_export"))
+        if hasattr(self, "btn_save_plan"):
+            self.btn_save_plan.setText(strings.tr("btn_save_operation_plan"))
+        if hasattr(self, "btn_load_plan"):
+            self.btn_load_plan.setText(strings.tr("btn_load_operation_plan"))
         self.btn_delete.setText(strings.tr("btn_delete_selected"))
         
         if self.status_label.text() in ["Ready", strings.tr("status_ready")]:

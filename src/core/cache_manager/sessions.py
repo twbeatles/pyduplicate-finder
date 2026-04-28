@@ -6,10 +6,12 @@ import logging
 import time
 from typing import Any, Optional
 
+from .contracts import CacheManagerHost
+
 logger = logging.getLogger(__name__)
 
 
-class CacheSessionMixin:
+class CacheSessionMixin(CacheManagerHost):
     def _normalize_config(self, config: dict[str, Any]) -> str:
         try:
             return json.dumps(config, ensure_ascii=False, sort_keys=True)
@@ -204,6 +206,7 @@ class CacheSessionMixin:
                 conn.execute(f"DELETE FROM scan_folder_sigs WHERE session_id NOT IN ({placeholders})", keep_ids)
                 conn.execute(f"DELETE FROM scan_results WHERE session_id NOT IN ({placeholders})", keep_ids)
                 conn.execute(f"DELETE FROM scan_selected WHERE session_id NOT IN ({placeholders})", keep_ids)
+                conn.execute(f"DELETE FROM scan_file_state WHERE session_id NOT IN ({placeholders})", keep_ids)
                 conn.execute(f"DELETE FROM review_marks WHERE session_id NOT IN ({placeholders})", keep_ids)
                 conn.execute(f"DELETE FROM scan_sessions WHERE id NOT IN ({placeholders})", keep_ids)
         except Exception:

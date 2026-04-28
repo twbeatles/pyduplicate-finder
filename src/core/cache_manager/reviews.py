@@ -3,10 +3,12 @@ from __future__ import annotations
 import logging
 import time
 
+from .contracts import CacheManagerHost
+
 logger = logging.getLogger(__name__)
 
 
-class CacheReviewMixin:
+class CacheReviewMixin(CacheManagerHost):
     def list_review_marks(self, session_id: int, *, target_type: str | None = None):
         out = []
         if not session_id:

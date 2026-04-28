@@ -105,6 +105,10 @@ class MainWindowSettingsFlowMixin(DuplicateFinderTypingContract):
         if hasattr(self, "chk_watch_mode"):
             self.settings.setValue("filter/watch_mode", self.chk_watch_mode.isChecked())
         self.settings.setValue("folders", self.selected_folders)
+        try:
+            self.settings.setValue("folder_roles", json.dumps(self._folder_roles_from_table()))
+        except Exception:
+            pass
         
         # Save shortcut settings
         if self.custom_shortcuts:
@@ -253,11 +257,18 @@ class MainWindowSettingsFlowMixin(DuplicateFinderTypingContract):
         elif not isinstance(folders, list): folders = []
         
         self.selected_folders = [f for f in folders if os.path.exists(f)]
-        
-        # Populate ListWidget
-        self.list_folders.clear()
-        for f in self.selected_folders:
-            self.list_folders.addItem(f)
+        try:
+            raw_roles = self.settings.value("folder_roles", "{}")
+            loaded_roles = self._json_loads(raw_roles, {})
+            self.selected_folder_roles = {
+                str(path): self._normalize_folder_role(role)
+                for path, role in dict(loaded_roles if isinstance(loaded_roles, dict) else {}).items()
+                if str(path) in self.selected_folders and self._normalize_folder_role(role)
+            }
+        except Exception:
+            self.selected_folder_roles = {}
+
+        self._refresh_folder_table()
         self._on_folders_changed()
         self.refresh_incremental_baselines()
 
@@ -430,13 +441,67 @@ class MainWindowSettingsFlowMixin(DuplicateFinderTypingContract):
             results = self.cache_manager.load_scan_results(self.current_session_id)
             if results:
                 selected_paths = self.cache_manager.load_selected_paths(self.current_session_id)
+                result_paths = {
+                    str(path)
+                    for group_paths in (results or {}).values()
+                    for path in (group_paths or [])
+                    if path
+                }
+                file_state = self.cache_manager.load_scan_file_state(self.current_session_id)
+                file_meta = {}
+                existence_map = {}
+                for path, row in (file_state or {}).items():
+                    if path not in result_paths:
+                        continue
+                    try:
+                        if "size" in row and "mtime" in row:
+                            file_meta[path] = (int(row.get("size") or 0), float(row.get("mtime") or 0.0))
+                    except Exception:
+                        pass
+                    if "exists" in row:
+                        existence_map[path] = bool(row.get("exists"))
+                if not file_meta:
+                    try:
+                        for path, size, mtime in self.cache_manager.load_scan_files(self.current_session_id):
+                            path = str(path or "")
+                            if path in result_paths:
+                                file_meta[path] = (int(size or 0), float(mtime or 0.0))
+                                existence_map.setdefault(path, True)
+                    except Exception:
+                        pass
                 self.scan_results = results
-                self._current_baseline_delta_map = {}
-                self._current_selection_reason_map = {}
-                self._current_exemption_status_map = {}
-                self._current_review_state_map = {}
-                self._current_collection_role_map = {}
-                self._render_results(results, selected_paths=list(selected_paths), selected_count=len(selected_paths))
+                self._current_baseline_delta_map = {
+                    path: str(row.get("baseline_delta") or "")
+                    for path, row in (file_state or {}).items()
+                    if path in result_paths and row.get("baseline_delta")
+                }
+                self._current_selection_reason_map = {
+                    path: str(row.get("selection_reason") or "")
+                    for path, row in (file_state or {}).items()
+                    if path in result_paths and row.get("selection_reason")
+                }
+                self._current_exemption_status_map = {
+                    path: str(row.get("exemption_status") or "")
+                    for path, row in (file_state or {}).items()
+                    if path in result_paths and row.get("exemption_status")
+                }
+                self._current_review_state_map = {
+                    path: str(row.get("review_state") or "")
+                    for path, row in (file_state or {}).items()
+                    if path in result_paths and row.get("review_state")
+                }
+                self._current_collection_role_map = {
+                    path: str(row.get("collection_role") or "")
+                    for path, row in (file_state or {}).items()
+                    if path in result_paths and row.get("collection_role")
+                }
+                self._render_results(
+                    results,
+                    selected_paths=list(selected_paths),
+                    file_meta=file_meta,
+                    existence_map=existence_map,
+                    selected_count=len(selected_paths),
+                )
                 self.status_label.setText(strings.tr("msg_results_loaded").format(len(results)))
                 # Restore UX: bring the user to the focused results page when data is available.
                 try:
@@ -591,7 +656,7 @@ class MainWindowSettingsFlowMixin(DuplicateFinderTypingContract):
             'similarity_threshold': self.spin_similarity.value(),
             'selection_policy': str(self.cmb_selection_policy.currentData() or 'smart') if hasattr(self, 'cmb_selection_policy') else 'smart',
             'compare_mode': str(self.cmb_compare_mode.currentData() or 'none') if hasattr(self, 'cmb_compare_mode') else 'none',
-            'folder_roles': {},
+            'folder_roles': self._folder_roles_from_table(),
             'use_similar_document': self.chk_similar_document.isChecked() if hasattr(self, 'chk_similar_document') else False,
             'document_similarity_threshold': self.spin_document_similarity.value() if hasattr(self, 'spin_document_similarity') else 0.9,
             'watch_mode': self.chk_watch_mode.isChecked() if hasattr(self, 'chk_watch_mode') else False,
@@ -605,10 +670,14 @@ class MainWindowSettingsFlowMixin(DuplicateFinderTypingContract):
         """Apply a configuration dictionary to the current UI."""
         # Folders
         if 'folders' in config:
-            self.selected_folders = config['folders']
-            self.list_folders.clear()
-            for f in self.selected_folders:
-                self.list_folders.addItem(f)
+            self.selected_folders = [str(f) for f in (config.get('folders') or []) if f]
+            raw_roles = dict(config.get('folder_roles') or {})
+            self.selected_folder_roles = {
+                str(path): self._normalize_folder_role(role)
+                for path, role in raw_roles.items()
+                if str(path) in self.selected_folders and self._normalize_folder_role(role)
+            }
+            self._refresh_folder_table()
             self._on_folders_changed()
         
         # Basic filters

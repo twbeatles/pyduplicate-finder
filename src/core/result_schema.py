@@ -5,6 +5,8 @@ import json
 import time
 from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
 
+from src.core.scan_types import normalize_exemption_status
+
 
 def _normalize_group_key(raw_key: Any) -> Tuple[Any, ...]:
     if isinstance(raw_key, tuple):
@@ -233,7 +235,7 @@ def dump_results_v3(
     for path in sorted(keys):
         state_rows[path] = {
             "selection_reason": str((selection_reason_map or {}).get(path) or ""),
-            "exemption_status": str((exemption_status_map or {}).get(path) or ""),
+            "exemption_status": normalize_exemption_status((exemption_status_map or {}).get(path)),
             "review_state": str((review_state_map or {}).get(path) or ""),
             "collection_role": str((collection_role_map or {}).get(path) or ""),
             "baseline_delta": str((baseline_delta_map or {}).get(path) or ""),
@@ -311,7 +313,7 @@ def load_file_state_map(payload: Any) -> Dict[str, Dict[str, str]]:
             continue
         out[str(path)] = {
             "selection_reason": str(row.get("selection_reason") or ""),
-            "exemption_status": str(row.get("exemption_status") or ""),
+            "exemption_status": normalize_exemption_status(row.get("exemption_status")),
             "review_state": str(row.get("review_state") or ""),
             "collection_role": str(row.get("collection_role") or ""),
             "baseline_delta": str(row.get("baseline_delta") or ""),
