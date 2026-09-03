@@ -21,6 +21,7 @@ env/
 .ruff_cache/
 .pytest_cache/
 .pytest_tmp/
+.codegraph/
 
 # Distribution / Build
 build/
@@ -45,6 +46,11 @@ warn-*.txt
 htmlcov/
 coverage/
 bench_perf.json
+bench_*.json
+
+# Rust build artifacts
+target/
+*.whl
 
 # Local scan/export artifacts
 scan_cache.db

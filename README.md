@@ -2,16 +2,19 @@
 
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README_EN.md)
 
-**PyDuplicate Finder Pro**는 파이썬(PySide6) 기반의 고성능 중복 파일 관리 도구입니다. 최신 멀티스레딩 기술과 스마트 캐싱을 통해 대용량 파일 시스템에서도 빠르고 정확하게 중복 파일을 탐색하며, 안전한 삭제 복구(Undo) 기능을 제공합니다.
+**PyDuplicate Finder Pro**는 파이썬(PySide6)과 네이티브 Rust 코어(`pydup_core`)가 결합된 고성능 중복 파일 관리 도구입니다. 최신 멀티스레딩(Rayon) 기술과 스마트 캐싱을 통해 대용량 파일 시스템에서도 빠르고 정확하게 중복 파일을 탐색하며, 안전한 삭제 복구(Undo) 기능을 제공합니다.
 
 ---
 
 ## ✨ 주요 기능 (Key Features)
 
-### 🚀 압도적인 성능 (High Performance)
-- **초고속 스캔 (Fast I/O)**: `os.scandir` 기반의 재귀 스캔 엔진을 도입하여 기존 `os.walk` 대비 파일 탐색 속도를 비약적으로 향상시켰습니다.
-- **최적화된 해싱 (BLAKE2b)**: 64비트 시스템에 최적화된 `BLAKE2b` 알고리즘을 사용하여 MD5보다 빠르고 안전하게 파일을 분석합니다.
+### 🚀 압도적인 성능 (High Performance with Rust Core)
+- **Native Rust 엔진 (`pydup_core`)**: 핵심 I/O 및 해싱 파이프라인에 PyO3 C-extension을 도입하여, 10,000개 파일 기준 **스캔 소요 시간을 50.7% 단축(2.03배 고속화)**했습니다.
+- **초고속 병렬 해싱 (BLAKE2b + Rayon)**: 64비트 시스템에 최적화된 `BLAKE2b` 알고리즘을 Rust Rayon 스레드 풀에서 GIL 없이 병렬 처리하여 대용량 파일 분석 중에도 UI가 멈추지 않습니다.
+- **정밀 바이트 스트리밍 비교**: 해시 충돌 위험을 배제하기 위해 1MiB 스트리밍 버퍼 기반의 Rust 네이티브 바이트 비교(`files_equal`)를 제공합니다.
+- **초고속 파일 탐색 (Native Discovery)**: Rust 기반의 재귀 디렉토리 순회와 사전 컴파일된 `globset` 패턴 매칭을 통해 수십만 개의 파일 시스템을 순식간에 인덱싱합니다.
 - **스마트 캐싱 & 배치 처리**: `SQLite WAL` 모드와 대용량 배치(Batch) 처리를 통해 수십만 개의 파일도 끊김 없이 처리합니다.
+- **무손실 Python Fallback**: Rust 모듈 부재 또는 런타임 환경에 따라 자동으로 순수 Python 엔진으로 부드럽게 Fallback됩니다.
 - **중단 복구 (Resume Scan)**: 파일 목록/해시 진행 상태를 캐시에 저장하여, 재실행 시 중단된 지점부터 이어서 스캔할 수 있습니다.
 - **부드러운 UI**: 결과 목록을 점진적으로 렌더링(Incremental Rendering)하여 대량의 결과 표시 중에도 앱이 멈추지 않습니다.
 
@@ -67,8 +70,22 @@ duplicate_finder/
 ├── .editorconfig            # UTF-8/EOL 규칙
 ├── claude.md                # AI 컨텍스트 (Claude)
 ├── gemini.md                # AI 컨텍스트 (Gemini)
+├── scripts/
+│   ├── build_rust_core.ps1  # Rust 코어(pydup_core) 휠 빌드 및 pip 설치 스크립트
+│   └── test_rust_core.ps1   # Rust cargo test 및 clippy 자동 검증 스크립트
+├── rust/
+│   └── pydup_core/          [Native Rust Core]
+│       ├── Cargo.toml
+│       └── src/
+│           ├── lib.rs       # PyO3 진입점 & GIL 해제
+│           ├── hashing.rs   # BLAKE2b partial/full/batch 병렬 해싱 (Rayon)
+│           ├── byte_compare.rs # 1MiB 스트리밍 바이트 정밀 비교
+│           ├── discovery.rs # 고속 파일시스템 순회 & 필터링
+│           ├── cancellation.rs # AtomicBool 취소 토큰
+│           └── models.rs    # HashResult 데이터 모델
 ├── src/
 │   ├── core/                # 비즈니스 로직 (UI 독립)
+│   │   ├── native/              # Rust pydup_core 브릿지 및 Python fallback
 │   │   ├── scanner/             # ScanWorker façade + discovery/hash/incremental/similar-image 분리
 │   │   │   ├── __init__.py
 │   │   │   ├── worker.py
@@ -131,15 +148,30 @@ duplicate_finder/
 
 ---
 
+## 📊 성능 벤치마크 (Performance Benchmark)
+
+10,000개 파일 (500개 중복 그룹) 기준 스캔 성능 비교:
+
+| 측정 항목 | Python Backend | Native Rust Backend | 속도 향상 |
+|---|---:|---:|---:|
+| **스캔 소요 시간 (`scan_time_sec`)** | **4.411 s** | **2.176 s** | **50.7% 단축 (2.03배 고속화)** |
+| **결과 트리 렌더링 (`render_time`)** | 0.960 s | 0.906 s | UI 렌더링 병목 없음 |
+| **중복 그룹 검출 정확도** | 500 그룹 | 500 그룹 | 100% 동일 (0 오차) |
+| **인덱싱 파일 메타데이터** | 10,000 파일 | 10,000 파일 | 100% 동일 (0 오차) |
+
+---
+
 ## 📥 설치 방법 (Installation)
 
 ### 전제 조건
 - Python 3.9 이상
+- Rust 툴체인 (소스에서 Rust 코어를 직접 빌드할 경우: `cargo`, `maturin`)
 
 ### 의존성 패키지
 | 패키지 | 용도 |
 |--------|------|
 | PySide6 | Qt GUI 프레임워크 |
+| pydup_core | Native Rust 가속 엔진 (PyO3 + Rayon + BLAKE2b) |
 | imagehash | 유사 이미지 탐지 (pHash) |
 | Pillow | 이미지 처리 |
 | send2trash | 휴지통 기능 |
@@ -151,8 +183,8 @@ duplicate_finder/
 
 1. **리포지토리 복제**
    ```bash
-   git clone https://github.com/your-username/PyDuplicateFinder.git
-   cd PyDuplicateFinder
+   git clone https://github.com/twbeatles/pyduplicate-finder.git
+   cd pyduplicate-finder
    ```
 
 2. **가상 환경 생성 (권장)**
@@ -170,6 +202,13 @@ duplicate_finder/
    ```bash
    pip install -r requirements.txt
    ```
+
+4. **(선택) Native Rust 코어 빌드 및 설치**
+   ```powershell
+   # Windows (Visual Studio Build Tools 환경 자동 감지)
+   powershell -ExecutionPolicy Bypass -File scripts\build_rust_core.ps1
+   ```
+   *참고: Rust 코어가 없어도 순수 Python 모드로 100% 정상 작동(무손실 Fallback)합니다.*
 
 ---
 

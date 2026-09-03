@@ -24,6 +24,8 @@ BASE_HIDDENIMPORTS = [
     'src.core.selection_rules',
     'src.core.document_hash',
     'src.core.scan_types',
+    'src.core.native',
+    'pydup_core',
 
     # UI
     'src.ui.main_window',
@@ -84,6 +86,7 @@ for package_name in [
     'src.utils.i18n',
     'src.ui.components.results_tree',
     'src.ui.main_window_parts',
+    'src.core.native',
 ]:
     PACKAGE_HIDDENIMPORTS.extend(collect_submodules(package_name))
 

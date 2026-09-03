@@ -3,8 +3,39 @@ from __future__ import annotations
 from .common import DEBUG_SCAN, defaultdict, logger, os, strings
 from .contracts import ScanWorkerHost
 
+try:
+    from src.core.native.bridge import (
+        RustCancellationToken,
+        discover_files as native_discover_files,
+        get_backend_name,
+        is_rust_available,
+    )
+except ImportError:
+    is_rust_available = lambda: False  # noqa: E731
+    get_backend_name = lambda pref="auto": "python"  # noqa: E731
+    native_discover_files = None
+    RustCancellationToken = None
+
 
 class ScanDiscoveryMixin(ScanWorkerHost):
+    def _use_rust_discovery(self) -> bool:
+        backend = getattr(self, "scan_backend", "auto")
+        fn = getattr(self, "_scandir_recursive", None)
+        if fn is not None:
+            underlying = getattr(fn, "__func__", fn)
+            if underlying is not ScanDiscoveryMixin._scandir_recursive:
+                return False
+        fn_prot = getattr(self, "is_protected", None)
+        if fn_prot is not None:
+            underlying_prot = getattr(fn_prot, "__func__", fn_prot)
+            from .filters import ScanFilterMixin
+            if underlying_prot is not ScanFilterMixin.is_protected:
+                return False
+        try:
+            return bool(is_rust_available() and get_backend_name(backend) == "rust")
+        except Exception:
+            return False
+
     def _scandir_recursive(self, path, base_dir_mtimes=None):
         self._record_scan_dir(path)
         try:
@@ -112,6 +143,90 @@ class ScanDiscoveryMixin(ScanWorkerHost):
             self._save_scan_dirs_snapshot()
             return size_map
 
+        if self._use_rust_discovery():
+            try:
+                return self._scan_files_rust()
+            except Exception as e:
+                logger.warning("Rust discovery failed (%s); falling back to Python discovery", e)
+
+        return self._scan_files_python()
+
+    def _scan_files_rust(self):
+        if getattr(self, "_rust_cancel_token", None) is None and RustCancellationToken is not None:
+            self._rust_cancel_token = RustCancellationToken()
+
+        active_folders = []
+        for folder in self.folders:
+            if self.protect_system and self.is_protected(folder):
+                self._emit_progress(0, strings.tr("status_skip_protected_root").format(folder), force=True)
+                continue
+            if self._should_ignore_path(folder):
+                continue
+            active_folders.append(folder)
+
+        if not active_folders:
+            self._save_scan_dirs_snapshot()
+            return defaultdict(list)
+
+        protected_paths = list(getattr(self, "protected_paths", []) or [])
+        res = native_discover_files(
+            folders=active_folders,
+            extensions=list(self.extensions) if self.extensions else None,
+            min_size=self.min_size,
+            skip_hidden=self.skip_hidden,
+            follow_symlinks=self.follow_symlinks,
+            protect_system=self.protect_system,
+            protected_paths=protected_paths,
+            include_patterns=list(self.include_patterns or []),
+            exclude_patterns=list(self.exclude_patterns or []),
+            cancel_token=self._rust_cancel_token,
+        )
+
+        for path, err in res.errors:
+            self._record_scan_error(path, OSError(err), stage="collecting", operation="scandir")
+
+        for d in res.dirs:
+            self._record_scan_dir(d.path, d.mtime)
+
+        size_map = defaultdict(list)
+        file_count = 0
+        db_batch = []
+        db_batch_size = 1000
+
+        for f in res.files:
+            if self._stop_event.is_set():
+                break
+
+            if self._should_ignore_path(f.path):
+                continue
+
+            try:
+                stat = os.stat(f.path, follow_symlinks=self.follow_symlinks)
+                if stat.st_ino:
+                    inode_key = (stat.st_dev, stat.st_ino)
+                    if inode_key in self.seen_inodes:
+                        continue
+                    self.seen_inodes.add(inode_key)
+            except OSError as e:
+                self._record_scan_error(f.path, e, stage="collecting", operation="stat")
+                continue
+
+            self._track_file_record(f.path, int(f.size), float(f.mtime), size_map, db_batch)
+            if self.session_id and len(db_batch) >= db_batch_size:
+                self.cache_manager.save_scan_files_batch(self.session_id, db_batch)
+                db_batch.clear()
+
+            file_count += 1
+            if file_count % 1000 == 0:
+                self._emit_progress(0, f"{strings.tr('status_collecting_files')}: {file_count}")
+
+        if self.session_id and db_batch:
+            self.cache_manager.save_scan_files_batch(self.session_id, db_batch)
+
+        self._save_scan_dirs_snapshot()
+        return size_map
+
+    def _scan_files_python(self):
         size_map = defaultdict(list)
         file_count = 0
         db_batch = []

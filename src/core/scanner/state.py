@@ -7,6 +7,11 @@ from .contracts import ScanWorkerHost
 class ScanStateMixin(ScanWorkerHost):
     def stop(self):
         self._stop_event.set()
+        if hasattr(self, "_rust_cancel_token") and self._rust_cancel_token is not None:
+            try:
+                self._rust_cancel_token.cancel()
+            except Exception:
+                pass
 
     def _set_stage(self, stage: str, *, status=None, progress=None, progress_message=None):
         if not stage:

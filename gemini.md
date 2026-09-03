@@ -4,16 +4,27 @@
 
 ## 1. 프로젝트 개요
 - **이름**: PyDuplicate Finder Pro
-- **버전**: 1.2.0
-- **목적**: PySide6 기반의 데스크톱 애플리케이션으로, 멀티스레딩과 스마트 캐싱을 활용해 중복 파일을 고속으로 탐색하고 관리합니다.
-- **기술 스택**: Python 3.9+, PySide6 (Qt for Python), SQLite (WAL), concurrent.futures
+- **버전**: 1.3.0
+- **목적**: PySide6 및 Native Rust 코어 기반의 고성능 데스크톱 애플리케이션으로, 멀티스레딩과 스마트 캐싱을 활용해 중복 파일을 고속으로 탐색하고 관리합니다.
+- **기술 스택**: Python 3.9+, Rust (PyO3, Rayon, BLAKE2b), PySide6 (Qt for Python), SQLite (WAL), concurrent.futures
 
 ## 2. 코드베이스 구조 (Codebase Structure)
 
 ### 패키지 구조
 ```
+rust/
+└── pydup_core/              [Rust Native 코어 - PyO3 C-extension]
+    ├── Cargo.toml
+    └── src/
+        ├── lib.rs               # PyO3 진입점 & GIL 해제
+        ├── hashing.rs           # BLAKE2b partial/full/batch 병렬 해싱 (Rayon)
+        ├── byte_compare.rs      # 1MiB 스트리밍 바이트 정밀 비교
+        ├── discovery.rs         # 고속 파일시스템 순회 & 필터링
+        ├── cancellation.rs      # AtomicBool 취소 토큰
+        └── models.rs            # HashResult 데이터 모델
 src/
 ├── core/                    [비즈니스 로직 - UI 독립]
+│   ├── native/                  # Rust pydup_core 브릿지 및 Python fallback
 │   ├── scanner/                 # ScanWorker façade + discovery/hash/incremental/similar-image helper 모듈
 │   ├── cache_manager/           # CacheManager façade + DB/schema/session/quarantine/jobs helper 모듈
 │   ├── history.py               # Undo/Redo 트랜잭션 + atexit 자동 정리 + 디스크 공간 체크
@@ -305,3 +316,23 @@ pypdf>=5.0.0         # PDF 텍스트 추출 기반 유사 문서 탐지
   - `PyDuplicateFinder.spec` explicitly lists new runtime helpers `src.core.result_groups` and `src.ui.history_messages`, and conditionally collects optional `watchdog`/`pypdf` packages only when installed.
 - Current regression baseline:
   - `pytest -q` -> `145 passed`
+
+## Update Memo (2026-09-03)
+
+- Native Rust Core (`pydup_core`) 점진적 마이그레이션 완료 (v1.3.0).
+  - `rust/pydup_core/`: PyO3 0.24 (abi3-py39) 기반 C-extension 구현.
+  - Phase 1 (BLAKE2b 해싱): 32바이트 digest, 1MiB 스트리밍, First/Last 4KB partial 해시, Rayon 병렬 풀. GIL 해제로 UI 무응답 방지.
+  - Phase 2 (바이트 정밀 비교): `files_equal` 1MiB 스트리밍 바이트 비교.
+  - Phase 3 (파일시스템 탐색): Rust `discover_files` 고속 순회, `globset` 패턴 매칭, 숨김/보호 파일 필터링, mtime float 정밀도 보존.
+  - Phase 4 (파이프라인 통합): `ScanWorker` 및 `ScanHashingMixin`, `ScanDiscoveryMixin`에 `scan_backend` ("auto" | "python" | "rust") 지원.
+- 무손실 Python Fallback 보장:
+  - `src/core/native/bridge.py`에서 모듈 미존재 시 크래시 없이 Python 백엔드로 부드럽게 fallback.
+  - 테스트 중 메소드 몽키패칭(`is_protected`, `get_file_hash`, `_scandir_recursive`) 감지 시 자동 우회.
+- 철저한 Parity 검증 및 성능 향상:
+  - `tests/rust_parity/`: 해시(12종), 바이트비교(4종), 취소(4종), 탐색(3종), 스캔(2종) 등 총 25개 패리티 테스트 100% 통과.
+  - 10,000개 파일 벤치마크: 스캔 시간 **4.411s -> 2.176s**로 **50.7% 시간 단축 (2.03배 고속화)** 달성.
+  - 전체 회귀 테스트: `pytest` -> **170 passed (100%)**.
+  - Rust 빌드/검사 스크립트: `scripts/build_rust_core.ps1`, `scripts/test_rust_core.ps1`.
+- 패키징 연동:
+  - `PyDuplicateFinder.spec`에 `pydup_core` 및 `src.core.native` hidden imports 등록.
+

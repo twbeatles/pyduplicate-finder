@@ -40,7 +40,7 @@ def _drain_tree(widget: ResultsTreeWidget):
         guard += 1
 
 
-def run_bench(files: int, groups: int, output: str) -> dict:
+def run_bench(files: int, groups: int, output: str, backend: str = "auto") -> dict:
     app = QApplication.instance() or QApplication([])
     _ = app
     with tempfile.TemporaryDirectory(prefix="pydup-bench-") as td:
@@ -48,7 +48,7 @@ def run_bench(files: int, groups: int, output: str) -> dict:
         _make_dataset(root, files=files, groups=groups)
 
         t0 = time.perf_counter()
-        worker = ScanWorker([str(root)], max_workers=max(1, os.cpu_count() or 4))
+        worker = ScanWorker([str(root)], max_workers=max(1, os.cpu_count() or 4), scan_backend=backend)
         holder = {"results": {}}
         worker.scan_finished.connect(lambda r: holder.__setitem__("results", dict(r or {})))
         worker.run()
@@ -67,6 +67,7 @@ def run_bench(files: int, groups: int, output: str) -> dict:
         filter_time = time.perf_counter() - t2
 
         out = {
+            "backend": str(backend),
             "files": int(files),
             "groups_seed": int(groups),
             "scan_time_sec": scan_time,
@@ -84,9 +85,15 @@ def main():
     p.add_argument("--files", type=int, default=200000)
     p.add_argument("--groups", type=int, default=5000)
     p.add_argument("--output", type=str, default="bench_perf.json")
+    p.add_argument("--backend", type=str, default="auto", choices=["auto", "python", "rust"])
     args = p.parse_args()
 
-    out = run_bench(files=max(10, int(args.files)), groups=max(1, int(args.groups)), output=str(args.output))
+    out = run_bench(
+        files=max(10, int(args.files)),
+        groups=max(1, int(args.groups)),
+        output=str(args.output),
+        backend=str(args.backend),
+    )
     print(json.dumps(out, ensure_ascii=False, indent=2))
 
 

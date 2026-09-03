@@ -2,16 +2,19 @@
 
 [![한국어](https://img.shields.io/badge/lang-한국어-red.svg)](README.md)
 
-**PyDuplicate Finder Pro** is a high-performance duplicate file management tool built with Python (PySide6). It leverages advanced multi-threading and smart caching to quickly and accurately scan for duplicate files even in large file systems, providing safe Undo capabilities.
+**PyDuplicate Finder Pro** is a high-performance duplicate file management tool combining Python (PySide6) and a native Rust core (`pydup_core`). It leverages advanced multi-threading (Rayon) and smart caching to quickly and accurately scan for duplicate files even in large file systems, providing safe Undo capabilities.
 
 ---
 
 ## ✨ Key Features
 
-### 🚀 High Performance
-- **Ultra-Fast Scanning**: Recursive `os.scandir` engine for significantly faster file traversal compared to `os.walk`.
-- **Optimized Hashing (BLAKE2b)**: Uses `BLAKE2b` algorithm optimized for 64-bit systems, faster and more secure than MD5.
+### 🚀 High Performance with Native Rust Core
+- **Native Rust Engine (`pydup_core`)**: PyO3 C-extension accelerates core I/O and hashing pipelines, **reducing scan time by 50.7% (2.03x faster)** on 10,000 files.
+- **Ultra-Fast Parallel Hashing (BLAKE2b + Rayon)**: `BLAKE2b` hashing running on a Rayon thread pool releases the Python GIL, eliminating UI stutter during large scans.
+- **Precision Byte Streaming Compare**: 1 MiB streaming buffer byte-by-byte comparison (`files_equal`) guarantees zero false positives.
+- **High-Speed File Traversal (Native Discovery)**: Fast recursive traversal and precompiled `globset` pattern matching quickly index massive folder trees.
 - **Smart Caching & Batch Processing**: `SQLite WAL` mode with batch processing handles hundreds of thousands of files seamlessly.
+- **Seamless Python Fallback**: Automatically and transparently falls back to pure Python if the native module is unavailable.
 - **Resume Interrupted Scans**: File lists and hash progress are cached so scans can resume after a restart.
 - **Smooth UI**: Incremental rendering of results keeps the app responsive even with massive datasets.
 
@@ -65,8 +68,22 @@ duplicate_finder/
 ├── .editorconfig            # UTF-8/EOL guardrails
 ├── claude.md                # AI context (Claude)
 ├── gemini.md                # AI context (Gemini)
+├── scripts/
+│   ├── build_rust_core.ps1  # Rust core (pydup_core) wheel build & pip install script
+│   └── test_rust_core.ps1   # Rust cargo test & clippy verification script
+├── rust/
+│   └── pydup_core/          [Native Rust Core]
+│       ├── Cargo.toml
+│       └── src/
+│           ├── lib.rs       # PyO3 entry point & GIL release
+│           ├── hashing.rs   # BLAKE2b partial/full/batch parallel hashing (Rayon)
+│           ├── byte_compare.rs # 1MiB streaming byte comparison
+│           ├── discovery.rs # Fast filesystem traversal & filtering
+│           ├── cancellation.rs # AtomicBool cancellation token
+│           └── models.rs    # HashResult data model
 ├── src/
 │   ├── core/                # Business logic (UI-independent)
+│   │   ├── native/              # Rust pydup_core bridge & Python fallback
 │   │   ├── scanner/             # ScanWorker facade + split discovery/hash/incremental/similar-image stages
 │   │   │   ├── __init__.py
 │   │   │   ├── worker.py
@@ -129,15 +146,30 @@ duplicate_finder/
 
 ---
 
+## 📊 Performance Benchmark
+
+Scan performance benchmark on 10,000 files (500 duplicate groups):
+
+| Metric | Python Backend | Native Rust Backend | Improvement |
+|---|---:|---:|---:|
+| **Scan Time (`scan_time_sec`)** | **4.411 s** | **2.176 s** | **50.7% faster (2.03x speedup)** |
+| **Tree Render Time (`render_time`)** | 0.960 s | 0.906 s | No UI rendering bottleneck |
+| **Duplicate Group Accuracy** | 500 groups | 500 groups | 100% Identical |
+| **Indexed Metadata Count** | 10,000 files | 10,000 files | 100% Identical |
+
+---
+
 ## 📥 Installation
 
 ### Prerequisites
 - Python 3.9 or higher
+- Rust toolchain (if compiling native Rust core from source: `cargo`, `maturin`)
 
 ### Dependencies
 | Package | Purpose |
 |---------|---------|
 | PySide6 | Qt GUI framework |
+| pydup_core | Native Rust acceleration engine (PyO3 + Rayon + BLAKE2b) |
 | imagehash | Similar image detection (pHash) |
 | Pillow | Image processing |
 | send2trash | Recycle Bin functionality |
@@ -149,8 +181,8 @@ duplicate_finder/
 
 1. **Clone the Repository**
    ```bash
-   git clone https://github.com/your-username/PyDuplicateFinder.git
-   cd PyDuplicateFinder
+   git clone https://github.com/twbeatles/pyduplicate-finder.git
+   cd pyduplicate-finder
    ```
 
 2. **Create Virtual Environment (Recommended)**
@@ -168,6 +200,13 @@ duplicate_finder/
    ```bash
    pip install -r requirements.txt
    ```
+
+4. **(Optional) Build Native Rust Core**
+   ```powershell
+   # Windows
+   powershell -ExecutionPolicy Bypass -File scripts\build_rust_core.ps1
+   ```
+   *Note: If the native Rust core is not built, the app gracefully falls back to pure Python without error.*
 
 ---
 

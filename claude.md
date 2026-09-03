@@ -4,20 +4,35 @@
 
 ## 1. 프로젝트 정체성 (Project Identity)
 - **이름**: PyDuplicate Finder Pro
-- **버전**: 1.2.0
-- **목적**: 고성능 멀티스레드 중복 파일 탐색기 및 안전한 정리 도구
-- **기술 스택**: Python 3.9+, PySide6 (Qt for Python), SQLite (Caching, WAL), Standard Libs
+- **버전**: 1.3.0
+- **목적**: PySide6 및 Native Rust 코어 기반의 고성능 멀티스레드 중복 파일 탐색기 및 안전한 정리 도구
+- **기술 스택**: Python 3.9+, Rust (PyO3, Rayon, BLAKE2b), PySide6 (Qt for Python), SQLite (Caching, WAL), Standard Libs
 
 ## 2. 디렉토리 구조 및 모듈 맵 (Directory Structure & Module Map)
 
-프로젝트는 `src` 패키지 하위에 `core` (비즈니스 로직)와 `ui` (프레젠테이션 로직)로 엄격하게 구분됩니다.
+프로젝트는 `rust` (네이티브 코어), `src/core` (비즈니스 로직), `src/ui` (프레젠테이션 로직)로 명확히 분리됩니다.
 
 ```text
 duplicate_finder/
 ├── main.py                  [Entry Point] 애플리케이션 초기화 및 실행
 ├── requirements.txt         [Dependencies] 의존성 패키지 목록
+├── PyDuplicateFinder.spec   [Packaging] PyInstaller 빌드 스펙 (Native C-extension 포함)
+├── scripts/
+│   ├── build_rust_core.ps1  # Rust 코어(pydup_core) 릴리스 휠 빌드 및 pip 설치
+│   └── test_rust_core.ps1   # Rust cargo test 및 clippy 자동 검증
+├── rust/
+│   └── pydup_core/          [Rust Native Core] PyO3 C-extension
+│       ├── Cargo.toml
+│       └── src/
+│           ├── lib.rs       # PyO3 진입점 & GIL 해제
+│           ├── hashing.rs   # BLAKE2b partial/full/batch 병렬 해싱 (Rayon)
+│           ├── byte_compare.rs # 1MiB 스트리밍 바이트 정밀 비교
+│           ├── discovery.rs # 고속 파일시스템 순회 & 필터링
+│           ├── cancellation.rs # AtomicBool 취소 토큰
+│           └── models.rs    # HashResult 데이터 모델
 └── src/
     ├── core/                [Business Logic Layer]
+    │   ├── native/                # Rust pydup_core 브릿지 및 Python fallback
     │   ├── scanner/               # ScanWorker façade + scan 단계별 helper 모듈
     │   ├── cache_manager/         # CacheManager façade + DB/schema/session/quarantine/jobs helper 모듈
     │   ├── history.py             # HistoryManager: Undo/Redo 트랜잭션 및 안전한 임시 삭제 관리
@@ -387,3 +402,26 @@ duplicate_finder/
 - Current regression baseline in this workspace:
   - `pyright src tests cli.py main.py` -> `0 errors, 0 warnings`
   - `pytest -q` -> `145 passed`
+
+## Update Memo (2026-09-03)
+
+- Native Rust Core (`pydup_core`) 점진적 마이그레이션 완료 (v1.3.0):
+  - `rust/pydup_core/`: PyO3 0.24 (abi3-py39) 기반 고속 네이티브 확장.
+  - BLAKE2b (32바이트 digest) 스트리밍 Full/Partial 해싱 및 Rayon 병렬 배치 해싱 (`hash_files_batch`).
+  - 1MiB 스트리밍 바이트 정밀 비교 (`files_equal`).
+  - Rust 고속 파일시스템 순회 및 glob 패턴 매칭 (`discover_files`).
+  - `CancellationToken` (`AtomicBool`)을 통한 빠른 비동기 스캔 취소 및 GIL 해제 (`allow_threads`).
+- 호환성 & 안전 Fallback:
+  - `src/core/native/`: `is_rust_available()`, `get_backend_name()`, `RustCancellationToken`.
+  - Rust 확장 미설치나 런타임 오류 시 크래시 없이 기존 Python 백엔드로 투명하게 Fallback.
+  - 테스트 환경 동적 모킹(`is_protected`, `get_file_hash`, `_scandir_recursive`) 감지 시 자동 우회.
+- 검증 및 성능:
+  - Rust 단위 테스트: `cargo test` 4 passed, `cargo clippy` 0 errors, 0 warnings.
+  - Parity 테스트: `tests/rust_parity/` 25 passed.
+  - 전체 회귀 테스트: `pytest` 170 passed (100%).
+  - 10k 파일 벤치마크: 스캔 시간 **4.411s -> 2.176s (50.7% 단축, 2.03배 고속화)**.
+- 빌드 & 패키징:
+  - `scripts/build_rust_core.ps1` (maturin 릴리스 휠 빌드 및 pip 설치).
+  - `scripts/test_rust_core.ps1` (cargo test 및 clippy 자동 검증).
+  - `PyDuplicateFinder.spec`에 `pydup_core` 바이너리 및 `src.core.native` hidden imports 등록.
+

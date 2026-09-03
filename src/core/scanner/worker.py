@@ -77,6 +77,7 @@ class ScanWorker(
         watch_mode=False,
         apply_exemptions=True,
         post_cleanup_empty_dirs=False,
+        scan_backend="auto",
     ):
         super().__init__()
         self.folders = folders
@@ -108,6 +109,8 @@ class ScanWorker(
         self.watch_mode = bool(watch_mode)
         self.apply_exemptions = bool(apply_exemptions)
         self.post_cleanup_empty_dirs = bool(post_cleanup_empty_dirs)
+        self.scan_backend = str(scan_backend or "auto")
+        self._rust_cancel_token = None
         self._stop_event = threading.Event()
         self._init_protected_paths()
         self.cache_manager = CacheManager()

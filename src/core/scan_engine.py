@@ -38,6 +38,7 @@ class ScanConfig:
     watch_mode: bool = False
     apply_exemptions: bool = True
     post_cleanup_empty_dirs: bool = False
+    scan_backend: str = "auto"
 
 
 def build_scan_worker_kwargs(
@@ -73,6 +74,7 @@ def build_scan_worker_kwargs(
         "watch_mode": bool(cfg.watch_mode),
         "apply_exemptions": bool(cfg.apply_exemptions),
         "post_cleanup_empty_dirs": bool(cfg.post_cleanup_empty_dirs),
+        "scan_backend": str(getattr(cfg, "scan_backend", "auto") or "auto"),
         "session_id": int(session_id) if session_id else None,
         "use_cached_files": bool(use_cached_files),
     }

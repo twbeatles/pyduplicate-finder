@@ -1,0 +1,28 @@
+[package]
+name = "pydup_core"
+version = "0.1.0"
+edition = "2021"
+description = "Native Rust core for PyDuplicate Finder Pro"
+authors = ["PyDuplicate Finder Team"]
+
+[lib]
+name = "pydup_core"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pyo3 = { version = "0.24", features = ["extension-module", "abi3-py39"] }
+blake2 = "0.10"
+digest = "0.10"
+rayon = "1.10"
+thiserror = "2.0"
+globset = "0.4"
+same-file = "1.0"
+
+[dev-dependencies]
+tempfile = "3.10"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
