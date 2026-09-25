@@ -8,7 +8,7 @@ from src.core.scanner import ScanWorker
 from src.core.native.bridge import is_rust_available
 
 
-def _create_test_dataset(root: Path) -> dict:
+def _create_test_dataset(root: Path) -> None:
     root.mkdir(parents=True, exist_ok=True)
     
     # 1. Exact duplicate group 1 (small files)

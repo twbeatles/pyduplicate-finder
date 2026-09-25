@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 from .models import NativeHashResult
 
 logger = logging.getLogger(__name__)
 
-_pydup_core = None
+_pydup_core: Any = None
 try:
     import pydup_core as _pydup_core
 except ImportError:

@@ -158,6 +158,8 @@ class ResultsTreeWidget(QTreeWidget):
         root = self.invisibleRootItem()
         for i in range(root.childCount()):
             item = root.child(i)
+            if item is None:
+                continue
             for col in range(4):
                 item.setBackground(col, QBrush(bg_color))
                 item.setForeground(col, QBrush(fg_color))
@@ -261,7 +263,9 @@ class ResultsTreeWidget(QTreeWidget):
             self._suppress_item_changed = False
             root = self.invisibleRootItem()
             for i in range(root.childCount()):
-                self._update_group_summary(root.child(i))
+                _summary_item = root.child(i)
+                if _summary_item is not None:
+                    self._update_group_summary(_summary_item)
 
     def _add_group_item(self, key, paths):
         group_info = classify_result_group(key)
@@ -549,9 +553,13 @@ class ResultsTreeWidget(QTreeWidget):
         visible_files = 0
         for i in range(root.childCount()):
             group = root.child(i)
+            if group is None:
+                continue
             group_visible = False
             for j in range(group.childCount()):
                 item = group.child(j)
+                if item is None:
+                    continue
                 total_files += 1
                 lower_path = str(item.data(0, _ROLE_LOWER_PATH) or "")
                 delta = str(item.data(0, _ROLE_DELTA) or "").lower()
@@ -571,6 +579,8 @@ class ResultsTreeWidget(QTreeWidget):
         root = self.invisibleRootItem()
         for i in range(root.childCount()):
             group = root.child(i)
+            if group is None:
+                continue
             gid = int(group.data(0, _ROLE_GROUP_ID) or 0)
             if gid <= 0:
                 continue
@@ -586,6 +596,8 @@ class ResultsTreeWidget(QTreeWidget):
 
             for j in range(total):
                 child = group.child(j)
+                if child is None:
+                    continue
                 path = str(child.data(0, _ROLE_PATH) or "")
                 exists = bool(child.data(0, _ROLE_EXISTS))
                 if not exists:

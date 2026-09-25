@@ -45,9 +45,12 @@ def test_populate_uses_injected_meta_without_fs_calls(qapp, monkeypatch):
     root = widget.invisibleRootItem()
     assert root.childCount() == 1
     group = root.child(0)
+    assert group is not None
     assert group.childCount() == 2
     assert paths[0] in set(widget.get_checked_files())
-    assert f"[{strings.tr('badge_missing')}]" in group.child(1).text(0)
+    _missing = group.child(1)
+    assert _missing is not None
+    assert f"[{strings.tr('badge_missing')}]" in _missing.text(0)
 
 
 def test_checked_cache_and_filter_counts(qapp):
@@ -60,7 +63,9 @@ def test_checked_cache_and_filter_counts(qapp):
     _drain_populate(widget)
 
     group = widget.invisibleRootItem().child(0)
+    assert group is not None
     first = group.child(0)
+    assert first is not None
     first.setCheckState(0, Qt.CheckState.Checked)
     assert set(widget.get_checked_files()) == {paths[0]}
 
@@ -85,8 +90,11 @@ def test_files_checked_delta_and_filter_short_circuit(qapp):
     widget.files_checked_delta.connect(lambda added, removed, count: deltas.append((list(added), list(removed), int(count))))
 
     group = widget.invisibleRootItem().child(0)
+    assert group is not None
     first = group.child(0)
+    assert first is not None
     second = group.child(1)
+    assert second is not None
     first.setCheckState(0, Qt.CheckState.Checked)
     second.setCheckState(0, Qt.CheckState.Checked)
     second.setCheckState(0, Qt.CheckState.Unchecked)

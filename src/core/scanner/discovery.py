@@ -169,6 +169,7 @@ class ScanDiscoveryMixin(ScanWorkerHost):
             return defaultdict(list)
 
         protected_paths = list(getattr(self, "protected_paths", []) or [])
+        assert native_discover_files is not None
         res = native_discover_files(
             folders=active_folders,
             extensions=list(self.extensions) if self.extensions else None,
