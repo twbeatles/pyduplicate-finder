@@ -425,3 +425,12 @@ duplicate_finder/
   - `scripts/test_rust_core.ps1` (cargo test 및 clippy 자동 검증).
   - `PyDuplicateFinder.spec`에 `pydup_core` 바이너리 및 `src.core.native` hidden imports 등록.
 
+## Update Memo (2026-09-25)
+
+- Rust 감사 후속 조치 (pyo3 보안 업데이트 + 품질 게이트):
+  - pyo3 0.24.2 -> 0.29.2: cargo audit 지적 2건 해소 (RUSTSEC-2026-0176, RUSTSEC-2026-0177).
+  - 마이그레이션 대응: Python::allow_threads 4곳 -> detach, Clone pyclass 5곳에 rom_py_object 명시 (기존 FromPyObject 동작 유지).
+  - 미사용 의존성 	hiserror 제거 (cargo machete clean).
+  - cargo fmt --all 적용 (mt --check clean).
+- CI 게이트 추가: .github/workflows/rust-audit.yml (fmt -> clippy -D warnings -> cargo test -> machete -> audit).
+- 검증: cargo check/clippy 경고 0, cargo test 4 passed, cargo audit 취약점 0, 	ests/rust_parity/ 25 passed (pyo3 0.29.2 abi3 휠 재빌드 후).

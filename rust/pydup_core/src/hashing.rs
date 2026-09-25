@@ -107,7 +107,13 @@ pub fn compute_hashes_batch(
                 }
 
                 let path = Path::new(path_str);
-                match compute_file_hash(path, partial, Some(*size), DEFAULT_BUFFER_SIZE, cancel_token) {
+                match compute_file_hash(
+                    path,
+                    partial,
+                    Some(*size),
+                    DEFAULT_BUFFER_SIZE,
+                    cancel_token,
+                ) {
                     Ok(digest) => HashResult {
                         path: path_str.clone(),
                         size: *size,

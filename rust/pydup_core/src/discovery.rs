@@ -8,7 +8,7 @@ use pyo3::prelude::*;
 
 use crate::cancellation::CancellationToken;
 
-#[pyclass(get_all)]
+#[pyclass(get_all, from_py_object)]
 #[derive(Clone, Debug)]
 pub struct DiscoveredFileRecord {
     pub path: String,
@@ -24,7 +24,7 @@ impl DiscoveredFileRecord {
     }
 }
 
-#[pyclass(get_all)]
+#[pyclass(get_all, from_py_object)]
 #[derive(Clone, Debug)]
 pub struct DiscoveredDirRecord {
     pub path: String,
@@ -39,7 +39,7 @@ impl DiscoveredDirRecord {
     }
 }
 
-#[pyclass(get_all)]
+#[pyclass(get_all, from_py_object)]
 #[derive(Clone, Debug, Default)]
 pub struct DiscoveryResult {
     pub files: Vec<DiscoveredFileRecord>,
@@ -191,7 +191,9 @@ pub fn run_discovery(
             fs::symlink_metadata(folder_path)
         };
 
-        let folder_mtime = folder_meta.ok().and_then(|m| m.modified().ok().map(system_time_to_mtime));
+        let folder_mtime = folder_meta
+            .ok()
+            .and_then(|m| m.modified().ok().map(system_time_to_mtime));
         result.dirs.push(DiscoveredDirRecord {
             path: folder_str,
             mtime: folder_mtime,
@@ -223,7 +225,9 @@ fn discover_recursive(
     let read_dir = match fs::read_dir(dir_path) {
         Ok(rd) => rd,
         Err(e) => {
-            result.errors.push((dir_path.to_string_lossy().to_string(), e.to_string()));
+            result
+                .errors
+                .push((dir_path.to_string_lossy().to_string(), e.to_string()));
             return;
         }
     };
@@ -236,7 +240,9 @@ fn discover_recursive(
         let entry = match entry_res {
             Ok(e) => e,
             Err(err) => {
-                result.errors.push((dir_path.to_string_lossy().to_string(), err.to_string()));
+                result
+                    .errors
+                    .push((dir_path.to_string_lossy().to_string(), err.to_string()));
                 continue;
             }
         };
@@ -275,7 +281,8 @@ fn discover_recursive(
         let is_file = metadata.is_file();
 
         if is_dir {
-            if ctx.config.protect_system && is_path_protected(&path_str, ctx.config.protected_paths) {
+            if ctx.config.protect_system && is_path_protected(&path_str, ctx.config.protected_paths)
+            {
                 continue;
             }
 
@@ -285,13 +292,7 @@ fn discover_recursive(
                 mtime: dir_mtime,
             });
 
-            discover_recursive(
-                &path,
-                ctx,
-                cancel_token,
-                seen_inodes,
-                result,
-            );
+            discover_recursive(&path, ctx, cancel_token, seen_inodes, result);
         } else if is_file {
             let size = metadata.len();
             if size < ctx.config.min_size {

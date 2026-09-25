@@ -1,8 +1,8 @@
+use pydup_core::byte_compare::files_equal;
+use pydup_core::cancellation::CancellationToken;
+use pydup_core::hashing::{compute_file_hash, compute_hashes_batch, DEFAULT_BUFFER_SIZE};
 use std::fs::File;
 use std::io::Write;
-use pydup_core::hashing::{compute_file_hash, compute_hashes_batch, DEFAULT_BUFFER_SIZE};
-use pydup_core::cancellation::CancellationToken;
-use pydup_core::byte_compare::files_equal;
 
 #[test]
 fn test_small_file_hash() {
@@ -24,8 +24,10 @@ fn test_partial_hash() {
     let data = vec![0x42u8; 16384];
     file.write_all(&data).unwrap();
 
-    let partial_hash = compute_file_hash(&file_path, true, Some(16384), DEFAULT_BUFFER_SIZE, None).unwrap();
-    let full_hash = compute_file_hash(&file_path, false, Some(16384), DEFAULT_BUFFER_SIZE, None).unwrap();
+    let partial_hash =
+        compute_file_hash(&file_path, true, Some(16384), DEFAULT_BUFFER_SIZE, None).unwrap();
+    let full_hash =
+        compute_file_hash(&file_path, false, Some(16384), DEFAULT_BUFFER_SIZE, None).unwrap();
     assert_eq!(partial_hash.len(), 64);
     assert_eq!(full_hash.len(), 64);
 }

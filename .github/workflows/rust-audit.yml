@@ -1,0 +1,37 @@
+name: rust-audit
+
+on:
+  push:
+    paths:
+      - "rust/**"
+      - ".github/workflows/rust-audit.yml"
+  pull_request:
+    paths:
+      - "rust/**"
+      - ".github/workflows/rust-audit.yml"
+
+jobs:
+  audit:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: rust/pydup_core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Formatting
+        run: cargo fmt --all -- --check
+      - name: Clippy (warnings denied)
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Tests
+        run: cargo test --all-targets --all-features
+      - name: Unused dependencies
+        run: |
+          cargo install cargo-machete --locked
+          cargo machete
+      - name: Security advisories
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit

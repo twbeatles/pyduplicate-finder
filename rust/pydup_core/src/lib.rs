@@ -1,5 +1,5 @@
-use std::path::Path;
 use pyo3::prelude::*;
+use std::path::Path;
 
 pub mod byte_compare;
 pub mod cancellation;
@@ -30,7 +30,7 @@ pub fn hash_file(
     let token = cancel_token;
 
     // Release the GIL during file I/O and hashing
-    let res = py.allow_threads(|| {
+    let res = py.detach(|| {
         let p = Path::new(&path);
         hashing::compute_file_hash(p, partial, size, bs, token.as_ref())
     });
@@ -53,9 +53,8 @@ pub fn hash_files_batch(
     let token = cancel_token;
 
     // Release GIL during Rayon parallel hashing
-    let results = py.allow_threads(|| {
-        hashing::compute_hashes_batch(&items, partial, max_workers, token.as_ref())
-    });
+    let results =
+        py.detach(|| hashing::compute_hashes_batch(&items, partial, max_workers, token.as_ref()));
 
     Ok(results)
 }
@@ -70,7 +69,7 @@ pub fn files_equal(
 ) -> PyResult<bool> {
     let token = cancel_token;
 
-    let res = py.allow_threads(|| {
+    let res = py.detach(|| {
         let p_a = Path::new(&path_a);
         let p_b = Path::new(&path_b);
         byte_compare::files_equal(p_a, p_b, token.as_ref())
@@ -111,7 +110,7 @@ pub fn discover_files(
 ) -> PyResult<DiscoveryResult> {
     let token = cancel_token;
 
-    let res = py.allow_threads(|| {
+    let res = py.detach(|| {
         let config = discovery::DiscoveryConfig {
             extensions: extensions.as_deref(),
             min_size,
