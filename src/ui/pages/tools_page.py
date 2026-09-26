@@ -17,6 +17,7 @@ from src.ui.design_system.components.page_header import (
     create_page_header,
 )
 from src.ui.design_system.components.section_card import create_card
+from src.ui.design_system.hidpi import fit_column_to_header
 from src.ui.design_system.tokens import SPACING_LG, SPACING_MD
 from src.utils.i18n import strings
 
@@ -132,14 +133,13 @@ def build_tools_page(window) -> QWidget:
     qhdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
     qhdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
     qhdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
-    window.tbl_quarantine.setColumnWidth(1, 110)
-    window.tbl_quarantine.setColumnWidth(2, 160)
-    window.tbl_quarantine.setColumnWidth(3, 110)
+    fit_column_to_header(window.tbl_quarantine, 1, 110)
+    fit_column_to_header(window.tbl_quarantine, 2, 160)
+    fit_column_to_header(window.tbl_quarantine, 3, 110)
     window.tbl_quarantine.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
     window.tbl_quarantine.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
     window.tbl_quarantine.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
     window.tbl_quarantine.setMinimumHeight(180)
-    window.tbl_quarantine.setMaximumHeight(260)
     quarantine_layout.addWidget(window.tbl_quarantine, 1)
 
     q_btns = QHBoxLayout()
@@ -245,16 +245,15 @@ def build_tools_page(window) -> QWidget:
     ehdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
     ehdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
     ehdr.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
-    window.tbl_exemptions.setColumnWidth(0, 60)
-    window.tbl_exemptions.setColumnWidth(1, 130)
-    window.tbl_exemptions.setColumnWidth(3, 100)
-    window.tbl_exemptions.setColumnWidth(5, 150)
+    fit_column_to_header(window.tbl_exemptions, 0, 60)
+    fit_column_to_header(window.tbl_exemptions, 1, 130)
+    fit_column_to_header(window.tbl_exemptions, 3, 100)
+    fit_column_to_header(window.tbl_exemptions, 5, 150)
     window.tbl_exemptions.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
     window.tbl_exemptions.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
     window.tbl_exemptions.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
     window.tbl_exemptions.itemSelectionChanged.connect(window.on_exemption_selection_changed)
     window.tbl_exemptions.setMinimumHeight(150)
-    window.tbl_exemptions.setMaximumHeight(240)
     exemption_layout.addWidget(window.tbl_exemptions, 1)
 
     tools_layout.addWidget(exemption_card)
@@ -318,15 +317,14 @@ def build_tools_page(window) -> QWidget:
     ohdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
     ohdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
     ohdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
-    window.tbl_ops.setColumnWidth(0, 70)
-    window.tbl_ops.setColumnWidth(1, 160)
-    window.tbl_ops.setColumnWidth(2, 170)
-    window.tbl_ops.setColumnWidth(3, 110)
+    fit_column_to_header(window.tbl_ops, 0, 70)
+    fit_column_to_header(window.tbl_ops, 1, 160)
+    fit_column_to_header(window.tbl_ops, 2, 170)
+    fit_column_to_header(window.tbl_ops, 3, 110)
     window.tbl_ops.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
     window.tbl_ops.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
     window.tbl_ops.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
     window.tbl_ops.setMinimumHeight(160)
-    window.tbl_ops.setMaximumHeight(240)
     ops_layout.addWidget(window.tbl_ops, 1)
 
     window.btn_hardlink_checked = QPushButton(strings.tr("btn_hardlink_checked"))

@@ -194,6 +194,12 @@ class MainWindowSettingsFlowMixin(DuplicateFinderTypingContract):
         
         state = self.settings.value("app/splitter")
         if state: self.splitter.restoreState(state)
+        try:
+            from src.ui.design_system.tokens import SPLITTER_HANDLE
+
+            self.splitter.setHandleWidth(SPLITTER_HANDLE)
+        except Exception:
+            pass
         
         self.txt_extensions.setText(self.settings.value("filter/extensions", ""))
         

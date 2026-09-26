@@ -35,12 +35,12 @@ class SidebarButton(QPushButton):
         """Update button display based on expanded state"""
         if self._expanded:
             self.setText(f"  {self.icon_text}  {self.label_text}")
-            self.setFixedHeight(40)
+            self.setMinimumHeight(40)
             self.setMinimumWidth(80)
-            self.setMaximumWidth(130)
+            self.setMaximumWidth(max(130, self.sizeHint().width()))
         else:
             self.setText(self.icon_text)
-            self.setFixedSize(44, 44)
+            self.setMinimumSize(44, 44)
         self.setProperty("sidebar_btn", True)
 
     def set_expanded(self, expanded: bool):
@@ -69,7 +69,7 @@ class Sidebar(QFrame):
     page_changed = Signal(str)
 
     EXPANDED_WIDTH = 128
-    COLLAPSED_WIDTH = 52
+    COLLAPSED_WIDTH = 56
 
     NAV_ITEMS = [
         ("⊙", "nav_scan", "scan"),
@@ -108,13 +108,13 @@ class Sidebar(QFrame):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 14, 6, 14)
+        layout.setContentsMargins(6, 16, 6, 16)
         layout.setSpacing(4)
 
         # Toggle button at top
         self.btn_toggle = QPushButton(self._get_toggle_text())
         self.btn_toggle.setObjectName("sidebar_toggle")
-        self.btn_toggle.setFixedHeight(26)
+        self.btn_toggle.setMinimumHeight(28)
         self.btn_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_toggle.setToolTip(strings.tr("sidebar_toggle_tooltip"))
         self.btn_toggle.clicked.connect(self.toggle_expand)

@@ -133,7 +133,11 @@ class MainWindowUiShellMixin(DuplicateFinderTypingContract):
 
         # === Pages (Scan / Results / Tools / Insights / Settings) ===
         self.scan_page = build_scan_page(self)
-        self.page_stack.addWidget(self.scan_page)
+        scan_scroll = QScrollArea()
+        scan_scroll.setWidgetResizable(True)
+        scan_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scan_scroll.setWidget(self.scan_page)
+        self.page_stack.addWidget(scan_scroll)
 
         self.results_page = build_results_page(self)
         self.page_stack.addWidget(self.results_page)
@@ -168,13 +172,13 @@ class MainWindowUiShellMixin(DuplicateFinderTypingContract):
         # === STATUS BAR (Outside stacked widget - always visible) ===
         status_container = QHBoxLayout()
         status_container.setContentsMargins(16, 8, 16, 8)
-        status_container.setSpacing(16)
+        status_container.setSpacing(8)
         
         self.progress_bar = QProgressBar()
-        self.progress_bar.setFixedHeight(8)
+        self.progress_bar.setMinimumHeight(8)
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setMinimumWidth(200)
-        self.progress_bar.setMaximumWidth(400)
+        self.progress_bar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         
         self.status_label = QLabel(strings.tr("status_ready"))
         self.status_label.setObjectName("status_label")

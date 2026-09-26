@@ -4,7 +4,7 @@ Clean, modern toast notifications with proper cleanup and positioning
 """
 from PySide6.QtWidgets import QWidget, QLabel, QHBoxLayout, QFrame
 from PySide6.QtCore import Qt, QTimer, QPoint
-from PySide6.QtGui import QFont, QColor, QPalette, QPainter, QBrush, QPen, QPainterPath
+from PySide6.QtGui import QColor, QPalette, QPainter, QBrush, QPen, QPainterPath
 from src.ui.theme import ModernTheme
 
 
@@ -61,17 +61,17 @@ class ToastNotification(QFrame):
         # Layout
         layout = QHBoxLayout(self)
         layout.setContentsMargins(16, 12, 16, 12)
-        layout.setSpacing(10)
+        layout.setSpacing(8)
         
         # Icon
         icon_label = QLabel(self.icon)
-        icon_label.setFont(QFont("Segoe UI Symbol", 12))
+        icon_label.setFont(self.font())
         icon_label.setStyleSheet(f"color: {self.style_config['fg']}; background: transparent;")
         layout.addWidget(icon_label)
         
         # Message
         msg_label = QLabel(message)
-        msg_label.setFont(QFont("Malgun Gothic", 10))
+        msg_label.setFont(self.font())
         msg_label.setStyleSheet(f"color: {self.style_config['fg']}; background: transparent;")
         layout.addWidget(msg_label)
         
@@ -85,7 +85,7 @@ class ToastNotification(QFrame):
         """)
         
         self.setMinimumWidth(200)
-        self.setFixedHeight(44)
+        self.setMinimumHeight(44)
         self.adjustSize()
     
     def _setup_timer(self):

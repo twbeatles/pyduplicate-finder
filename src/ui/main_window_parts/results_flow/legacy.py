@@ -3,6 +3,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QLabel, QProgressBar, QCheckBox, QMessageBox, QGroupBox, QTreeWidget, QTreeWidgetItem, QToolBar, QSpinBox, QLineEdit, QMenu, QSplitter, QTextEdit, QScrollArea, QStyle, QToolButton, QSizePolicy, QListWidget, QDoubleSpinBox, QInputDialog, QStackedWidget, QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView)
 from PySide6.QtCore import Qt, Slot, QSize, QSettings, QTimer
 from PySide6.QtGui import QAction, QKeySequence, QIcon, QPixmap, QFont, QCursor
+from src.ui.design_system.hidpi import scaled_preview_pixmap
 
 import os
 import sys
@@ -714,10 +715,10 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
                 pixmap = QPixmap.fromImage(image)
                 if not pixmap.isNull():
                     self._set_preview_info(path, size=size, mtime=mtime)
-                    scaled = pixmap.scaled(
+                    scaled = scaled_preview_pixmap(
+                        pixmap,
                         self.lbl_image_preview.size().boundedTo(QSize(400, 400)),
-                        Qt.AspectRatioMode.KeepAspectRatio,
-                        Qt.TransformationMode.SmoothTransformation,
+                        self.lbl_image_preview,
                     )
                     self.lbl_image_preview.setPixmap(scaled)
                     self.lbl_image_preview.show()
@@ -731,7 +732,7 @@ class MainWindowResultsFlowMixin(DuplicateFinderTypingContract):
             self.txt_text_preview.setPlainText(content)
             font = QFont("Consolas")
             font.setStyleHint(QFont.StyleHint.Monospace)
-            font.setPointSize(10)
+            font.setPointSize(max(10, int(self.font().pointSize() or 10)))
             self.txt_text_preview.setFont(font)
             self.txt_text_preview.show()
             self.lbl_image_preview.hide()

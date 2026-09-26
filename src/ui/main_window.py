@@ -16,6 +16,12 @@ from src.core.preflight import PreflightAnalyzer
 from src.core.quarantine_manager import QuarantineManager
 from src.core.scan_engine import validate_similar_document_dependency, validate_similar_image_dependency
 from src.ui.components.toast import ToastManager
+from src.ui.design_system.tokens import (
+    DEFAULT_WINDOW_HEIGHT,
+    DEFAULT_WINDOW_WIDTH,
+    MIN_WINDOW_HEIGHT,
+    MIN_WINDOW_WIDTH,
+)
 from src.ui.controllers.navigation_controller import NavigationController
 from src.ui.controllers.operation_flow_controller import OperationFlowController
 from src.ui.controllers.ops_controller import OpsController
@@ -95,7 +101,8 @@ class DuplicateFinderApp(
     def __init__(self):
         super().__init__()
         self.setWindowTitle(strings.tr("app_title"))
-        self.resize(1200, 850)
+        self.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
+        self.setMinimumSize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
         self.selected_folders = []
         self.selected_folder_roles = {}
         self.scan_results = {}

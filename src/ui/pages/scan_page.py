@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 from src.ui.design_system.components.separators import create_vseparator
+from src.ui.design_system.hidpi import fit_column_to_header
 from src.ui.design_system.tokens import SPACING_LG, SPACING_MD
 from src.utils.i18n import strings
 
@@ -46,7 +47,7 @@ def build_scan_page(window) -> QWidget:
     window.top_container.setObjectName("folder_card")
     top_main_layout = QVBoxLayout(window.top_container)
     top_main_layout.setSpacing(SPACING_LG)
-    top_main_layout.setContentsMargins(20, 16, 20, 16)
+    top_main_layout.setContentsMargins(16, 12, 16, 12)
 
     # --- Row 1: Folder Selection Header ---
     folder_header = QHBoxLayout()
@@ -95,7 +96,7 @@ def build_scan_page(window) -> QWidget:
     fhdr = window.tbl_folders.horizontalHeader()
     fhdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
     fhdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
-    window.tbl_folders.setColumnWidth(1, 140)
+    fit_column_to_header(window.tbl_folders, 1, 140)
     window.tbl_folders.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
     window.tbl_folders.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
     window.tbl_folders.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)

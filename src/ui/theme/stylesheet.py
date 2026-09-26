@@ -180,8 +180,8 @@ class _LegacyThemeStyle:
                 background-color: {c['card_bg']};
                 border: 1px solid {c['card_border']};
                 border-radius: {t.RADIUS_LG};
-                margin-top: 20px;
-                padding: 20px 16px 16px 16px;
+                margin-top: 16px;
+                padding: 16px 12px 12px 12px;
                 font-weight: 600;
             }}
 
@@ -231,7 +231,7 @@ class _LegacyThemeStyle:
                     stop:0 {c['success']}, stop:1 {c['success_hover']});
                 color: #ffffff;
                 border: none;
-                border-radius: 10px;
+                border-radius: {t.RADIUS_MD};
                 font-weight: 600;
                 font-size: {t.FONT_SIZE_MD};
                 padding: 12px 24px;
@@ -256,7 +256,7 @@ class _LegacyThemeStyle:
                     stop:0 {c['danger']}, stop:1 {c['danger_hover']});
                 color: #ffffff;
                 border: none;
-                border-radius: 10px;
+                border-radius: {t.RADIUS_MD};
                 font-weight: 600;
                 font-size: {t.FONT_SIZE_MD};
                 padding: 12px 24px;
@@ -275,7 +275,7 @@ class _LegacyThemeStyle:
             QPushButton#btn_secondary {{
                 background-color: {c['primary_light']};
                 border: 1px solid {c['primary_light']};
-                border-radius: 10px;
+                border-radius: {t.RADIUS_MD};
                 color: {c['primary']};
                 font-weight: 600;
                 padding: 10px 22px;
@@ -292,7 +292,7 @@ class _LegacyThemeStyle:
             QToolButton#btn_secondary {{
                 background-color: {c['primary_light']};
                 border: 1px solid {c['primary_light']};
-                border-radius: 10px;
+                border-radius: {t.RADIUS_MD};
                 color: {c['primary']};
                 font-weight: 600;
                 padding: 10px 22px;
@@ -323,7 +323,7 @@ class _LegacyThemeStyle:
             QPushButton#filter_header {{
                 background-color: {c['card_bg']};
                 border: 1px solid {c['card_border']};
-                border-radius: 10px;
+                border-radius: {t.RADIUS_MD};
                 padding: 10px 14px;
                 text-align: left;
                 font-weight: 600;
@@ -413,7 +413,7 @@ class _LegacyThemeStyle:
 
             /* ==================== CHECKBOX ==================== */
             QCheckBox {{
-                spacing: 10px;
+                spacing: 8px;
                 color: {c['text_primary']};
                 padding: 4px 0;
                 font-size: {t.FONT_SIZE_BASE};
@@ -513,7 +513,7 @@ class _LegacyThemeStyle:
 
             QTreeWidget::item {{
                 padding: 8px 6px;
-                border-radius: 4px;
+                border-radius: {t.RADIUS_SM};
                 min-height: 32px;
             }}
 
@@ -562,7 +562,7 @@ class _LegacyThemeStyle:
             QScrollBar::handle:vertical {{
                 background: {c['scrollbar_handle']};
                 min-height: 30px;
-                border-radius: 4px;
+                border-radius: {t.RADIUS_SM};
                 margin: 2px;
             }}
 
@@ -588,7 +588,7 @@ class _LegacyThemeStyle:
             QScrollBar::handle:horizontal {{
                 background: {c['scrollbar_handle']};
                 min-width: 30px;
-                border-radius: 4px;
+                border-radius: {t.RADIUS_SM};
                 margin: 2px;
             }}
 
@@ -619,7 +619,7 @@ class _LegacyThemeStyle:
 
             QSplitter::handle:hover {{
                 background: {c['primary']};
-                border-radius: 4px;
+                border-radius: {t.RADIUS_SM};
             }}
 
             /* ==================== TOOLBAR ==================== */
@@ -838,7 +838,7 @@ class _LegacyThemeStyle:
             QLabel#preview_placeholder {{
                 color: {c['text_tertiary']};
                 font-size: {t.FONT_SIZE_MD};
-                padding: 40px;
+                padding: 16px;
             }}
 
             QWidget#preview_content {{
@@ -923,7 +923,7 @@ class _LegacyThemeStyle:
                 min-height: 38px;
                 padding: 8px 20px;
                 font-weight: 600;
-                border-radius: 10px;
+                border-radius: {t.RADIUS_MD};
             }}
 
             /* ==================== COMPACT HEADER ==================== */
@@ -963,7 +963,7 @@ class _LegacyThemeStyle:
                 width: 20px;
                 height: 20px;
                 border: 2px solid {c['input_border']};
-                border-radius: 5px;
+                border-radius: {t.RADIUS_SM};
                 background: {c['input_bg']};
             }}
 

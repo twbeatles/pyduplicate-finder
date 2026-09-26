@@ -9,14 +9,20 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
-from src.ui.design_system.tokens import MARGIN_CARD, SPACING_LG, SPACING_MD, SPACING_SM
+from src.ui.design_system.tokens import (
+    MARGIN_CARD,
+    MARGIN_PAGE,
+    SPACING_LG,
+    SPACING_MD,
+    SPACING_SM,
+)
 
 
 def create_section(title: str, parent: QWidget | None = None) -> tuple[QGroupBox, QVBoxLayout]:
     """Create a titled card section and return (group, body_layout)."""
     group = QGroupBox(title, parent)
     body = QVBoxLayout(group)
-    body.setContentsMargins(SPACING_MD, SPACING_MD, SPACING_MD, SPACING_MD)
+    body.setContentsMargins(MARGIN_CARD, MARGIN_CARD, MARGIN_CARD, MARGIN_CARD)
     body.setSpacing(SPACING_MD)
     return group, body
 
@@ -50,7 +56,7 @@ def create_card(parent: QWidget | None = None) -> tuple[QWidget, QVBoxLayout]:
     card = QWidget(parent)
     card.setObjectName("folder_card")
     body = QVBoxLayout(card)
-    body.setContentsMargins(16, MARGIN_CARD, 16, MARGIN_CARD)
+    body.setContentsMargins(MARGIN_PAGE, MARGIN_CARD, MARGIN_PAGE, MARGIN_CARD)
     body.setSpacing(SPACING_LG)
     return card, body
 

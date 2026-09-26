@@ -1,10 +1,12 @@
 import sys
 import platform
 from PySide6.QtWidgets import QApplication
+from src.ui.design_system.hidpi import configure_high_dpi
 from src.ui.main_window import DuplicateFinderApp
 from src.utils.i18n import strings
 
 if __name__ == "__main__":
+    configure_high_dpi()
     app = QApplication(sys.argv)
     
     font = app.font()

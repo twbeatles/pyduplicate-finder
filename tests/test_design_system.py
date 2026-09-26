@@ -175,6 +175,122 @@ def test_density_switch_emits(qapp):
     assert switch.current_density() == COMFORTABLE
 
 
+def test_hidpi_bootstrap_and_helpers(qapp):
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
+
+    from src.ui.design_system import hidpi
+
+    hidpi.configure_high_dpi()  # idempotent; safe to call twice.
+    hidpi.configure_high_dpi()
+    assert QApplication.highDpiScaleFactorRoundingPolicy() == Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+    assert hidpi.snap_to_grid(10) == 8
+    assert hidpi.snap_to_grid(14) == 16
+    assert hidpi.scaled_px(100) > 0
+    assert hidpi.ui_scale() >= 1.0
+
+
+def test_fit_column_to_header_respects_minimum(qapp):
+    from PySide6.QtWidgets import QTableWidget
+
+    from src.ui.design_system.hidpi import fit_column_to_header
+
+    table = QTableWidget()
+    table.setColumnCount(1)
+    table.setHorizontalHeaderLabels(["A very long header label that needs room"])
+    width = fit_column_to_header(table, 0, 60)
+    assert width >= 60
+    assert table.columnWidth(0) == width
+
+
+def test_scaled_preview_pixmap_bounds(qapp):
+    from PySide6.QtCore import QSize
+    from PySide6.QtGui import QImage, QPixmap
+    from PySide6.QtWidgets import QLabel
+
+    from src.ui.design_system.hidpi import scaled_preview_pixmap
+
+    image = QImage(64, 64, QImage.Format.Format_RGB32)
+    image.fill(0x112233)
+    label = QLabel()
+    out = scaled_preview_pixmap(QPixmap.fromImage(image), QSize(32, 32), label)
+    assert not out.isNull()
+    cap = int(32 * max(1.0, float(label.devicePixelRatioF())))
+    assert out.width() <= cap and out.height() <= cap
+
+
+def test_section_card_uses_card_margin(qapp):
+    from src.ui.design_system import tokens
+    from src.ui.design_system.components import create_section
+
+    _group, body = create_section("Advanced")
+    assert body.contentsMargins().left() == tokens.MARGIN_CARD
+
+
+def test_metric_card_wraps_and_expands(qapp):
+    from PySide6.QtWidgets import QSizePolicy
+
+    from src.ui.design_system.components import create_metric_card
+
+    card, _layout, value = create_metric_card("Scans", "7", "hint")
+    assert value.wordWrap()
+    assert card.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Expanding
+
+
+def test_stylesheet_radii_and_margins_on_token_scale():
+    from src.ui.theme import ModernTheme
+
+    sheet = ModernTheme.get_stylesheet("light")
+    assert "border-radius: 10px" not in sheet
+    assert "border-radius: 5px" not in sheet
+    assert "border-radius: 4px" not in sheet
+    assert "margin-top: 20px" not in sheet
+    assert "padding: 40px" not in sheet
+
+
+def test_sidebar_buttons_not_fixed(qapp):
+    from src.ui.components.sidebar import Sidebar
+
+    sidebar = Sidebar()
+    try:
+        assert sidebar.COLLAPSED_WIDTH % 4 == 0
+        for button in sidebar.buttons.values():
+            assert button.maximumHeight() > button.minimumHeight()
+    finally:
+        sidebar.close()
+
+
+def test_toast_grows_with_content(qapp):
+    from src.ui.components.toast import ToastNotification
+
+    toast = ToastNotification("hello " * 50, parent=None)
+    try:
+        assert toast.maximumHeight() > toast.minimumHeight()
+    finally:
+        toast.close()
+
+
+def test_main_window_hidpi_shell(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("PYDUPLICATEFINDER_DB_PATH", str(tmp_path / "scan_cache.db"))
+    from PySide6.QtWidgets import QScrollArea
+
+    from src.ui.design_system import tokens
+    from src.ui.main_window import DuplicateFinderApp
+
+    w = DuplicateFinderApp()
+    try:
+        try:
+            w._scheduler_timer.stop()
+        except Exception:
+            pass
+        assert w.minimumWidth() == tokens.MIN_WINDOW_WIDTH
+        assert w.minimumHeight() == tokens.MIN_WINDOW_HEIGHT
+        assert isinstance(w.page_stack.widget(0), QScrollArea)
+        assert w.splitter.handleWidth() == tokens.SPLITTER_HANDLE
+    finally:
+        w.close()
+
+
 def test_main_window_density_flow(tmp_path, monkeypatch, qapp):
     monkeypatch.setenv("PYDUPLICATEFINDER_DB_PATH", str(tmp_path / "scan_cache.db"))
     from src.ui.main_window import DuplicateFinderApp

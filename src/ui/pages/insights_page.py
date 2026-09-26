@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 from src.ui.design_system.components.metric_card import create_metric_card
 from src.ui.design_system.components.page_header import create_page_header
 from src.ui.design_system.components.section_card import create_card
+from src.ui.design_system.hidpi import fit_column_to_header
 from src.ui.design_system.tokens import SPACING_LG
 from src.utils.i18n import strings
 
@@ -80,11 +81,11 @@ def build_insights_page(window) -> QWidget:
     session_header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
     session_header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
     session_header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
-    window.tbl_insight_sessions.setColumnWidth(0, 80)
-    window.tbl_insight_sessions.setColumnWidth(1, 170)
-    window.tbl_insight_sessions.setColumnWidth(2, 110)
-    window.tbl_insight_sessions.setColumnWidth(3, 90)
-    window.tbl_insight_sessions.setColumnWidth(4, 100)
+    fit_column_to_header(window.tbl_insight_sessions, 0, 80)
+    fit_column_to_header(window.tbl_insight_sessions, 1, 170)
+    fit_column_to_header(window.tbl_insight_sessions, 2, 110)
+    fit_column_to_header(window.tbl_insight_sessions, 3, 90)
+    fit_column_to_header(window.tbl_insight_sessions, 4, 100)
     window.tbl_insight_sessions.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
     window.tbl_insight_sessions.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
     window.tbl_insight_sessions.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -123,14 +124,14 @@ def build_insights_page(window) -> QWidget:
     job_header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
     job_header.setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)
     job_header.setSectionResizeMode(8, QHeaderView.ResizeMode.Stretch)
-    window.tbl_insight_jobs.setColumnWidth(0, 170)
-    window.tbl_insight_jobs.setColumnWidth(1, 150)
-    window.tbl_insight_jobs.setColumnWidth(2, 110)
-    window.tbl_insight_jobs.setColumnWidth(3, 90)
-    window.tbl_insight_jobs.setColumnWidth(4, 90)
-    window.tbl_insight_jobs.setColumnWidth(5, 110)
-    window.tbl_insight_jobs.setColumnWidth(6, 110)
-    window.tbl_insight_jobs.setColumnWidth(7, 100)
+    fit_column_to_header(window.tbl_insight_jobs, 0, 170)
+    fit_column_to_header(window.tbl_insight_jobs, 1, 150)
+    fit_column_to_header(window.tbl_insight_jobs, 2, 110)
+    fit_column_to_header(window.tbl_insight_jobs, 3, 90)
+    fit_column_to_header(window.tbl_insight_jobs, 4, 90)
+    fit_column_to_header(window.tbl_insight_jobs, 5, 110)
+    fit_column_to_header(window.tbl_insight_jobs, 6, 110)
+    fit_column_to_header(window.tbl_insight_jobs, 7, 100)
     window.tbl_insight_jobs.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
     window.tbl_insight_jobs.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
     window.tbl_insight_jobs.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)

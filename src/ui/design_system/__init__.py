@@ -1,6 +1,6 @@
 """Public UI library (srtgo patterns ported to pure PySide6)."""
 
-from src.ui.design_system import tokens
+from src.ui.design_system import hidpi, tokens
 from src.ui.design_system.components import (
     COMFORTABLE,
     COMPACT,
@@ -48,6 +48,7 @@ __all__ = [
     "create_section_header",
     "create_status_row",
     "create_vseparator",
+    "hidpi",
     "normalize_bool",
     "resolve_startup_theme",
     "system_theme",

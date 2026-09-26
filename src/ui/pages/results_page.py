@@ -17,7 +17,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 
 from src.ui.design_system.components.page_header import create_filter_row, create_page_header
-from src.ui.design_system.tokens import SPACING_LG, SPACING_MD
+from src.ui.design_system.tokens import SPACING_LG, SPACING_MD, SPLITTER_HANDLE
 from src.utils.i18n import strings
 from src.ui.components.results_tree import ResultsTreeWidget
 
@@ -35,7 +35,7 @@ def build_results_page(window) -> QWidget:
 
     # === Results Splitter: Tree | Preview ===
     window.splitter = QSplitter(Qt.Orientation.Horizontal)
-    window.splitter.setHandleWidth(12)
+    window.splitter.setHandleWidth(SPLITTER_HANDLE)
 
     # [Left] Tree Widget Container
     window.tree_container = QWidget()
@@ -66,7 +66,7 @@ def build_results_page(window) -> QWidget:
     # Previously a single 5-widget QHBox that overflowed at narrow widths.
     filter_row1 = create_filter_row(window.tree_container)
     window.txt_result_filter = QLineEdit()
-    window.txt_result_filter.setPlaceholderText("🔍 " + strings.tr("ph_filter_results"))
+    window.txt_result_filter.setPlaceholderText(strings.tr("ph_filter_results"))
     window.txt_result_filter.setClearButtonEnabled(True)
     if hasattr(window, "on_result_filter_text_changed"):
         window.txt_result_filter.textChanged.connect(window.on_result_filter_text_changed)
@@ -112,7 +112,7 @@ def build_results_page(window) -> QWidget:
     empty_wrap = QWidget()
     empty_layout = QVBoxLayout(empty_wrap)
     empty_layout.setContentsMargins(24, 24, 24, 24)
-    window.lbl_results_empty = QLabel("\n📂\n\n" + strings.tr("msg_no_results"))
+    window.lbl_results_empty = QLabel(strings.tr("msg_no_results"))
     window.lbl_results_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
     window.lbl_results_empty.setWordWrap(True)
     window.lbl_results_empty.setObjectName("empty_state")
@@ -121,7 +121,7 @@ def build_results_page(window) -> QWidget:
 
     # Empty-state CTAs
     empty_btn_row = QHBoxLayout()
-    empty_btn_row.setSpacing(10)
+    empty_btn_row.setSpacing(SPACING_MD)
     window.btn_results_empty_add_folder = QPushButton(strings.tr("btn_add_folder"))
     window.btn_results_empty_add_folder.setMinimumHeight(40)
     window.btn_results_empty_add_folder.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -163,6 +163,7 @@ def build_results_page(window) -> QWidget:
 
     window.lbl_preview_name = QLabel("")
     window.lbl_preview_name.setObjectName("preview_name")
+    window.lbl_preview_name.setWordWrap(True)
     window.lbl_preview_path = QLabel("")
     window.lbl_preview_path.setObjectName("preview_path")
     window.lbl_preview_path.setWordWrap(True)
@@ -206,7 +207,8 @@ def build_results_page(window) -> QWidget:
     preview_layout.addWidget(window.preview_scroll, 1)
 
     window.splitter.addWidget(window.preview_container)
-    window.splitter.setSizes([700, 400])
+    window.splitter.setStretchFactor(0, 3)
+    window.splitter.setStretchFactor(1, 2)
     window.splitter.setCollapsible(0, False)
     window.splitter.setCollapsible(1, True)
 
@@ -216,7 +218,7 @@ def build_results_page(window) -> QWidget:
     window.action_bar = QWidget()
     window.action_bar.setObjectName("action_bar")
     bottom_layout = QHBoxLayout(window.action_bar)
-    bottom_layout.setSpacing(SPACING_LG)
+    bottom_layout.setSpacing(SPACING_MD)
     bottom_layout.setContentsMargins(16, 8, 16, 8)
 
     window.btn_select_smart = QToolButton()
