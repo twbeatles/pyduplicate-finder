@@ -44,6 +44,7 @@
 - **Collection Role Table**: Manage scan folders in a Path/Role table and persist `primary`, `secondary`, or `none` roles into selection policy and scheduled job snapshots.
 - **Watch Mode**: Monitor selected folders and queue an incremental rescan when changes are detected.
 - **Custom Shortcuts**: Configure keyboard shortcuts for all functions.
+- **Appearance Settings**: Adjust UI density (Comfortable/Compact) and follow-system theme from Settings.
 - **Multi-language Support**: Full Korean and English interface support.
 
 ### 🧰 Tools
@@ -176,6 +177,7 @@ Scan performance benchmark on 10,000 files (500 duplicate groups):
 | psutil | File lock process detection |
 | watchdog | Real-time folder watching |
 | pypdf | PDF text extraction for similar-document scan |
+| darkdetect | OS dark/light theme detection |
 
 ### Installation Steps
 

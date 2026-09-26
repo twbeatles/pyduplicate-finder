@@ -154,8 +154,8 @@ class Sidebar(QFrame):
     def apply_theme(self, mode: str = "light"):
         """Theme-aware styling for the sidebar and its buttons."""
         c = ModernTheme.get_palette(mode)
-        bg0 = c.get("primary", "#6366f1")
-        bg1 = c.get("primary_hover", "#4f46e5")
+        bg0 = c["primary"]
+        bg1 = c["primary_hover"]
         toggle_bg = "rgba(255, 255, 255, 0.15)" if mode == "light" else "rgba(255, 255, 255, 0.08)"
         toggle_hover = "rgba(255, 255, 255, 0.28)" if mode == "light" else "rgba(255, 255, 255, 0.16)"
 
@@ -191,7 +191,7 @@ class Sidebar(QFrame):
                 border-radius: 6px;
                 color: rgba(255, 255, 255, 0.85);
                 padding: 4px 8px;
-                font-size: 8pt;
+                font-size: {ModernTheme.FONT_SIZE_XS};
             }}
             QPushButton#sidebar_toggle:hover {{
                 background: {toggle_hover};

@@ -80,7 +80,7 @@ class ToastNotification(QFrame):
             ToastNotification {{
                 background-color: {self.style_config['bg']};
                 border: 1px solid {self.style_config['border']};
-                border-radius: 10px;
+                border-radius: {ModernTheme.RADIUS_MD};
             }}
         """)
         

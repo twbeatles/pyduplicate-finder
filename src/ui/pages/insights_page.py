@@ -1,7 +1,6 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -11,52 +10,38 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.ui.design_system.components.metric_card import create_metric_card
+from src.ui.design_system.components.page_header import create_page_header
+from src.ui.design_system.components.section_card import create_card
+from src.ui.design_system.tokens import SPACING_LG
 from src.utils.i18n import strings
 
 
 def _build_metric_card(window, title_key: str, value_attr: str, hint_key: str) -> QWidget:
-    card = QFrame()
-    card.setObjectName("folder_card")
-    layout = QVBoxLayout(card)
-    layout.setContentsMargins(16, 14, 16, 14)
-    layout.setSpacing(6)
-
-    title = QLabel(strings.tr(title_key))
-    title.setObjectName("card_desc")
-    layout.addWidget(title)
-
-    value = QLabel("0")
-    value.setObjectName("page_title")
+    """Backward-compatible wrapper over the shared metric card component."""
+    card, _layout, value = create_metric_card(
+        strings.tr(title_key), "0", strings.tr(hint_key)
+    )
     setattr(window, value_attr, value)
-    layout.addWidget(value)
-
-    hint = QLabel(strings.tr(hint_key))
-    hint.setWordWrap(True)
-    hint.setObjectName("card_desc")
-    layout.addWidget(hint)
     return card
 
 
 def build_insights_page(window) -> QWidget:
     page = QWidget()
     layout = QVBoxLayout(page)
-    layout.setSpacing(16)
+    layout.setSpacing(SPACING_LG)
     layout.setContentsMargins(16, 12, 16, 12)
 
-    header = QHBoxLayout()
-    header.setSpacing(8)
-    window.lbl_insights_title = QLabel(strings.tr("nav_insights"))
+    header_wrap, header, window.lbl_insights_title = create_page_header(
+        strings.tr("nav_insights"), page
+    )
     window.lbl_insights_title.setObjectName("page_title")
-    header.addWidget(window.lbl_insights_title)
-
-    header.addStretch()
-
     window.btn_insights_refresh = QPushButton(strings.tr("btn_refresh"))
     window.btn_insights_refresh.setMinimumHeight(38)
     window.btn_insights_refresh.setCursor(Qt.CursorShape.PointingHandCursor)
     window.btn_insights_refresh.clicked.connect(window.refresh_insights_page)
     header.addWidget(window.btn_insights_refresh)
-    layout.addLayout(header)
+    layout.addWidget(header_wrap)
 
     window.lbl_insights_hint = QLabel(strings.tr("msg_insights_page_hint"))
     window.lbl_insights_hint.setObjectName("card_desc")
@@ -64,19 +49,14 @@ def build_insights_page(window) -> QWidget:
     layout.addWidget(window.lbl_insights_hint)
 
     cards = QHBoxLayout()
-    cards.setSpacing(12)
+    cards.setSpacing(SPACING_LG)
     cards.addWidget(_build_metric_card(window, "insight_scans_title", "lbl_insight_scans_value", "insight_scans_hint"))
     cards.addWidget(_build_metric_card(window, "insight_savings_title", "lbl_insight_savings_value", "insight_savings_hint"))
     cards.addWidget(_build_metric_card(window, "insight_fail_rate_title", "lbl_insight_fail_rate_value", "insight_fail_rate_hint"))
     cards.addWidget(_build_metric_card(window, "insight_quarantine_title", "lbl_insight_quarantine_value", "insight_quarantine_hint"))
     layout.addLayout(cards)
 
-    sessions_card = QFrame()
-    sessions_card.setObjectName("folder_card")
-    sessions_layout = QVBoxLayout(sessions_card)
-    sessions_layout.setContentsMargins(18, 16, 18, 16)
-    sessions_layout.setSpacing(10)
-
+    sessions_card, sessions_layout = create_card(page)
     window.lbl_insights_sessions_title = QLabel(strings.tr("insight_sessions_title"))
     window.lbl_insights_sessions_title.setObjectName("card_title")
     sessions_layout.addWidget(window.lbl_insights_sessions_title)
@@ -113,12 +93,7 @@ def build_insights_page(window) -> QWidget:
 
     layout.addWidget(sessions_card)
 
-    jobs_card = QFrame()
-    jobs_card.setObjectName("folder_card")
-    jobs_layout = QVBoxLayout(jobs_card)
-    jobs_layout.setContentsMargins(18, 16, 18, 16)
-    jobs_layout.setSpacing(10)
-
+    jobs_card, jobs_layout = create_card(page)
     window.lbl_insights_jobs_title = QLabel(strings.tr("insight_jobs_title"))
     window.lbl_insights_jobs_title.setObjectName("card_title")
     jobs_layout.addWidget(window.lbl_insights_jobs_title)

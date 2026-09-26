@@ -101,12 +101,9 @@ class MainWindowUiShellMixin(DuplicateFinderTypingContract):
         event.accept()
 
     def _create_separator(self: Any):
-        """Create a vertical separator line"""
-        from PySide6.QtWidgets import QFrame
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.VLine)
-        sep.setFrameShadow(QFrame.Shadow.Sunken)
-        return sep
+        """Create a vertical separator line (shared design-system helper)."""
+        from src.ui.design_system.components.separators import create_vseparator
+        return create_vseparator()
 
     def init_ui(self: Any):
         central_widget = QWidget()
@@ -830,7 +827,7 @@ class MainWindowUiShellMixin(DuplicateFinderTypingContract):
         dlg.exec()
 
     def apply_theme(self: Any, theme_name):
-        style = ModernTheme.get_stylesheet(theme_name)
+        style = ModernTheme.get_stylesheet(theme_name, density=self._current_density())
         self.setStyleSheet(style)
         self.settings.setValue("app/theme", theme_name)
         
@@ -853,7 +850,76 @@ class MainWindowUiShellMixin(DuplicateFinderTypingContract):
         if hasattr(self, 'btn_theme_settings'):
              self.btn_theme_settings.setChecked(theme_name == "dark")
 
+    def _current_density(self: Any) -> str:
+        try:
+            stored = self.settings.value("app/density", "comfortable")
+            if stored in ("comfortable", "compact"):
+                return stored
+        except Exception:
+            pass
+        return "comfortable"
+
+    def apply_density(self: Any, preset):
+        """Persist a density preset and rebuild the stylesheet live."""
+        if preset not in ("comfortable", "compact"):
+            preset = "comfortable"
+        try:
+            self.settings.setValue("app/density", preset)
+        except Exception:
+            pass
+        try:
+            theme_name = str(self.settings.value("app/theme", "light") or "light")
+        except Exception:
+            theme_name = "light"
+        self.apply_theme(theme_name)
+        if hasattr(self, "density_switch"):
+            try:
+                self.density_switch.set_density(preset)
+            except Exception:
+                pass
+
+    def _start_system_theme_watcher(self: Any):
+        """Follow the OS theme while follow-mode is enabled (srtgo pattern)."""
+        try:
+            from src.ui.design_system.system_theme import SystemThemeWatcher
+            watcher = SystemThemeWatcher(self)
+            watcher.theme_changed.connect(self._on_system_theme_changed)
+            watcher.start()
+            self._system_theme_watcher = watcher
+        except Exception:
+            pass
+
+    def _on_system_theme_changed(self: Any, theme_name: str):
+        try:
+            from src.ui.design_system.system_theme import normalize_bool
+            follow = normalize_bool(self.settings.value("app/follow_system_theme", True), True)
+        except Exception:
+            follow = False
+        if follow:
+            self.apply_theme(theme_name)
+
+    def set_follow_system_theme(self: Any, enabled: bool):
+        try:
+            self.settings.setValue("app/follow_system_theme", bool(enabled))
+        except Exception:
+            pass
+        if enabled:
+            try:
+                from src.ui.design_system.system_theme import system_theme
+                self.apply_theme(system_theme())
+            except Exception:
+                pass
+
     def toggle_theme(self: Any, checked):
+        try:
+            self.settings.setValue("app/follow_system_theme", False)
+        except Exception:
+            pass
+        if hasattr(self, "chk_follow_system_theme"):
+            try:
+                self.chk_follow_system_theme.setChecked(False)
+            except Exception:
+                pass
         self.apply_theme("dark" if checked else "light")
 
     def _toggle_filter_panel(self: Any, checked):

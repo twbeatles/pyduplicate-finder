@@ -16,6 +16,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 
+from src.ui.design_system.components.page_header import create_filter_row, create_page_header
+from src.ui.design_system.tokens import SPACING_LG, SPACING_MD
 from src.utils.i18n import strings
 from src.ui.components.results_tree import ResultsTreeWidget
 
@@ -28,7 +30,7 @@ def build_results_page(window) -> QWidget:
     """
     page = QWidget()
     results_layout = QVBoxLayout(page)
-    results_layout.setSpacing(12)
+    results_layout.setSpacing(SPACING_LG)
     results_layout.setContentsMargins(16, 12, 16, 12)
 
     # === Results Splitter: Tree | Preview ===
@@ -40,17 +42,15 @@ def build_results_page(window) -> QWidget:
     window.tree_container.setObjectName("result_card")
     tree_layout = QVBoxLayout(window.tree_container)
     tree_layout.setContentsMargins(12, 12, 12, 12)
-    tree_layout.setSpacing(8)
+    tree_layout.setSpacing(SPACING_MD)
 
-    # Results header
-    results_header = QHBoxLayout()
-    results_header.setSpacing(8)
-    window.lbl_results_title = QLabel(strings.tr("nav_results"))
+    # Results header (PageHeader: title + actions + meta on one row).
+    header_wrap, results_header, window.lbl_results_title = create_page_header(
+        strings.tr("nav_results"), window.tree_container
+    )
     window.lbl_results_title.setObjectName("results_title")
     window.lbl_results_meta = QLabel("")
     window.lbl_results_meta.setObjectName("results_meta")
-    results_header.addWidget(window.lbl_results_title)
-    results_header.addStretch()
 
     # Quick link back to Scan options.
     window.btn_show_options = QPushButton(strings.tr("btn_show_options"))
@@ -60,10 +60,11 @@ def build_results_page(window) -> QWidget:
     window.btn_show_options.clicked.connect(lambda: window._navigate_to("scan"))
     results_header.addWidget(window.btn_show_options)
     results_header.addWidget(window.lbl_results_meta)
-    tree_layout.addLayout(results_header)
+    tree_layout.addWidget(header_wrap)
 
-    # Filter input
-    filter_row = QHBoxLayout()
+    # Filter rows: search + scope on row 1, actions + count on row 2.
+    # Previously a single 5-widget QHBox that overflowed at narrow widths.
+    filter_row1 = create_filter_row(window.tree_container)
     window.txt_result_filter = QLineEdit()
     window.txt_result_filter.setPlaceholderText("🔍 " + strings.tr("ph_filter_results"))
     window.txt_result_filter.setClearButtonEnabled(True)
@@ -71,26 +72,27 @@ def build_results_page(window) -> QWidget:
         window.txt_result_filter.textChanged.connect(window.on_result_filter_text_changed)
     else:
         window.txt_result_filter.textChanged.connect(window.filter_results_tree)
-    filter_row.addWidget(window.txt_result_filter)
+    filter_row1.addWidget(window.txt_result_filter, 1)
     window.cmb_delta_filter = QComboBox()
     window.cmb_delta_filter.addItem(strings.tr("opt_delta_all"), "")
     window.cmb_delta_filter.addItem(strings.tr("opt_delta_new"), "new")
     window.cmb_delta_filter.addItem(strings.tr("opt_delta_changed"), "changed")
     window.cmb_delta_filter.addItem(strings.tr("opt_delta_revalidated"), "revalidated")
     window.cmb_delta_filter.currentIndexChanged.connect(lambda _i: window.filter_results_tree(window.txt_result_filter.text()))
-    filter_row.addWidget(window.cmb_delta_filter)
+    filter_row1.addWidget(window.cmb_delta_filter)
+    tree_layout.addLayout(filter_row1)
 
+    filter_row2 = create_filter_row(window.tree_container)
     window.btn_session_compare = QPushButton(strings.tr("btn_session_compare"))
     window.btn_session_compare.setMinimumHeight(34)
     window.btn_session_compare.setCursor(Qt.CursorShape.PointingHandCursor)
     window.btn_session_compare.clicked.connect(window.open_session_compare_dialog)
-    filter_row.addWidget(window.btn_session_compare)
-
-    filter_row.addStretch()
+    filter_row2.addWidget(window.btn_session_compare)
+    filter_row2.addStretch()
     window.lbl_filter_count = QLabel("")
     window.lbl_filter_count.setObjectName("filter_count")
-    filter_row.addWidget(window.lbl_filter_count)
-    tree_layout.addLayout(filter_row)
+    filter_row2.addWidget(window.lbl_filter_count)
+    tree_layout.addLayout(filter_row2)
 
     # Tree widget + empty stack
     window.tree_widget = ResultsTreeWidget()
@@ -181,7 +183,7 @@ def build_results_page(window) -> QWidget:
     scroll_content.setObjectName("preview_content")
     scroll_layout = QVBoxLayout(scroll_content)
     scroll_layout.setContentsMargins(16, 16, 16, 16)
-    scroll_layout.setSpacing(12)
+    scroll_layout.setSpacing(SPACING_LG)
 
     window.lbl_image_preview = QLabel()
     window.lbl_image_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -214,7 +216,7 @@ def build_results_page(window) -> QWidget:
     window.action_bar = QWidget()
     window.action_bar.setObjectName("action_bar")
     bottom_layout = QHBoxLayout(window.action_bar)
-    bottom_layout.setSpacing(12)
+    bottom_layout.setSpacing(SPACING_LG)
     bottom_layout.setContentsMargins(16, 8, 16, 8)
 
     window.btn_select_smart = QToolButton()

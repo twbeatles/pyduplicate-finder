@@ -180,8 +180,13 @@ class DuplicateFinderApp(
         self.settings = self._create_settings()
         self.load_settings()
 
-        # Apply initial theme (defaults to light if not set)
-        current_theme = self.settings.value("app/theme", "light")
+        # Apply initial theme (follows the OS while follow-mode is on)
+        try:
+            from src.ui.design_system.system_theme import resolve_startup_theme
+            current_theme = resolve_startup_theme(self.settings)
+        except Exception:
+            current_theme = self.settings.value("app/theme", "light")
+        self._start_system_theme_watcher()
         self.apply_theme(current_theme)
 
         # Apply initial language

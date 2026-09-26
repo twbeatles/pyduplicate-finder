@@ -1,29 +1,37 @@
-from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QLineEdit,
-    QComboBox,
-    QTableWidget,
-    QHeaderView,
-    QAbstractItemView,
-)
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QComboBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QTableWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
+from src.ui.design_system.components.page_header import (
+    create_filter_row,
+    create_page_header,
+)
+from src.ui.design_system.components.section_card import create_card
+from src.ui.design_system.tokens import SPACING_LG, SPACING_MD
 from src.utils.i18n import strings
 
 
 def build_tools_page(window) -> QWidget:
     page = QWidget()
     tools_layout = QVBoxLayout(page)
-    tools_layout.setSpacing(16)
+    tools_layout.setSpacing(SPACING_LG)
     tools_layout.setContentsMargins(16, 12, 16, 12)
 
-    window.lbl_tools_title = QLabel(strings.tr("nav_tools"))
+    header_wrap, _header_row, window.lbl_tools_title = create_page_header(
+        strings.tr("nav_tools"), page
+    )
     window.lbl_tools_title.setObjectName("page_title")
-    tools_layout.addWidget(window.lbl_tools_title)
+    tools_layout.addWidget(header_wrap)
 
     window.lbl_tools_hint = QLabel(strings.tr("msg_tools_page_hint"))
     window.lbl_tools_hint.setObjectName("card_desc")
@@ -42,12 +50,7 @@ def build_tools_page(window) -> QWidget:
     tools_layout.addWidget(window.btn_tools_go_scan)
 
     # Empty Folder Finder card
-    empty_card = QWidget()
-    empty_card.setObjectName("folder_card")
-    empty_card_layout = QVBoxLayout(empty_card)
-    empty_card_layout.setContentsMargins(20, 16, 20, 16)
-    empty_card_layout.setSpacing(12)
-
+    empty_card, empty_card_layout = create_card(page)
     window.lbl_empty_title = QLabel(strings.tr("action_empty_finder"))
     window.lbl_empty_title.setObjectName("card_title")
     empty_card_layout.addWidget(window.lbl_empty_title)
@@ -66,12 +69,7 @@ def build_tools_page(window) -> QWidget:
     tools_layout.addWidget(empty_card)
 
     # Quarantine card
-    quarantine_card = QWidget()
-    quarantine_card.setObjectName("folder_card")
-    quarantine_layout = QVBoxLayout(quarantine_card)
-    quarantine_layout.setContentsMargins(20, 16, 20, 16)
-    quarantine_layout.setSpacing(12)
-
+    quarantine_card, quarantine_layout = create_card(page)
     window.lbl_quarantine_title = QLabel(strings.tr("tool_quarantine_title"))
     window.lbl_quarantine_title.setObjectName("card_title")
     quarantine_layout.addWidget(window.lbl_quarantine_title)
@@ -81,8 +79,9 @@ def build_tools_page(window) -> QWidget:
     window.lbl_quarantine_desc.setObjectName("card_desc")
     quarantine_layout.addWidget(window.lbl_quarantine_desc)
 
-    q_top = QHBoxLayout()
-    q_top.setSpacing(8)
+    # Filter rows: search + scope on row 1, size/date ranges on row 2.
+    # Previously a single 7-widget QHBox that overflowed at narrow widths.
+    q_top = create_filter_row(quarantine_card)
     window.txt_quarantine_search = QLineEdit()
     window.txt_quarantine_search.setPlaceholderText(strings.tr("ph_quarantine_search"))
     window.txt_quarantine_search.textChanged.connect(lambda _t: window.refresh_quarantine_list())
@@ -94,26 +93,29 @@ def build_tools_page(window) -> QWidget:
     window.cmb_quarantine_status.addItem(strings.tr("opt_status_purged"), "purged")
     window.cmb_quarantine_status.currentIndexChanged.connect(lambda _i: window.refresh_quarantine_list(reset_page=True))
     q_top.addWidget(window.cmb_quarantine_status)
-    window.txt_quarantine_min_size = QLineEdit()
-    window.txt_quarantine_min_size.setPlaceholderText(strings.tr("ph_min_size_bytes"))
-    window.txt_quarantine_min_size.textChanged.connect(lambda _t: window.refresh_quarantine_list(reset_page=True))
-    q_top.addWidget(window.txt_quarantine_min_size)
-    window.txt_quarantine_max_size = QLineEdit()
-    window.txt_quarantine_max_size.setPlaceholderText(strings.tr("ph_max_size_bytes"))
-    window.txt_quarantine_max_size.textChanged.connect(lambda _t: window.refresh_quarantine_list(reset_page=True))
-    q_top.addWidget(window.txt_quarantine_max_size)
-    window.txt_quarantine_date_from = QLineEdit()
-    window.txt_quarantine_date_from.setPlaceholderText(strings.tr("ph_date_from"))
-    window.txt_quarantine_date_from.textChanged.connect(lambda _t: window.refresh_quarantine_list(reset_page=True))
-    q_top.addWidget(window.txt_quarantine_date_from)
-    window.txt_quarantine_date_to = QLineEdit()
-    window.txt_quarantine_date_to.setPlaceholderText(strings.tr("ph_date_to"))
-    window.txt_quarantine_date_to.textChanged.connect(lambda _t: window.refresh_quarantine_list(reset_page=True))
-    q_top.addWidget(window.txt_quarantine_date_to)
     window.btn_quarantine_refresh = QPushButton(strings.tr("btn_refresh"))
     window.btn_quarantine_refresh.clicked.connect(lambda: window.refresh_quarantine_list(reset_page=True))
     q_top.addWidget(window.btn_quarantine_refresh)
     quarantine_layout.addLayout(q_top)
+
+    q_ranges = create_filter_row(quarantine_card)
+    window.txt_quarantine_min_size = QLineEdit()
+    window.txt_quarantine_min_size.setPlaceholderText(strings.tr("ph_min_size_bytes"))
+    window.txt_quarantine_min_size.textChanged.connect(lambda _t: window.refresh_quarantine_list(reset_page=True))
+    q_ranges.addWidget(window.txt_quarantine_min_size)
+    window.txt_quarantine_max_size = QLineEdit()
+    window.txt_quarantine_max_size.setPlaceholderText(strings.tr("ph_max_size_bytes"))
+    window.txt_quarantine_max_size.textChanged.connect(lambda _t: window.refresh_quarantine_list(reset_page=True))
+    q_ranges.addWidget(window.txt_quarantine_max_size)
+    window.txt_quarantine_date_from = QLineEdit()
+    window.txt_quarantine_date_from.setPlaceholderText(strings.tr("ph_date_from"))
+    window.txt_quarantine_date_from.textChanged.connect(lambda _t: window.refresh_quarantine_list(reset_page=True))
+    q_ranges.addWidget(window.txt_quarantine_date_from)
+    window.txt_quarantine_date_to = QLineEdit()
+    window.txt_quarantine_date_to.setPlaceholderText(strings.tr("ph_date_to"))
+    window.txt_quarantine_date_to.textChanged.connect(lambda _t: window.refresh_quarantine_list(reset_page=True))
+    q_ranges.addWidget(window.txt_quarantine_date_to)
+    quarantine_layout.addLayout(q_ranges)
 
     window.tbl_quarantine = QTableWidget()
     window.tbl_quarantine.setColumnCount(4)
@@ -141,7 +143,7 @@ def build_tools_page(window) -> QWidget:
     quarantine_layout.addWidget(window.tbl_quarantine, 1)
 
     q_btns = QHBoxLayout()
-    q_btns.setSpacing(8)
+    q_btns.setSpacing(SPACING_MD)
     window.btn_quarantine_restore = QPushButton(strings.tr("btn_restore_selected"))
     window.btn_quarantine_restore.clicked.connect(window.restore_selected_quarantine)
     q_btns.addWidget(window.btn_quarantine_restore)
@@ -171,12 +173,7 @@ def build_tools_page(window) -> QWidget:
     tools_layout.addWidget(quarantine_card)
 
     # Safelist / Ignore card
-    exemption_card = QWidget()
-    exemption_card.setObjectName("folder_card")
-    exemption_layout = QVBoxLayout(exemption_card)
-    exemption_layout.setContentsMargins(20, 16, 20, 16)
-    exemption_layout.setSpacing(12)
-
+    exemption_card, exemption_layout = create_card(page)
     window.lbl_exemption_title = QLabel(strings.tr("tool_exemptions_title"))
     window.lbl_exemption_title.setObjectName("card_title")
     exemption_layout.addWidget(window.lbl_exemption_title)
@@ -186,8 +183,8 @@ def build_tools_page(window) -> QWidget:
     window.lbl_exemption_desc.setObjectName("card_desc")
     exemption_layout.addWidget(window.lbl_exemption_desc)
 
-    ex_form = QHBoxLayout()
-    ex_form.setSpacing(8)
+    # Exemption form: selectors on row 1, value/note/actions on row 2.
+    ex_form = create_filter_row(exemption_card)
     window.cmb_exemption_kind = QComboBox()
     window.cmb_exemption_kind.addItem(strings.tr("ex_kind_exact_path"), "exact_path")
     window.cmb_exemption_kind.addItem(strings.tr("ex_kind_path_glob"), "path_glob")
@@ -202,22 +199,24 @@ def build_tools_page(window) -> QWidget:
     window.txt_exemption_value = QLineEdit()
     window.txt_exemption_value.setPlaceholderText(strings.tr("ph_exemption_value"))
     ex_form.addWidget(window.txt_exemption_value, 2)
+    exemption_layout.addLayout(ex_form)
 
+    ex_form2 = create_filter_row(exemption_card)
     window.txt_exemption_note = QLineEdit()
     window.txt_exemption_note.setPlaceholderText(strings.tr("ph_exemption_note"))
-    ex_form.addWidget(window.txt_exemption_note, 1)
+    ex_form2.addWidget(window.txt_exemption_note, 1)
 
     window.btn_exemption_save = QPushButton(strings.tr("btn_save"))
     window.btn_exemption_save.clicked.connect(window.save_exemption_from_form)
-    ex_form.addWidget(window.btn_exemption_save)
+    ex_form2.addWidget(window.btn_exemption_save)
 
     window.btn_exemption_delete = QPushButton(strings.tr("btn_delete"))
     window.btn_exemption_delete.clicked.connect(window.delete_selected_exemption)
-    ex_form.addWidget(window.btn_exemption_delete)
-    exemption_layout.addLayout(ex_form)
+    ex_form2.addWidget(window.btn_exemption_delete)
+    exemption_layout.addLayout(ex_form2)
 
     ex_top = QHBoxLayout()
-    ex_top.setSpacing(8)
+    ex_top.setSpacing(SPACING_MD)
     window.txt_exemption_search = QLineEdit()
     window.txt_exemption_search.setPlaceholderText(strings.tr("ph_exemption_search"))
     window.txt_exemption_search.textChanged.connect(lambda _t: window.refresh_exemption_list())
@@ -261,12 +260,7 @@ def build_tools_page(window) -> QWidget:
     tools_layout.addWidget(exemption_card)
 
     # Rules card
-    rules_card = QWidget()
-    rules_card.setObjectName("folder_card")
-    rules_layout = QVBoxLayout(rules_card)
-    rules_layout.setContentsMargins(20, 16, 20, 16)
-    rules_layout.setSpacing(12)
-
+    rules_card, rules_layout = create_card(page)
     window.lbl_rules_title = QLabel(strings.tr("tool_rules_title"))
     window.lbl_rules_title.setObjectName("card_title")
     rules_layout.addWidget(window.lbl_rules_title)
@@ -277,7 +271,7 @@ def build_tools_page(window) -> QWidget:
     rules_layout.addWidget(window.lbl_rules_desc)
 
     r_btns = QHBoxLayout()
-    r_btns.setSpacing(8)
+    r_btns.setSpacing(SPACING_MD)
     window.btn_rules_edit = QPushButton(strings.tr("btn_edit_rules"))
     window.btn_rules_edit.clicked.connect(window.open_selection_rules_dialog)
     r_btns.addWidget(window.btn_rules_edit)
@@ -291,18 +285,13 @@ def build_tools_page(window) -> QWidget:
     tools_layout.addWidget(rules_card)
 
     # Operations card
-    ops_card = QWidget()
-    ops_card.setObjectName("folder_card")
-    ops_layout = QVBoxLayout(ops_card)
-    ops_layout.setContentsMargins(20, 16, 20, 16)
-    ops_layout.setSpacing(12)
-
+    ops_card, ops_layout = create_card(page)
     window.lbl_ops_title = QLabel(strings.tr("tool_ops_title"))
     window.lbl_ops_title.setObjectName("card_title")
     ops_layout.addWidget(window.lbl_ops_title)
 
     ops_top = QHBoxLayout()
-    ops_top.setSpacing(8)
+    ops_top.setSpacing(SPACING_MD)
     window.btn_ops_refresh = QPushButton(strings.tr("btn_refresh"))
     window.btn_ops_refresh.clicked.connect(window.refresh_operations_list)
     ops_top.addWidget(window.btn_ops_refresh)

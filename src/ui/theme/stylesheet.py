@@ -10,8 +10,8 @@ class _LegacyThemeStyle:
     FONT_SIZE_XS = "8pt"
     FONT_SIZE_SM = "9pt"
     FONT_SIZE_BASE = "10pt"
-    FONT_SIZE_MD = "10pt"
-    FONT_SIZE_LG = "11pt"
+    FONT_SIZE_MD = "11pt"
+    FONT_SIZE_LG = "12pt"
     FONT_SIZE_XL = "13pt"
     FONT_SIZE_2XL = "16pt"
 
@@ -987,5 +987,59 @@ def get_palette(mode: str = "light") -> dict[str, str]:
     return dict(_LegacyThemeStyle.get_palette(mode))
 
 
-def build_stylesheet(mode: str = "light") -> str:
-    return _LegacyThemeStyle.get_stylesheet(mode)
+def _compact_density_overrides() -> str:
+    """Compact-density QSS appended after the base sheet.
+
+    Qt resolves equal-specificity conflicts in favor of the later rule,
+    so these selectors intentionally mirror the base ones.
+    """
+    return """
+            /* ==================== DENSITY: COMPACT ==================== */
+            QTreeWidget::item {
+                min-height: 26px;
+                padding: 5px 6px;
+            }
+            QTableWidget::item {
+                padding: 5px 8px;
+            }
+            QListWidget::item {
+                padding: 6px 10px;
+            }
+            QPushButton {
+                min-height: 16px;
+                padding: 6px 14px;
+            }
+            QPushButton#btn_primary {
+                padding: 9px 20px;
+            }
+            QPushButton#btn_secondary {
+                padding: 8px 18px;
+            }
+            QWidget#action_bar QPushButton {
+                min-height: 34px;
+            }
+            QGroupBox {
+                margin-top: 16px;
+                padding: 14px 12px 12px 12px;
+            }
+            QMenu::item {
+                padding: 7px 28px 7px 14px;
+            }
+            QComboBox QAbstractItemView::item {
+                min-height: 24px;
+                padding: 5px 10px;
+            }
+            QLabel#section_header {
+                padding: 5px 0px;
+            }
+            QLabel#page_title {
+                padding: 5px 0;
+            }
+        """
+
+
+def build_stylesheet(mode: str = "light", density: str = "comfortable") -> str:
+    base = _LegacyThemeStyle.get_stylesheet(mode)
+    if density == "compact":
+        return base + _compact_density_overrides()
+    return base

@@ -275,6 +275,20 @@ class MainWindowSettingsFlowMixin(DuplicateFinderTypingContract):
         # Restore Theme
         theme = self.settings.value("app/theme", "light")
         self.action_theme.setChecked(theme == "dark")
+        if hasattr(self, "density_switch"):
+            try:
+                stored_density = str(self.settings.value("app/density", "comfortable") or "comfortable")
+                self.density_switch.set_density(stored_density)
+            except Exception:
+                pass
+        if hasattr(self, "chk_follow_system_theme"):
+            try:
+                from src.ui.design_system.system_theme import normalize_bool
+                self.chk_follow_system_theme.setChecked(
+                    normalize_bool(self.settings.value("app/follow_system_theme", True), True)
+                )
+            except Exception:
+                pass
         
         # Issue #14: Restore Language setting
         lang = self.settings.value("app/language", "ko")

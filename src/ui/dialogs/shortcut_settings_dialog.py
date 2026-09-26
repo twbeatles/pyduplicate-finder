@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QPushButton, QLabel, QMessageBox, QHeaderView, QKeySequenceEdit, QAbstractItemView
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QKeySequence
+from PySide6.QtGui import QBrush, QColor, QKeySequence
 
 from src.utils.i18n import strings
 
@@ -45,12 +45,14 @@ class ShortcutSettingsDialog(QDialog):
         
         self.setWindowTitle(strings.tr("dlg_shortcuts_title"))
         self.setMinimumSize(550, 500)
+        self._theme_mode = "light"
         
         # Issue #26: Inherit parent theme instead of hardcoded light theme
         if parent and hasattr(parent, 'settings'):
             from src.ui.theme import ModernTheme
             theme = parent.settings.value("app/theme", "light")
             self.setStyleSheet(ModernTheme.get_stylesheet(theme))
+            self._theme_mode = theme
         
         self.init_ui()
         self.populate_table()
@@ -62,7 +64,12 @@ class ShortcutSettingsDialog(QDialog):
         # === 설명 ===
         desc = QLabel(strings.tr("lbl_shortcut_desc"))
         desc.setWordWrap(True)
-        desc.setStyleSheet("color: gray; font-size: 12px;")
+        try:
+            from src.ui.theme import ModernTheme as _MT
+            _palette = _MT.get_palette(getattr(self, "_theme_mode", "light"))
+            desc.setStyleSheet(f"color: {_palette['text_secondary']}; font-size: {_MT.FONT_SIZE_SM};")
+        except Exception:
+            desc.setStyleSheet("color: gray; font-size: 12px;")
         layout.addWidget(desc)
         
         # === 단축키 테이블 ===
@@ -146,7 +153,12 @@ class ShortcutSettingsDialog(QDialog):
             default_shortcut = self.DEFAULT_SHORTCUTS.get(action_id, ('', ''))[0]
             default_item = QTableWidgetItem(default_shortcut)
             default_item.setFlags(default_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            default_item.setForeground(Qt.GlobalColor.gray)
+            try:
+                from src.ui.theme import ModernTheme as _MT2
+                _muted = _MT2.get_palette(getattr(self, "_theme_mode", "light"))["text_tertiary"]
+            except Exception:
+                _muted = "gray"
+            default_item.setForeground(QBrush(QColor(_muted)))
             self.table.setItem(row, 2, default_item)
     
     def on_selection_changed(self, row, col, prev_row, prev_col):

@@ -425,6 +425,18 @@ duplicate_finder/
   - `scripts/test_rust_core.ps1` (cargo test 및 clippy 자동 검증).
   - `PyDuplicateFinder.spec`에 `pydup_core` 바이너리 및 `src.core.native` hidden imports 등록.
 
+## Update Memo (2026-09-26)
+
+- UI 전면 재설계 1~2차 (srtgo `ktrain/gui` 참조, Fluent 의존성 없이 순수 PySide6로 패턴 이식):
+  - `src/ui/design_system/` 신설: `tokens.py`(8pt 그리드·타이포 위계·브랜드/상태색·밀집도 프리셋), `components/`(section_card·page_header/filter_row·empty_state/status_badge·metric_card·density_switch·separators), `layouts.py`(master-detail·scroll+action bar), `system_theme.py`(OS 테마 감지·감시자).
+  - 스캔 row3(14위젯 1행)→그룹 그리드, row4→전략/세션 2행 분할. 결과 필터 1행→검색/액션 2행 분할. tools 격리함·면책 폼 2행화. insights 메트릭 승격. 전 페이지 카드 패딩 통일(`create_card`).
+  - 타이포 위계 복원 (`FONT_SIZE_MD 10→11pt`, `LG 11→12pt`).
+  - 설정 외관 카드 신설: 밀집도 스위치(compact QSS 오버라이드 즉시 적용, `app/density` 저장) + 시스템 테마 따르기(`app/follow_system_theme`, 기본 ON, 수동 전환 시 OFF).
+  - `darkdetect>=0.8.0` 의존성 추가 (requirements + spec hiddenimports). `PySide6-Fluent-Widgets` 셸 마이그레이션은 호환성 파급으로 제외.
+  - QSS 하드코딩 흡수: sidebar 폴백 색상→팔레트 직접 참조, toast radius→토큰, 단축키 회색→`text_secondary`/`text_tertiary`.
+  - i18n 키 6종 한/영 추가 (`settings_appearance_title`, `settings_density_label`, `opt_density_*`, `tip_density`, `settings_follow_system`).
+- 검증: `pyright` 0 errors/warnings, `pytest` 186 passed (`tests/test_design_system.py` 16개 포함).
+
 ## Update Memo (2026-09-25)
 
 - Rust 감사 후속 조치 (pyo3 보안 업데이트 + 품질 게이트):

@@ -2,6 +2,7 @@ from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
+    QGridLayout,
     QPushButton,
     QLabel,
     QCheckBox,
@@ -18,14 +19,14 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
+from src.ui.design_system.components.separators import create_vseparator
+from src.ui.design_system.tokens import SPACING_LG, SPACING_MD
 from src.utils.i18n import strings
 
 
 def _create_separator() -> QFrame:
-    sep = QFrame()
-    sep.setFrameShape(QFrame.Shape.VLine)
-    sep.setFrameShadow(QFrame.Shadow.Sunken)
-    return sep
+    """Backward-compatible alias (single shared separator implementation)."""
+    return create_vseparator()
 
 
 def build_scan_page(window) -> QWidget:
@@ -37,19 +38,19 @@ def build_scan_page(window) -> QWidget:
     """
     page = QWidget()
     main_layout = QVBoxLayout(page)
-    main_layout.setSpacing(12)
+    main_layout.setSpacing(SPACING_LG)
     main_layout.setContentsMargins(16, 12, 16, 12)
 
     # === Settings & Scan Actions (Card style) ===
     window.top_container = QWidget()
     window.top_container.setObjectName("folder_card")
     top_main_layout = QVBoxLayout(window.top_container)
-    top_main_layout.setSpacing(12)
+    top_main_layout.setSpacing(SPACING_LG)
     top_main_layout.setContentsMargins(20, 16, 20, 16)
 
     # --- Row 1: Folder Selection Header ---
     folder_header = QHBoxLayout()
-    folder_header.setSpacing(8)
+    folder_header.setSpacing(SPACING_MD)
 
     folder_label = QLabel(strings.tr("grp_search_loc"))
     folder_label.setObjectName("card_title")
@@ -114,8 +115,8 @@ def build_scan_page(window) -> QWidget:
     window.filter_container = QWidget()
     window.filter_container.setObjectName("filter_card")
     filter_main_layout = QVBoxLayout(window.filter_container)
-    filter_main_layout.setSpacing(14)
-    filter_main_layout.setContentsMargins(16, 14, 16, 14)
+    filter_main_layout.setSpacing(SPACING_LG)
+    filter_main_layout.setContentsMargins(16, 12, 16, 12)
 
     # Basic filters header
     window.lbl_filter_basic = QLabel(strings.tr("hdr_filters_basic"))
@@ -123,10 +124,10 @@ def build_scan_page(window) -> QWidget:
     filter_main_layout.addWidget(window.lbl_filter_basic)
 
     row1_layout = QHBoxLayout()
-    row1_layout.setSpacing(20)
+    row1_layout.setSpacing(SPACING_LG)
 
     ext_layout = QHBoxLayout()
-    ext_layout.setSpacing(8)
+    ext_layout.setSpacing(SPACING_MD)
     window.lbl_ext = QLabel(strings.tr("lbl_ext"))
     window.lbl_ext.setObjectName("filter_label")
     ext_layout.addWidget(window.lbl_ext)
@@ -139,7 +140,7 @@ def build_scan_page(window) -> QWidget:
     row1_layout.addLayout(ext_layout)
 
     size_layout = QHBoxLayout()
-    size_layout.setSpacing(8)
+    size_layout.setSpacing(SPACING_MD)
     window.lbl_min_size = QLabel(strings.tr("lbl_min_size"))
     window.lbl_min_size.setObjectName("filter_label")
     size_layout.addWidget(window.lbl_min_size)
@@ -161,7 +162,7 @@ def build_scan_page(window) -> QWidget:
     filter_main_layout.addWidget(window.lbl_filter_compare)
 
     row2_layout = QHBoxLayout()
-    row2_layout.setSpacing(20)
+    row2_layout.setSpacing(SPACING_LG)
     window.chk_same_name = QCheckBox(strings.tr("chk_same_name"))
     window.chk_same_name.setToolTip(strings.tr("tip_same_name"))
     window.chk_name_only = QCheckBox(strings.tr("chk_name_only"))
@@ -178,9 +179,16 @@ def build_scan_page(window) -> QWidget:
     window.lbl_filter_advanced.setObjectName("section_header")
     filter_main_layout.addWidget(window.lbl_filter_advanced)
 
-    row3_layout = QHBoxLayout()
-    row3_layout.setSpacing(20)
+    # Advanced options: grouped grid (protection / similarity / patterns).
+    # Previously a single 14-widget QHBox that overflowed at narrow widths.
+    row3_layout = QGridLayout()
+    row3_layout.setHorizontalSpacing(SPACING_LG)
+    row3_layout.setVerticalSpacing(SPACING_MD)
+    row3_layout.setColumnStretch(0, 1)
+    row3_layout.setColumnStretch(1, 1)
 
+    protect_row = QHBoxLayout()
+    protect_row.setSpacing(SPACING_LG)
     window.chk_protect_system = QCheckBox(strings.tr("chk_protect_system"))
     window.chk_protect_system.setChecked(True)
     window.chk_use_trash = QCheckBox(strings.tr("chk_use_trash"))
@@ -189,16 +197,18 @@ def build_scan_page(window) -> QWidget:
     window.chk_skip_hidden.setToolTip(strings.tr("tip_skip_hidden"))
     window.chk_follow_symlinks = QCheckBox(strings.tr("chk_follow_symlinks"))
     window.chk_follow_symlinks.setToolTip(strings.tr("tip_follow_symlinks"))
-    row3_layout.addWidget(window.chk_protect_system)
-    row3_layout.addWidget(window.chk_use_trash)
-    row3_layout.addWidget(window.chk_skip_hidden)
-    row3_layout.addWidget(window.chk_follow_symlinks)
-    row3_layout.addWidget(_create_separator())
+    protect_row.addWidget(window.chk_protect_system)
+    protect_row.addWidget(window.chk_use_trash)
+    protect_row.addWidget(window.chk_skip_hidden)
+    protect_row.addWidget(window.chk_follow_symlinks)
+    protect_row.addStretch()
+    row3_layout.addLayout(protect_row, 0, 0, 1, 2)
 
+    image_row = QHBoxLayout()
+    image_row.setSpacing(SPACING_MD)
     window.chk_similar_image = QCheckBox(strings.tr("chk_similar_image"))
     window.chk_similar_image.setToolTip(strings.tr("tip_similar_image"))
-    row3_layout.addWidget(window.chk_similar_image)
-
+    image_row.addWidget(window.chk_similar_image)
     window.lbl_similarity = QLabel(strings.tr("lbl_similarity_threshold"))
     window.spin_similarity = QDoubleSpinBox()
     window.spin_similarity.setRange(0.1, 1.0)
@@ -207,14 +217,16 @@ def build_scan_page(window) -> QWidget:
     window.spin_similarity.setDecimals(2)
     window.spin_similarity.setMinimumWidth(80)
     window.spin_similarity.setEnabled(False)
-    row3_layout.addWidget(window.lbl_similarity)
-    row3_layout.addWidget(window.spin_similarity)
-    row3_layout.addWidget(_create_separator())
+    image_row.addWidget(window.lbl_similarity)
+    image_row.addWidget(window.spin_similarity)
+    image_row.addStretch()
+    row3_layout.addLayout(image_row, 1, 0)
 
+    doc_row = QHBoxLayout()
+    doc_row.setSpacing(SPACING_MD)
     window.chk_similar_document = QCheckBox(strings.tr("chk_similar_document"))
     window.chk_similar_document.setToolTip(strings.tr("tip_similar_document"))
-    row3_layout.addWidget(window.chk_similar_document)
-
+    doc_row.addWidget(window.chk_similar_document)
     window.lbl_document_similarity = QLabel(strings.tr("lbl_document_similarity_threshold"))
     window.spin_document_similarity = QDoubleSpinBox()
     window.spin_document_similarity.setRange(0.1, 1.0)
@@ -223,9 +235,10 @@ def build_scan_page(window) -> QWidget:
     window.spin_document_similarity.setDecimals(2)
     window.spin_document_similarity.setMinimumWidth(80)
     window.spin_document_similarity.setEnabled(False)
-    row3_layout.addWidget(window.lbl_document_similarity)
-    row3_layout.addWidget(window.spin_document_similarity)
-    row3_layout.addWidget(_create_separator())
+    doc_row.addWidget(window.lbl_document_similarity)
+    doc_row.addWidget(window.spin_document_similarity)
+    doc_row.addStretch()
+    row3_layout.addLayout(doc_row, 1, 1)
 
     window.btn_exclude_patterns = QPushButton(strings.tr("btn_exclude_patterns"))
     window.btn_exclude_patterns.setMinimumHeight(32)
@@ -239,10 +252,12 @@ def build_scan_page(window) -> QWidget:
     window.btn_include_patterns.setCursor(Qt.CursorShape.PointingHandCursor)
     window.btn_include_patterns.clicked.connect(window.open_include_patterns_dialog)
 
-    row3_layout.addWidget(window.btn_include_patterns)
-    row3_layout.addWidget(window.btn_exclude_patterns)
-
-    row3_layout.addStretch()
+    patterns_row = QHBoxLayout()
+    patterns_row.setSpacing(SPACING_MD)
+    patterns_row.addWidget(window.btn_include_patterns)
+    patterns_row.addWidget(window.btn_exclude_patterns)
+    patterns_row.addStretch()
+    row3_layout.addLayout(patterns_row, 2, 0, 1, 2)
     filter_main_layout.addLayout(row3_layout)
 
     # Scan strategy header
@@ -250,8 +265,9 @@ def build_scan_page(window) -> QWidget:
     window.lbl_filter_strategy.setObjectName("section_header")
     filter_main_layout.addWidget(window.lbl_filter_strategy)
 
+    # Strategy row: policy + compare mode + detection toggles.
     row4_layout = QHBoxLayout()
-    row4_layout.setSpacing(20)
+    row4_layout.setSpacing(SPACING_MD)
 
     window.lbl_selection_policy = QLabel(strings.tr("lbl_selection_policy"))
     window.cmb_selection_policy = QComboBox()
@@ -271,7 +287,6 @@ def build_scan_page(window) -> QWidget:
     row4_layout.addWidget(window.lbl_compare_mode)
     row4_layout.addWidget(window.cmb_compare_mode)
 
-    row4_layout.addWidget(_create_separator())
     window.chk_mixed_mode = QCheckBox(strings.tr("chk_mixed_mode"))
     window.chk_mixed_mode.setToolTip(strings.tr("tip_mixed_mode"))
     row4_layout.addWidget(window.chk_mixed_mode)
@@ -284,30 +299,36 @@ def build_scan_page(window) -> QWidget:
     window.chk_incremental_rescan.setToolTip(strings.tr("tip_incremental_rescan"))
     row4_layout.addWidget(window.chk_incremental_rescan)
 
+    row4_layout.addStretch()
+    filter_main_layout.addLayout(row4_layout)
+
+    # Session row: exemptions / cleanup / watch / baseline / strict mode.
+    row5_layout = QHBoxLayout()
+    row5_layout.setSpacing(SPACING_MD)
+
     window.chk_apply_exemptions = QCheckBox(strings.tr("chk_apply_exemptions"))
     window.chk_apply_exemptions.setChecked(True)
     window.chk_apply_exemptions.setToolTip(strings.tr("tip_apply_exemptions"))
-    row4_layout.addWidget(window.chk_apply_exemptions)
+    row5_layout.addWidget(window.chk_apply_exemptions)
 
     window.chk_post_cleanup_empty_dirs = QCheckBox(strings.tr("chk_post_cleanup_empty_dirs"))
     window.chk_post_cleanup_empty_dirs.setToolTip(strings.tr("tip_post_cleanup_empty_dirs"))
-    row4_layout.addWidget(window.chk_post_cleanup_empty_dirs)
+    row5_layout.addWidget(window.chk_post_cleanup_empty_dirs)
 
     window.chk_watch_mode = QCheckBox(strings.tr("chk_watch_mode"))
     window.chk_watch_mode.setToolTip(strings.tr("tip_watch_mode"))
-    row4_layout.addWidget(window.chk_watch_mode)
+    row5_layout.addWidget(window.chk_watch_mode)
 
     window.lbl_baseline_session = QLabel(strings.tr("lbl_baseline_session"))
     window.cmb_baseline_session = QComboBox()
     window.cmb_baseline_session.setMinimumWidth(220)
     window.cmb_baseline_session.setEnabled(False)
-    row4_layout.addWidget(window.lbl_baseline_session)
-    row4_layout.addWidget(window.cmb_baseline_session)
+    row5_layout.addWidget(window.lbl_baseline_session)
+    row5_layout.addWidget(window.cmb_baseline_session)
 
-    row4_layout.addWidget(_create_separator())
     window.chk_strict_mode = QCheckBox(strings.tr("chk_strict_mode"))
     window.chk_strict_mode.setToolTip(strings.tr("tip_strict_mode"))
-    row4_layout.addWidget(window.chk_strict_mode)
+    row5_layout.addWidget(window.chk_strict_mode)
 
     window.lbl_strict_max_errors = QLabel(strings.tr("lbl_strict_max_errors"))
     window.spin_strict_max_errors = QSpinBox()
@@ -315,11 +336,11 @@ def build_scan_page(window) -> QWidget:
     window.spin_strict_max_errors.setValue(0)
     window.spin_strict_max_errors.setMinimumWidth(90)
     window.spin_strict_max_errors.setEnabled(False)
-    row4_layout.addWidget(window.lbl_strict_max_errors)
-    row4_layout.addWidget(window.spin_strict_max_errors)
+    row5_layout.addWidget(window.lbl_strict_max_errors)
+    row5_layout.addWidget(window.spin_strict_max_errors)
 
-    row4_layout.addStretch()
-    filter_main_layout.addLayout(row4_layout)
+    row5_layout.addStretch()
+    filter_main_layout.addLayout(row5_layout)
 
     window.chk_name_only.toggled.connect(window._sync_filter_states)
     window.chk_similar_image.toggled.connect(window._sync_filter_states)
@@ -351,9 +372,9 @@ def build_scan_page(window) -> QWidget:
     top_main_layout.addWidget(window.filter_container)
     window._sync_filter_states()
 
-    # --- Row 4: Action Buttons ---
+    # --- Row 4: Action Buttons (Primary vs Secondary, srtgo action-bar pattern) ---
     action_layout = QHBoxLayout()
-    action_layout.setSpacing(12)
+    action_layout.setSpacing(SPACING_LG)
 
     window.btn_start_scan = QPushButton(strings.tr("btn_start_scan"))
     window.btn_start_scan.setMinimumHeight(40)
@@ -379,7 +400,7 @@ def build_scan_page(window) -> QWidget:
 
     # --- Row 5: Last results summary + CTA ---
     summary_row = QHBoxLayout()
-    summary_row.setSpacing(8)
+    summary_row.setSpacing(SPACING_MD)
     window.lbl_scan_summary = QLabel("")
     window.lbl_scan_summary.setObjectName("results_meta")
     summary_row.addWidget(window.lbl_scan_summary, 1)

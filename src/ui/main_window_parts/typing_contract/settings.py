@@ -14,6 +14,11 @@ class SettingsFlowHost(CommonWindowHost):
         btn_include_patterns: Any
         btn_preset_settings: Any
         btn_shortcuts_settings: Any
+        chk_follow_system_theme: Any
+        density_switch: Any
+        lbl_appearance_title: Any
+        lbl_density: Any
+        lbl_density_tip: Any
         lbl_cache_desc: Any
         lbl_cache_hash_cleanup_days: Any
         lbl_cache_session_keep_latest: Any

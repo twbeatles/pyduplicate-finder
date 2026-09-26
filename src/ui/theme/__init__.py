@@ -27,8 +27,8 @@ class ModernTheme:
         return DARK_PALETTE if mode == "dark" else LIGHT_PALETTE
 
     @staticmethod
-    def get_stylesheet(mode="light"):
-        return build_stylesheet(mode)
+    def get_stylesheet(mode="light", density="comfortable"):
+        return build_stylesheet(mode, density=density)
 
 
 __all__ = ["ModernTheme"]
