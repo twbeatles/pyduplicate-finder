@@ -8,14 +8,21 @@ Notes:
 - Hover/pressed fills come from the shared Fluent surface tokens
   (``src.ui.design_system.fluent``) for a reveal-like NavigationView feel.
 """
+from PySide6.QtCore import Property, QEasingCurve, QPropertyAnimation, Qt, Signal
+from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QPushButton, QButtonGroup, QLabel, QFrame, QHBoxLayout
+    QButtonGroup,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSizePolicy,
+    QVBoxLayout,
 )
-from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QEasingCurve, Property
-from PySide6.QtGui import QPainter, QColor
-from src.utils.i18n import strings
+
 from src.ui.design_system import fluent
 from src.ui.theme import ModernTheme
+from src.utils.i18n import strings
 
 
 class SidebarButton(QPushButton):
@@ -32,19 +39,40 @@ class SidebarButton(QPushButton):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip(label)
 
+        # Fixed-width icon cell + left-aligned text label so every row shares
+        # the exact same label start column (icon glyph widths vary, and
+        # space-padded button text can never align them).
+        self._inner = QHBoxLayout(self)
+        self._inner.setSpacing(8)
+        self._icon_label = QLabel(icon, self)
+        self._icon_label.setFixedWidth(20)
+        self._icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._text_label = QLabel(label, self)
+        self._text_label.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
+        self._text_label.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
+        self._inner.addWidget(self._icon_label)
+        self._inner.addWidget(self._text_label)
+
         self._expanded = True
         self.setProperty("sidebar_btn", True)
         self._update_display()
 
     def _update_display(self):
         """Update button display based on expanded state"""
+        self._text_label.setText(self.label_text)
         if self._expanded:
-            self.setText(f"  {self.icon_text}  {self.label_text}")
-            self.setMinimumHeight(40)
-            self.setMinimumWidth(80)
-            self.setMaximumWidth(max(130, self.sizeHint().width()))
+            self._inner.setContentsMargins(12, 6, 8, 6)
+            self._inner.setAlignment(self._icon_label, Qt.AlignmentFlag.AlignLeft)
+            self._text_label.show()
+            self.setMinimumHeight(42)
         else:
-            self.setText(self.icon_text)
+            self._inner.setContentsMargins(0, 6, 0, 6)
+            self._text_label.hide()
+            self._inner.setAlignment(self._icon_label, Qt.AlignmentFlag.AlignCenter)
             self.setMinimumSize(44, 44)
         self.setProperty("sidebar_btn", True)
 
@@ -144,7 +172,7 @@ class Sidebar(QFrame):
             btn.clicked.connect(lambda checked, n=name: self._on_nav_clicked(n))
             self.button_group.addButton(btn)
             self.buttons[name] = btn
-            layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(btn)
 
         layout.addStretch()
 
@@ -155,7 +183,7 @@ class Sidebar(QFrame):
             btn.clicked.connect(lambda checked, n=name: self._on_nav_clicked(n))
             self.button_group.addButton(btn)
             self.buttons[name] = btn
-            layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(btn)
 
         # Default selection
         if "scan" in self.buttons:
@@ -183,13 +211,19 @@ class Sidebar(QFrame):
                 background: {surface["nav_rest"]};
                 border: 1px solid transparent;
                 border-radius: 6px;
+                padding: 0px;
+            }}
+            QPushButton[sidebar_btn="true"] QLabel {{
+                background: transparent;
+                border: none;
                 color: rgba(255, 255, 255, 0.8);
-                padding: 4px;
-                text-align: left;
+                font-size: {ModernTheme.FONT_SIZE_MD};
             }}
             QPushButton[sidebar_btn="true"]:hover {{
                 background: {surface["nav_hover"]};
                 border-color: {surface["stroke"]};
+            }}
+            QPushButton[sidebar_btn="true"]:hover QLabel {{
                 color: #ffffff;
             }}
             QPushButton[sidebar_btn="true"]:pressed {{
@@ -198,9 +232,10 @@ class Sidebar(QFrame):
             QPushButton[sidebar_btn="true"]:checked {{
                 background: {surface["nav_selected"]};
                 border-color: {surface["stroke"]};
+            }}
+            QPushButton[sidebar_btn="true"]:checked QLabel {{
                 color: #ffffff;
                 font-weight: 600;
-                padding-left: 8px;
             }}
 
             QPushButton#sidebar_toggle {{
