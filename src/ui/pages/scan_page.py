@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
+from src.ui.design_system.components.page_header import create_page_header
 from src.ui.design_system.components.separators import create_vseparator
 from src.ui.design_system.hidpi import fit_column_to_header
 from src.ui.design_system.tokens import SPACING_LG, SPACING_MD
@@ -41,6 +42,13 @@ def build_scan_page(window) -> QWidget:
     main_layout = QVBoxLayout(page)
     main_layout.setSpacing(SPACING_LG)
     main_layout.setContentsMargins(16, 12, 16, 12)
+
+    # === Fluent page header (shared PageHeader pattern) ===
+    scan_header_wrap, _scan_header_row, window.lbl_scan_title = create_page_header(
+        strings.tr("nav_scan"), page
+    )
+    window.lbl_scan_title.setObjectName("page_title")
+    main_layout.addWidget(scan_header_wrap)
 
     # === Settings & Scan Actions (Card style) ===
     window.top_container = QWidget()

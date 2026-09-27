@@ -13,6 +13,7 @@ import ctypes
 import json
 import logging
 import re
+from contextlib import suppress
 from datetime import datetime
 from typing import Any, TYPE_CHECKING
 
@@ -314,6 +315,11 @@ class MainWindowUiShellMixin(DuplicateFinderTypingContract):
         self.lbl_preview_header.setText(strings.tr("lbl_preview"))
         if hasattr(self, 'lbl_results_title'):
             self.lbl_results_title.setText(strings.tr("nav_results"))
+        if hasattr(self, 'lbl_scan_title'):
+            self.lbl_scan_title.setText(strings.tr("nav_scan"))
+        if hasattr(self, "scan_notice_bar") and self.scan_notice_bar is not None:
+            with suppress(Exception):
+                self.scan_notice_bar.retranslate()
         if hasattr(self, "btn_show_options"):
             self.btn_show_options.setText(strings.tr("btn_show_options"))
         if hasattr(self, 'lbl_results_empty'):
@@ -847,6 +853,9 @@ class MainWindowUiShellMixin(DuplicateFinderTypingContract):
                 self.toast_manager.set_theme_mode(theme_name)
             except Exception:
                 pass
+        if hasattr(self, "scan_notice_bar") and self.scan_notice_bar is not None:
+            with suppress(Exception):
+                self.scan_notice_bar.apply_mode(theme_name)
         
         # Action state update
         if hasattr(self, 'action_theme'):

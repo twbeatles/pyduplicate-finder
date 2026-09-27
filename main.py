@@ -1,6 +1,9 @@
-import sys
 import platform
+import sys
+from contextlib import suppress
+
 from PySide6.QtWidgets import QApplication
+
 from src.ui.design_system.hidpi import configure_high_dpi
 from src.ui.main_window import DuplicateFinderApp
 from src.utils.i18n import strings
@@ -8,15 +11,22 @@ from src.utils.i18n import strings
 if __name__ == "__main__":
     configure_high_dpi()
     app = QApplication(sys.argv)
-    
+    app.setApplicationName("PyDuplicate Finder Pro")
+    app.setOrganizationName("PyDuplicateFinder")
+    # Fluent shell: Fusion gives deterministic QSS rendering (accent focus
+    # rings, InfoBar fills, NavigationView hover) on every platform.
+    with suppress(Exception):
+        app.setStyle("Fusion")
+
     font = app.font()
     font.setFamily("Malgun Gothic" if platform.system()=="Windows" else "AppleGothic")
     font.setPointSize(10)
     app.setFont(font)
     
     def exception_hook(exctype, value, traceback):
-        from PySide6.QtWidgets import QMessageBox
         import traceback as tb
+
+        from PySide6.QtWidgets import QMessageBox
         error_msg = "".join(tb.format_exception(exctype, value, traceback))
         print(error_msg, file=sys.stderr)
         # Issue #24: i18n applied to error message

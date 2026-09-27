@@ -13,6 +13,7 @@ import ctypes
 import json
 import logging
 import re
+from contextlib import suppress
 from datetime import datetime
 from typing import Any, TYPE_CHECKING, cast
 
@@ -307,6 +308,10 @@ class MainWindowScanFlowMixin(DuplicateFinderTypingContract):
         current_config["folders"] = list(effective_folders)
         self._watch_last_config = dict(current_config or {})
         self._watch_last_folders = list(effective_folders)
+        # A new scan clears the previous sticky partial-scan notice.
+        with suppress(Exception):
+            if hasattr(self, "scan_notice_bar") and self.scan_notice_bar is not None:
+                self.scan_notice_bar.dismiss()
 
         if not effective_folders:
             if self._scheduled_run_context and self._scheduled_job_run_id:
@@ -627,6 +632,17 @@ class MainWindowScanFlowMixin(DuplicateFinderTypingContract):
             QTimer.singleShot(0, self._trigger_watch_rerun)
         if scan_status == "partial" and hasattr(self, "toast_manager") and self.toast_manager:
             self.toast_manager.warning(strings.tr("msg_scan_partial_warning"), duration=4000)
+        # Fluent InfoBar: keep the partial-scan notice visible on the results page.
+        with suppress(Exception):
+            if hasattr(self, "scan_notice_bar") and self.scan_notice_bar is not None:
+                if scan_status == "partial":
+                    self.scan_notice_bar.show_notice(
+                        "warning",
+                        strings.tr("msg_scan_complete_partial").format(len(results)),
+                        strings.tr("msg_scan_partial_warning"),
+                    )
+                else:
+                    self.scan_notice_bar.dismiss()
 
     def on_scan_cancelled(self: Any):
         """Issue #3: Handle scan cancellation - preserve previous results"""

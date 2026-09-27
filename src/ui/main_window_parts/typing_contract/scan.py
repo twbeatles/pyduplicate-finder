@@ -27,6 +27,7 @@ class ScanFlowHost(CommonWindowHost):
         chk_strict_mode: Any
         lbl_ext: Any
         lbl_min_size: Any
+        lbl_scan_title: Any
         lbl_similarity: Any
         lbl_strict_max_errors: Any
         list_folders: Any

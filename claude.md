@@ -454,3 +454,13 @@ duplicate_finder/
   - 토큰 정합: metric_card/section_card 패딩·반경 토큰 참조, sidebar/toast/단축키 다이얼로그 잔여 하드코딩 흡수, 결과/도구 페이지 간격 토큰화.
   - `PyDuplicateFinder.spec` hiddenimports에 `hidpi`·`system_theme` 등록 (이미 등록된 `design_system`·`darkdetect`와 정합).
 - 검증: `pyright src tests cli.py main.py` 0 errors/warnings, `pytest -q` 195 passed (`tests/test_design_system.py` 포함).
+
+## Update Memo (2026-09-27, Fluent)
+
+- Fluent 전체 재설계 3차 (srtgo `ktrain/gui` 참조, 외부 `PySide6-Fluent-Widgets` 없이 순수 PySide6로 WinUI 패턴 이식):
+  - `src/ui/design_system/fluent.py` 신설: 액센트/서피스/InfoBar 토큰, 라이트·다크 QSS fragment(`build_fluent_fragment`), 버튼 kind 헬퍼(`apply_fluent_button`).
+  - `src/ui/design_system/components/info_bar.py` 신설: severity/mode 지원 InfoBar + `create_info_bar`, 닫힘 시그널, `infobar_close` 한/영 i18n 키.
+  - NavigationView(sidebar): 액센트 선택 필, reveal hover/pressed, 공개 API 유지. Toast: InfoBar severity 색상 매핑 + fade, `suppress` 정리.
+  - 결과 페이지 sticky partial-scan InfoBar(완료 시 표시/신규 스캔 시 dismiss), 스캔 페이지 공용 헤더, `build_stylesheet`에 Fluent fragment 자동 append(라이트 `#0F6CBD`/다크 `#4CC2FF`).
+  - `PyDuplicateFinder.spec` hiddenimports에 `fluent`·`info_bar` 등록. `requirements.txt`는 의존성 불변(주석만).
+- 검증: `pyright src tests cli.py main.py` 0 errors/warnings, `pytest -q` 207 passed (`tests/test_fluent_theme.py` 12개 포함), 신규 파일 `ruff` 0건, 전체 PyInstaller 빌드 성공.

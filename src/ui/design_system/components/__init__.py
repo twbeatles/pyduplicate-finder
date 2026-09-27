@@ -10,6 +10,7 @@ from src.ui.design_system.components.empty_state import (
     create_empty_state,
     create_status_row,
 )
+from src.ui.design_system.components.info_bar import InfoBar, create_info_bar
 from src.ui.design_system.components.metric_card import create_metric_card
 from src.ui.design_system.components.page_header import (
     create_filter_row,
@@ -30,9 +31,11 @@ __all__ = [
     "COMPACT",
     "PRESETS",
     "DensitySwitch",
+    "InfoBar",
     "create_card",
     "create_empty_state",
     "create_filter_row",
+    "create_info_bar",
     "create_hseparator",
     "create_metric_card",
     "create_page_header",

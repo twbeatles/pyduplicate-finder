@@ -1,10 +1,12 @@
 """
-Sidebar Navigation Component
+Sidebar Navigation Component (Fluent NavigationView styling, pure PySide6).
 
 Notes:
 - Sidebar styling is theme-aware (light/dark) and uses ModernTheme tokens.
 - Uses QPropertyAnimation for smooth expand/collapse transitions.
-- Active page indicated by left accent bar + button highlight.
+- Active page indicated by a Fluent accent pill + selected surface fill.
+- Hover/pressed fills come from the shared Fluent surface tokens
+  (``src.ui.design_system.fluent``) for a reveal-like NavigationView feel.
 """
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QPushButton, QButtonGroup, QLabel, QFrame, QHBoxLayout
@@ -12,11 +14,14 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QEasingCurve, Property
 from PySide6.QtGui import QPainter, QColor
 from src.utils.i18n import strings
+from src.ui.design_system import fluent
 from src.ui.theme import ModernTheme
 
 
 class SidebarButton(QPushButton):
     """Custom sidebar button with icon and label — styled explicitly"""
+
+    _accent_pill = "#0F6CBD"
 
     def __init__(self, icon: str, label: str, name: str, parent=None):
         super().__init__(parent)
@@ -47,19 +52,24 @@ class SidebarButton(QPushButton):
         self._expanded = expanded
         self._update_display()
 
+    def set_accent_pill(self, color: str):
+        """Fluent selection indicator color for the current theme mode."""
+        self._accent_pill = color
+        self.update()
+
     def paintEvent(self, event):
-        """Paint the active indicator bar on the left side"""
+        """Paint the Fluent accent indicator pill on the left edge."""
         super().paintEvent(event)
         if self.isChecked():
             painter = QPainter(self)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(255, 255, 255, 220))
+            painter.setBrush(QColor(self._accent_pill))
             # draw a small rounded bar on the left edge
             bar_h = 20
             bar_w = 3
             y = (self.height() - bar_h) // 2
-            painter.drawRoundedRect(1, y, bar_w, bar_h, 2, 2)
+            painter.drawRoundedRect(2, y, bar_w, bar_h, 2, 2)
             painter.end()
 
 
@@ -152,12 +162,14 @@ class Sidebar(QFrame):
             self.buttons["scan"].setChecked(True)
 
     def apply_theme(self, mode: str = "light"):
-        """Theme-aware styling for the sidebar and its buttons."""
+        """Fluent NavigationView styling for the sidebar and its buttons."""
         c = ModernTheme.get_palette(mode)
         bg0 = c["primary"]
         bg1 = c["primary_hover"]
-        toggle_bg = "rgba(255, 255, 255, 0.15)" if mode == "light" else "rgba(255, 255, 255, 0.08)"
-        toggle_hover = "rgba(255, 255, 255, 0.28)" if mode == "light" else "rgba(255, 255, 255, 0.16)"
+        surface = fluent.surface_for(mode)
+        accent = fluent.accent_for(mode)["rest"]
+        for btn in self.buttons.values():
+            btn.set_accent_pill(accent)
 
         self.setStyleSheet(
             f"""
@@ -168,33 +180,40 @@ class Sidebar(QFrame):
             }}
 
             QPushButton[sidebar_btn="true"] {{
-                background: transparent;
-                border: none;
-                border-radius: 10px;
+                background: {surface["nav_rest"]};
+                border: 1px solid transparent;
+                border-radius: 6px;
                 color: rgba(255, 255, 255, 0.8);
                 padding: 4px;
                 text-align: left;
             }}
             QPushButton[sidebar_btn="true"]:hover {{
-                background: rgba(255, 255, 255, 0.14);
+                background: {surface["nav_hover"]};
+                border-color: {surface["stroke"]};
                 color: #ffffff;
             }}
+            QPushButton[sidebar_btn="true"]:pressed {{
+                background: {surface["nav_pressed"]};
+            }}
             QPushButton[sidebar_btn="true"]:checked {{
-                background: rgba(255, 255, 255, 0.22);
+                background: {surface["nav_selected"]};
+                border-color: {surface["stroke"]};
                 color: #ffffff;
                 font-weight: 600;
+                padding-left: 8px;
             }}
 
             QPushButton#sidebar_toggle {{
-                background: {toggle_bg};
-                border: none;
+                background: {surface["nav_hover"]};
+                border: 1px solid transparent;
                 border-radius: 6px;
                 color: rgba(255, 255, 255, 0.85);
                 padding: 4px 8px;
                 font-size: {ModernTheme.FONT_SIZE_XS};
             }}
             QPushButton#sidebar_toggle:hover {{
-                background: {toggle_hover};
+                background: {surface["nav_selected"]};
+                border-color: {surface["stroke"]};
             }}
             """
         )

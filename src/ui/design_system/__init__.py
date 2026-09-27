@@ -1,15 +1,17 @@
 """Public UI library (srtgo patterns ported to pure PySide6)."""
 
-from src.ui.design_system import hidpi, tokens
+from src.ui.design_system import fluent, hidpi, tokens
 from src.ui.design_system.components import (
     COMFORTABLE,
     COMPACT,
     PRESETS,
     DensitySwitch,
+    InfoBar,
     create_card,
     create_empty_state,
     create_filter_row,
     create_hseparator,
+    create_info_bar,
     create_metric_card,
     create_page_header,
     create_section,
@@ -34,12 +36,14 @@ __all__ = [
     "COMPACT",
     "PRESETS",
     "DensitySwitch",
+    "InfoBar",
     "SystemThemeWatcher",
     "apply_page_margins",
     "create_card",
     "create_empty_state",
     "create_filter_row",
     "create_hseparator",
+    "create_info_bar",
     "create_master_detail",
     "create_metric_card",
     "create_page_header",
@@ -48,6 +52,7 @@ __all__ = [
     "create_section_header",
     "create_status_row",
     "create_vseparator",
+    "fluent",
     "hidpi",
     "normalize_bool",
     "resolve_startup_theme",

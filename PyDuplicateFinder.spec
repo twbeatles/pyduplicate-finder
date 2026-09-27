@@ -35,6 +35,8 @@ BASE_HIDDENIMPORTS = [
     'src.ui.contracts',
     'src.ui.design_system',
     'src.ui.design_system.components',
+    'src.ui.design_system.components.info_bar',
+    'src.ui.design_system.fluent',
     'src.ui.design_system.hidpi',
     'src.ui.design_system.layouts',
     'src.ui.design_system.system_theme',

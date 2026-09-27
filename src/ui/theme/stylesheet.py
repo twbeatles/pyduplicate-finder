@@ -1039,7 +1039,9 @@ def _compact_density_overrides() -> str:
 
 
 def build_stylesheet(mode: str = "light", density: str = "comfortable") -> str:
-    base = _LegacyThemeStyle.get_stylesheet(mode)
+    from src.ui.design_system.fluent import build_fluent_fragment
+
+    base = _LegacyThemeStyle.get_stylesheet(mode) + build_fluent_fragment(mode)
     if density == "compact":
         return base + _compact_density_overrides()
     return base

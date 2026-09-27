@@ -22,5 +22,6 @@ class ResultsFlowHost(CommonWindowHost):
         lbl_preview_name: Any
         lbl_preview_path: Any
         preview_info: Any
+        scan_notice_bar: Any
         txt_result_filter: Any
         txt_text_preview: Any

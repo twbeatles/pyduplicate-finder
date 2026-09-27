@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 
+from src.ui.design_system.components.info_bar import create_info_bar
 from src.ui.design_system.components.page_header import create_filter_row, create_page_header
 from src.ui.design_system.tokens import SPACING_LG, SPACING_MD, SPLITTER_HANDLE
 from src.utils.i18n import strings
@@ -61,6 +62,10 @@ def build_results_page(window) -> QWidget:
     results_header.addWidget(window.btn_show_options)
     results_header.addWidget(window.lbl_results_meta)
     tree_layout.addWidget(header_wrap)
+
+    # Fluent InfoBar: persistent partial-scan notice (hidden until needed).
+    window.scan_notice_bar = create_info_bar("warning", "", "", parent=window.tree_container)
+    tree_layout.addWidget(window.scan_notice_bar)
 
     # Filter rows: search + scope on row 1, actions + count on row 2.
     # Previously a single 5-widget QHBox that overflowed at narrow widths.
