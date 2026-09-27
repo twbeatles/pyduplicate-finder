@@ -446,3 +446,11 @@ duplicate_finder/
   - cargo fmt --all 적용 (mt --check clean).
 - CI 게이트 추가: .github/workflows/rust-audit.yml (fmt -> clippy -D warnings -> cargo test -> machete -> audit).
 - 검증: cargo check/clippy 경고 0, cargo test 4 passed, cargo audit 취약점 0, 	ests/rust_parity/ 25 passed (pyo3 0.29.2 abi3 휠 재빌드 후).
+
+## Update Memo (2026-09-27)
+
+- UI 재설계 후속 경화 (HiDPI + 디자인 토큰 정합):
+  - `src/ui/design_system/hidpi.py` 신설: OS 스케일 팩터 조회·DPI 변경 감시·pt/px 환산 헬퍼, `main.py`에서 고해상도 속성 등록.
+  - 토큰 정합: metric_card/section_card 패딩·반경 토큰 참조, sidebar/toast/단축키 다이얼로그 잔여 하드코딩 흡수, 결과/도구 페이지 간격 토큰화.
+  - `PyDuplicateFinder.spec` hiddenimports에 `hidpi`·`system_theme` 등록 (이미 등록된 `design_system`·`darkdetect`와 정합).
+- 검증: `pyright src tests cli.py main.py` 0 errors/warnings, `pytest -q` 195 passed (`tests/test_design_system.py` 포함).
