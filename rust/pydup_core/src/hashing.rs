@@ -72,7 +72,12 @@ pub fn compute_file_hash(
     }
 
     let result = hasher.finalize();
-    Ok(format!("{:x}", result))
+    let bytes: &[u8] = result.as_ref();
+    let mut hex = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        hex.push_str(&format!("{:02x}", byte));
+    }
+    Ok(hex)
 }
 
 /// Batch hash calculation for multiple files in parallel using Rayon.

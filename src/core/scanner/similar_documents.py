@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .common import os, strings, time
 from .contracts import ScanWorkerHost
@@ -55,7 +55,7 @@ class ScanSimilarDocumentsMixin(ScanWorkerHost):
             def task_wrapper(path, size, mtime):
                 return path, size, mtime, self.document_hasher.calculate_simhash(path)
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                 futures = {}
                 for path in document_files:
                     try:
@@ -74,7 +74,7 @@ class ScanSimilarDocumentsMixin(ScanWorkerHost):
                     future = executor.submit(task_wrapper, path, size, mtime)
                     futures[future] = path
 
-                for future in concurrent.futures.as_completed(futures):
+                for future in as_completed(futures):
                     if self._stop_event.is_set():
                         executor.shutdown(wait=False, cancel_futures=True)
                         if emit_result:

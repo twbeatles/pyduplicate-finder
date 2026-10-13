@@ -13,6 +13,11 @@ fn test_small_file_hash() {
 
     let hash_res = compute_file_hash(&file_path, false, None, DEFAULT_BUFFER_SIZE, None).unwrap();
     assert_eq!(hash_res.len(), 64); // 32 bytes hex = 64 hex chars
+                                    // Known-answer vector: must match Python hashlib.blake2b(digest_size=32).
+    assert_eq!(
+        hash_res,
+        "256c83b297114d201b30179f3f0ef0cace9783622da5974326b436178aeef610"
+    );
 }
 
 #[test]

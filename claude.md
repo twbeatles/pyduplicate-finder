@@ -6,7 +6,7 @@
 - **이름**: PyDuplicate Finder Pro
 - **버전**: 1.3.0
 - **목적**: PySide6 및 Native Rust 코어 기반의 고성능 멀티스레드 중복 파일 탐색기 및 안전한 정리 도구
-- **기술 스택**: Python 3.9+, Rust (PyO3, Rayon, BLAKE2b), PySide6 (Qt for Python), SQLite (Caching, WAL), Standard Libs
+- **기술 스택**: Python 3.10+, Rust (PyO3, Rayon, BLAKE2b), PySide6 (Qt for Python), SQLite (Caching, WAL), Standard Libs
 
 ## 2. 디렉토리 구조 및 모듈 맵 (Directory Structure & Module Map)
 
@@ -173,13 +173,13 @@ duplicate_finder/
 
 | 패키지 | 버전 | 용도 |
 |--------|------|------|
-| PySide6 | - | Qt GUI 프레임워크 |
-| imagehash | >=4.3.0 | 유사 이미지 탐지 |
-| Pillow | >=9.0.0 | 이미지 처리 |
-| send2trash | >=1.8.0 | 휴지통 기능 |
-| psutil | >=5.9.0 | 파일 잠금 프로세스 확인 |
-| watchdog | >=4.0.0 | 실시간 폴더 감시 |
-| pypdf | >=5.0.0 | PDF 텍스트 추출 기반 유사 문서 탐지 |
+| PySide6 | >=6.12.0 | Qt GUI 프레임워크 |
+| imagehash | >=4.3.2 | 유사 이미지 탐지 |
+| Pillow | >=12.3.0 | 이미지 처리 |
+| send2trash | >=2.1.0 | 휴지통 기능 |
+| psutil | >=7.2.2 | 파일 잠금 프로세스 확인 |
+| watchdog | >=6.0.0 | 실시간 폴더 감시 |
+| pypdf | >=6.20.1 | PDF 텍스트 추출 기반 유사 문서 탐지 |
 | uuid | (Std Lib) | 백업 파일명 충돌 방지 |
 
 ## 6. 업데이트 메모 (2026-02-20)
@@ -464,3 +464,19 @@ duplicate_finder/
   - 결과 페이지 sticky partial-scan InfoBar(완료 시 표시/신규 스캔 시 dismiss), 스캔 페이지 공용 헤더, `build_stylesheet`에 Fluent fragment 자동 append(라이트 `#0F6CBD`/다크 `#4CC2FF`).
   - `PyDuplicateFinder.spec` hiddenimports에 `fluent`·`info_bar` 등록. `requirements.txt`는 의존성 불변(주석만).
 - 검증: `pyright src tests cli.py main.py` 0 errors/warnings, `pytest -q` 207 passed (`tests/test_fluent_theme.py` 12개 포함), 신규 파일 `ruff` 0건, 전체 PyInstaller 빌드 성공.
+
+## Update Memo (2026-10-13, Dependency Upgrade)
+
+- Python 의존성 전면 업그레이드 (검증된 최신으로 하한 상향):
+  - `PySide6>=6.12.0`, `imagehash>=4.3.2`, `Pillow>=12.3.0`, `send2trash>=2.1.0`, `psutil>=7.2.2`, `watchdog>=6.0.0`, `pypdf>=6.20.1`, `darkdetect>=0.8.0`
+  - Python 지원 하한 `3.9+` → `3.10+` (`PySide6` 6.12 / `Pillow` 12 요구사항, `numpy` 2.x는 `>=3.12`)
+  - `send2trash` 2.x는 Python 2 지원 종료 외 API 불변, `watchdog` 6.x도 `Observer`/`FileSystemEventHandler` API 불변(정적 확인)
+- Rust 크레이트 업그레이드:
+  - `pyo3 0.29.2` → `0.29.3` + 전이 패치 14종 (`cargo update`, semver 호환 범위)
+  - `blake2 0.10` → `0.11` + `digest 0.10` → `0.11`: `LowerHex` 제거로 hex 인코딩을 버전 무관 수동 변환으로 교체 (`hashing.rs`), KAT로 CPython `hashlib` 동등성 입증
+  - `requires-python >=3.9` → `>=3.10` (`rust/pydup_core/pyproject.toml`)
+- Python 3.15 lazy-stdlib 선행 호환 수정 (업그레이드 검증 차단 요인):
+  - `concurrent.futures`의 `ThreadPoolExecutor`가 lazy import가 되어 `hashing.py`/`similar_documents.py`/`similar_images.py`를 `from ... import` 방식으로 전환
+  - 회귀 테스트 `tests/test_py315_futures_compat.py` 추가
+- 검증: `cargo fmt --check`/`clippy -D warnings`/`cargo test` 4 passed/`cargo machete`/`cargo audit` 0건, `pytest -q` 전체 통과
+- 미검증(환경 한계): `watchdog` 6.x 실시간 경로 (미설치, polling fallback만 테스트), Rust parity 25종 (`pydup_core` ARM64 휠 빌드 불가 — x64 툴체인만 존재)

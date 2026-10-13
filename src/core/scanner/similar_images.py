@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import concurrent.futures
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 from .common import os, strings, time
 from .contracts import ScanWorkerHost
@@ -84,7 +84,7 @@ class ScanSimilarImagesMixin(ScanWorkerHost):
                 )
             session_hash_batch = {}
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                 futures = {}
                 file_iter = iter(image_files)
                 active_futures = set()
@@ -144,7 +144,7 @@ class ScanSimilarImagesMixin(ScanWorkerHost):
                             self.scan_cancelled.emit()
                         return {}
 
-                    done, _ = concurrent.futures.wait(active_futures, return_when=concurrent.futures.FIRST_COMPLETED)
+                    done, _ = wait(active_futures, return_when=FIRST_COMPLETED)
                     for future in done:
                         active_futures.remove(future)
                         path, size, mtime = futures.pop(future, (None, 0, 0.0))

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import concurrent.futures
 import logging
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 from .common import BUFFER_SIZE, defaultdict, hashlib, os, strings
 from .contracts import ScanWorkerHost
@@ -307,7 +307,7 @@ class ScanHashingMixin(ScanWorkerHost):
         def task_wrapper(fp, s, m, p):
             return fp, s, m, p, self.get_file_hash(fp, s, m, block_size=BUFFER_SIZE, partial=p)
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             for chunk_start in range(0, total, hash_chunk_size):
                 if self._stop_event.is_set():
                     executor.shutdown(wait=False, cancel_futures=True)
@@ -388,7 +388,7 @@ class ScanHashingMixin(ScanWorkerHost):
                         executor.shutdown(wait=False, cancel_futures=True)
                         break
 
-                    done, _ = concurrent.futures.wait(active_futures, return_when=concurrent.futures.FIRST_COMPLETED)
+                    done, _ = wait(active_futures, return_when=FIRST_COMPLETED)
                     for future in done:
                         active_futures.remove(future)
                         path_hint = ""

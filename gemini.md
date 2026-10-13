@@ -6,7 +6,7 @@
 - **이름**: PyDuplicate Finder Pro
 - **버전**: 1.3.0
 - **목적**: PySide6 및 Native Rust 코어 기반의 고성능 데스크톱 애플리케이션으로, 멀티스레딩과 스마트 캐싱을 활용해 중복 파일을 고속으로 탐색하고 관리합니다.
-- **기술 스택**: Python 3.9+, Rust (PyO3, Rayon, BLAKE2b), PySide6 (Qt for Python), SQLite (WAL), concurrent.futures
+- **기술 스택**: Python 3.10+, Rust (PyO3, Rayon, BLAKE2b), PySide6 (Qt for Python), SQLite (WAL), concurrent.futures
 
 ## 2. 코드베이스 구조 (Codebase Structure)
 
@@ -117,12 +117,12 @@ PRAGMA cache_size=-64000    # 64MB 캐시
 
 ```
 PySide6              # Qt GUI
-imagehash>=4.3.0     # 유사 이미지 탐지
-Pillow>=9.0.0        # 이미지 처리
-send2trash>=1.8.0    # 휴지통 기능
-psutil>=5.9.0        # 파일 잠금 프로세스 확인
-watchdog>=4.0.0      # 실시간 폴더 감시
-pypdf>=5.0.0         # PDF 텍스트 추출 기반 유사 문서 탐지
+imagehash>=4.3.2     # 유사 이미지 탐지
+Pillow>=12.3.0       # 이미지 처리
+send2trash>=2.1.0    # 휴지통 기능
+psutil>=7.2.2        # 파일 잠금 프로세스 확인
+watchdog>=6.0.0      # 실시간 폴더 감시
+pypdf>=6.20.1        # PDF 텍스트 추출 기반 유사 문서 탐지
 ```
 
 ## 5. 유지보수 가이드

@@ -163,7 +163,7 @@ Scan performance benchmark on 10,000 files (500 duplicate groups):
 ## 📥 Installation
 
 ### Prerequisites
-- Python 3.9 or higher
+- Python 3.10 or higher
 - Rust toolchain (if compiling native Rust core from source: `cargo`, `maturin`)
 
 ### Dependencies
@@ -308,7 +308,7 @@ Output: `dist/PyDuplicateFinderPro.exe`
 
 | Category | Technology |
 |----------|------------|
-| Language | Python 3.9+ |
+| Language | Python 3.10+ |
 | GUI | PySide6 (Qt for Python) |
 | Caching | SQLite (WAL mode) |
 | Hashing | BLAKE2b |
