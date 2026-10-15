@@ -346,6 +346,7 @@ class FluentDuplicateFinderApp(
         self._after_page_changed(page_name)
         if page_name == "results":
             self._update_results_orientation()
+            QTimer.singleShot(0, self._update_results_orientation)
 
     def _guard_navigation_during_scan(self: Any) -> None:
         """스캔 실행 중 탭 전환 방지 (KTrain 예매 중 가드와 같은 위치)."""

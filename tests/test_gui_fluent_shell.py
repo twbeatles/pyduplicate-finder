@@ -90,19 +90,55 @@ def test_fluent_theme_round_trip(tmp_path, monkeypatch, qapp):
         w.close()
 
 
-def test_fluent_results_splitter_is_responsive(tmp_path, monkeypatch, qapp):
+def _settle_orientation(qapp, w, timeout_ms=2000):
+    """Poll until the splitter orientation stabilizes (async layout safe)."""
+    import time
+
     from PySide6.QtCore import Qt
 
+    from src.ui.shell.view_state import (
+        needed_horizontal_width,
+        orientation_for_width,
+    )
+
+    deadline = time.monotonic() + timeout_ms / 1000.0
+    last = None
+    stable = 0
+    while time.monotonic() < deadline:
+        qapp.processEvents()
+        time.sleep(0.05)
+        qapp.processEvents()
+        current = w.splitter.orientation()
+        if current == last:
+            stable += 1
+            if stable >= 2:
+                break
+        else:
+            stable = 0
+            last = current
+    width = w._fluent_interfaces["results"].width()
+    want = orientation_for_width(width, needed_horizontal_width())
+    expected = (
+        Qt.Orientation.Horizontal if want == "horizontal" else Qt.Orientation.Vertical
+    )
+    return w.splitter.orientation(), expected, width
+
+
+def test_fluent_results_splitter_is_responsive(tmp_path, monkeypatch, qapp):
     w = _setup_window(tmp_path, monkeypatch)
     try:
         w._navigate_to("results")
         w.resize(1100, 800)
         w.show()
-        qapp.processEvents()
-        assert w.splitter.orientation() == Qt.Orientation.Horizontal
-        w.resize(700, 800)
-        qapp.processEvents()
-        assert w.splitter.orientation() == Qt.Orientation.Vertical
+        actual, expected, width = _settle_orientation(qapp, w)
+        assert actual == expected, f"width={width}"
+        w.resize(640, 800)
+        actual, expected, width = _settle_orientation(qapp, w)
+        assert actual == expected, f"width={width}"
+        # 640px 창에서는 결과 폭이 필요폭(808)보다 항상 좁으므로 세로 배치여야 한다.
+        from PySide6.QtCore import Qt
+
+        assert actual == Qt.Orientation.Vertical
     finally:
         w.close()
 
