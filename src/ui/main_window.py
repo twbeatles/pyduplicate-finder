@@ -100,6 +100,15 @@ class DuplicateFinderApp(
 
     def __init__(self):
         super().__init__()
+        self._init_core()
+
+    def _init_core(self):
+        """Shared boot reused by the legacy and Fluent shells.
+
+        Calls init_ui / create_toolbar / apply_theme polymorphically, so the
+        Fluent shell inherits this whole method unchanged and only overrides
+        those shell-specific hooks.
+        """
         self.setWindowTitle(strings.tr("app_title"))
         self.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
         self.setMinimumSize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)

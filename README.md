@@ -180,6 +180,7 @@ duplicate_finder/
 | watchdog | 실시간 폴더 감시 |
 | pypdf | PDF 텍스트 추출 기반 유사 문서 탐지 |
 | darkdetect | OS 다크/라이트 테마 감지 |
+| PySide6-Fluent-Widgets | Fluent 셸 (`--fluent`) 전용 — 비상용 GPLv3/상용 라이선스(아래 참고) |
 
 ### 설치 단계
 
@@ -218,8 +219,12 @@ duplicate_finder/
 
 ### 1. 프로그램 실행
 ```bash
-python main.py
+python main.py            # 기본 셸 (순수 PySide6)
+python main.py --fluent   # Fluent 셸 (MSFluentWindow + Fluent 위젯)
 ```
+
+> `PySide6-Fluent-Widgets` 는 비상업적 이용 시 GPLv3, 상업적 이용 시 상용 라이선스가
+> 필요한 듀얼 라이선스입니다. 배포 전 `docs/ui-rebuild/00-license-decision.md` 를 확인하세요.
 
 ### (선택) CLI로 스캔 실행
 ```bash
