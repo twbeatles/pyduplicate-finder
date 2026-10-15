@@ -8,6 +8,13 @@ from src.ui.design_system.hidpi import configure_high_dpi
 from src.ui.main_window import DuplicateFinderApp
 from src.utils.i18n import strings
 
+if "--fluent" in sys.argv and __name__ == "__main__":
+    sys.argv.remove("--fluent")
+    from src.ui.shell.fluent_window import run_fluent
+
+    sys.exit(run_fluent())
+
+
 if __name__ == "__main__":
     configure_high_dpi()
     app = QApplication(sys.argv)

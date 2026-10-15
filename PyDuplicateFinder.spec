@@ -31,6 +31,20 @@ BASE_HIDDENIMPORTS = [
 
     # UI
     'src.ui.main_window',
+    'src.ui.app',
+    'src.ui.qt_binding',
+    'src.ui.shell',
+    'src.ui.shell.fluent_window',
+    'src.ui.shell.navigation',
+    'src.ui.shell.view_state',
+    'src.ui.adapters',
+    'src.ui.adapters.settings_binding',
+    'src.ui.adapters.legacy_widget_refs',
+    'src.ui.theme.fluent_theme',
+    'src.ui.theme.native_controls',
+    'src.ui.components.status_feedback',
+    'src.ui.components.operation_confirm',
+    'src.ui.components.result_tree_adapter',
     'src.ui.main_window_parts',
     'src.ui.main_window_parts.schedule_flow',
     'src.ui.app_state',
@@ -104,6 +118,9 @@ for package_name in [
 for package_name in [
     'watchdog',
     'pypdf',
+    # Path A: Fluent shell resources (absent-safe — skipped if not installed).
+    'qfluentwidgets',
+    'qframelesswindow',
 ]:
     PACKAGE_HIDDENIMPORTS.extend(collect_optional_package(package_name))
 
@@ -160,7 +177,9 @@ a = Analysis(
         'PySide6.QtTextToSpeech',
         'PySide6.QtUiextras',
         'PySide6.QtPdf',
-        'PySide6.QtSvg',
+        # NOTE (Path A): QtSvg is REQUIRED by PySide6-Fluent-Widgets icons —
+        # do not re-add it to excludes.
+        # 'PySide6.QtSvg',
         'PySide6.QtXml',
         'PySide6.QtOpenGL',
         'PySide6.QtOpenGLWidgets',
