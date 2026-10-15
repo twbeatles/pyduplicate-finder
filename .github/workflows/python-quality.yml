@@ -1,0 +1,51 @@
+name: python-quality
+
+on:
+  push:
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "cli.py"
+      - "main.py"
+      - "requirements.txt"
+      - "pytest.ini"
+      - "pyrightconfig.json"
+      - "scripts/quality_mutation_check.py"
+      - ".github/workflows/python-quality.yml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "cli.py"
+      - "main.py"
+      - "requirements.txt"
+      - "pytest.ini"
+      - "pyrightconfig.json"
+      - "scripts/quality_mutation_check.py"
+      - ".github/workflows/python-quality.yml"
+
+jobs:
+  pytest:
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows: hardlink / file-lock / case-insensitivity / long-path.
+        # Linux: symlink / general filesystem parity (Windows-only cases SKIP).
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+      - name: Backend provenance (informational, never a fake parity PASS)
+        run: python -c "from src.core.native.bridge import is_rust_available, get_backend_name; print('rust_available=', is_rust_available()); print('auto_backend=', get_backend_name('auto'))"
+      - name: Python tests (incl. real-file quality suite)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest tests -q -p no:cacheprovider

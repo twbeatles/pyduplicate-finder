@@ -185,6 +185,21 @@ class QuarantineManager:
             self.cache_manager.update_quarantine_item_status(item_id, "restored")
             return True, strings.tr("qm_restored"), dest
         except Exception as e:
+            # If the bytes already reached dest (e.g. the DB status update
+            # failed after a successful move), report their location instead
+            # of discarding it, so callers can reconcile instead of losing
+            # track of the file.
+            try:
+                pending = locals().get("dest")
+                if pending and os.path.exists(pending):
+                    try:
+                        same_size = int(os.path.getsize(pending)) == int(item.get("size") or -1)
+                    except (OSError, ValueError, TypeError):
+                        same_size = False
+                    if same_size:
+                        return False, str(e), pending
+            except Exception:
+                pass
             return False, str(e), None
 
     def purge_item(self, item_id: int) -> Tuple[bool, str]:
