@@ -5,7 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TEXT_EXTENSIONS = {".py", ".md", ".txt", ".ini", ".json", ".toml", ".yaml", ".yml", ".spec"}
-EXCLUDED_DIRS = {".git", "__pycache__", ".pytest_cache", "build", "dist"}
+EXCLUDED_DIRS = {".git", "__pycache__", ".pytest_cache", "build", "dist", ".venv"}
 BROKEN_TEXT_PATTERNS = ("?뵇", "以鍮꾨맖")
 
 

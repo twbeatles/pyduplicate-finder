@@ -6,7 +6,7 @@
 - **이름**: PyDuplicate Finder Pro
 - **버전**: 1.3.0
 - **목적**: PySide6 및 Native Rust 코어 기반의 고성능 멀티스레드 중복 파일 탐색기 및 안전한 정리 도구
-- **기술 스택**: Python 3.10+, Rust (PyO3, Rayon, BLAKE2b), PySide6 (Qt for Python), SQLite (Caching, WAL), Standard Libs
+- **기술 스택**: Python 3.11+, Rust (PyO3, Rayon, BLAKE2b), PySide6 (Qt for Python), SQLite (Caching, WAL), Standard Libs
 
 ## 2. 디렉토리 구조 및 모듈 맵 (Directory Structure & Module Map)
 
@@ -175,11 +175,11 @@ duplicate_finder/
 |--------|------|------|
 | PySide6 | >=6.12.0 | Qt GUI 프레임워크 |
 | imagehash | >=4.3.2 | 유사 이미지 탐지 |
-| Pillow | >=12.3.0 | 이미지 처리 |
+| Pillow | >=13.0.0 | 이미지 처리 |
 | send2trash | >=2.1.0 | 휴지통 기능 |
 | psutil | >=7.2.2 | 파일 잠금 프로세스 확인 |
 | watchdog | >=6.0.0 | 실시간 폴더 감시 |
-| pypdf | >=6.20.1 | PDF 텍스트 추출 기반 유사 문서 탐지 |
+| pypdf | >=6.21.1 | PDF 텍스트 추출 기반 유사 문서 탐지 |
 | uuid | (Std Lib) | 백업 파일명 충돌 방지 |
 
 ## 6. 업데이트 메모 (2026-02-20)
@@ -480,3 +480,20 @@ duplicate_finder/
   - 회귀 테스트 `tests/test_py315_futures_compat.py` 추가
 - 검증: `cargo fmt --check`/`clippy -D warnings`/`cargo test` 4 passed/`cargo machete`/`cargo audit` 0건, `pytest -q` 전체 통과
 - 미검증(환경 한계): `watchdog` 6.x 실시간 경로 (미설치, polling fallback만 테스트), Rust parity 25종 (`pydup_core` ARM64 휠 빌드 불가 — x64 툴체인만 존재)
+
+## Update Memo (2026-10-20, Dependency Upgrade)
+
+- Python 의존성 전면 재확인 (PyPI 최신 대조): 9개 중 7개는 이미 최신이라 변경 없음
+  (`PySide6>=6.12.0`, `PySide6-Fluent-Widgets>=1.11.3`, `imagehash>=4.3.2`,
+  `send2trash>=2.1.0`, `psutil>=7.2.2`, `watchdog>=6.0.0`, `darkdetect>=0.8.0`).
+- `Pillow>=12.3.0` → `>=13.0.0` (메이저): CVE 10건 패치 + Python 3.15 공식 지원.
+  Breaking change (`Image._show`·`fromarray(mode)`·`Makernote` 제거, 3.10 지원 중단)는
+  앱 사용처 (`Image.open` + `convert('RGB')`, `src/core/image_hash.py`) 와 무관함을 정적 확인.
+- `pypdf>=6.20.1` → `>=6.21.1`: 보안·버그수정 위주, `PdfReader` 텍스트 추출 API 불변.
+- Python 지원 하한 `3.10+` → `3.11+` (`requirements.txt` 주석, README 한/영, claude/gemini 스택 표기).
+  `docs/ui-rebuild/00-baseline.md`과 과거 Update Memo는 당시 기록이라 유지.
+- 검증: 프로젝트 `.venv` (Python 3.15.0) 신규 구축 후 `pytest -q` 238 passed (기준선과 동일 명령·동일 수).
+  `imagehash`·`pypdf` 실경로는 기존 환경에 미설치라 별도 프로브로 검증:
+  유사 이미지 0.953 vs 다른 이미지 0.500, PDF 텍스트 추출·simhash 정상.
+- 부수 수정: `.venv` 신설로 `test_source_encoding_integrity`가 서드파티를 스캔해 실패하므로
+  `EXCLUDED_DIRS`에 `.venv` 추가.

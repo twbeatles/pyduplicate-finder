@@ -165,7 +165,7 @@ duplicate_finder/
 ## 📥 설치 방법 (Installation)
 
 ### 전제 조건
-- Python 3.10 이상
+- Python 3.11 이상
 - Rust 툴체인 (소스에서 Rust 코어를 직접 빌드할 경우: `cargo`, `maturin`)
 
 ### 의존성 패키지
@@ -305,7 +305,7 @@ pyinstaller PyDuplicateFinder.spec
 
 | 카테고리 | 기술 |
 |----------|------|
-| 언어 | Python 3.10+ |
+| 언어 | Python 3.11+ |
 | GUI | PySide6 (Qt for Python) |
 | 캐싱 | SQLite (WAL 모드) |
 | 해싱 | BLAKE2b |
