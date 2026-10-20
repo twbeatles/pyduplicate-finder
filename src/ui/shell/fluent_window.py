@@ -156,6 +156,10 @@ class FluentDuplicateFinderApp(
 
     def __init__(self) -> None:
         _require_fluent()
+        # Base-class construction can synchronously deliver resize/show
+        # events (frameless native window creation); pre-seed the state
+        # read by those handlers before init_ui() runs.
+        self._fluent_interfaces = {}
         super().__init__()
         mica = getattr(self, "setMicaEffectEnabled", None)
         if callable(mica):
@@ -382,7 +386,8 @@ class FluentDuplicateFinderApp(
     def _update_results_orientation(self: Any) -> None:
         """폭이 부족하면 결과 스플리터를 세로 배치로 전환한다 (KTrain과 동일 정책)."""
         splitter = getattr(self, "splitter", None)
-        interface = self._fluent_interfaces.get("results")
+        interfaces = getattr(self, "_fluent_interfaces", None) or {}
+        interface = interfaces.get("results")
         try:
             page_width = interface.width() if interface is not None else 0
         except Exception:
