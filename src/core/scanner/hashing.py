@@ -82,6 +82,11 @@ class ScanHashingMixin(ScanWorkerHost):
         if self._use_rust_hashing() and native_compare_files is not None:
             if getattr(self, "_rust_cancel_token", None) is None and RustCancellationToken is not None:
                 self._rust_cancel_token = RustCancellationToken()
+            if self._rust_cancel_token is not None and not self._stop_event.is_set():
+                try:
+                    self._rust_cancel_token.reset()
+                except Exception:
+                    pass
             try:
                 return bool(native_compare_files(file1, file2, cancel_token=getattr(self, "_rust_cancel_token", None)))
             except Exception:
@@ -133,6 +138,11 @@ class ScanHashingMixin(ScanWorkerHost):
 
         if getattr(self, "_rust_cancel_token", None) is None and RustCancellationToken is not None:
             self._rust_cancel_token = RustCancellationToken()
+        if self._rust_cancel_token is not None and not self._stop_event.is_set():
+            try:
+                self._rust_cancel_token.reset()
+            except Exception:
+                pass
 
         progress_step = max(10, min(500, total // 200 if total >= 200 else 10))
         db_batch = []

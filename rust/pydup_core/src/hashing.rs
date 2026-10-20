@@ -3,8 +3,8 @@ use std::io::{self, Read, Seek, SeekFrom};
 use std::path::Path;
 
 use blake2::Blake2b;
-use digest::consts::U32;
 use digest::Digest;
+use digest::consts::U32;
 use rayon::prelude::*;
 
 use crate::cancellation::CancellationToken;
@@ -24,10 +24,10 @@ pub fn compute_file_hash(
     block_size: usize,
     cancel_token: Option<&CancellationToken>,
 ) -> Result<String, io::Error> {
-    if let Some(token) = cancel_token {
-        if token.is_set() {
-            return Err(io::Error::new(io::ErrorKind::Interrupted, "Cancelled"));
-        }
+    if let Some(token) = cancel_token
+        && token.is_set()
+    {
+        return Err(io::Error::new(io::ErrorKind::Interrupted, "Cancelled"));
     }
 
     let mut file = File::open(path)?;
@@ -44,10 +44,10 @@ pub fn compute_file_hash(
         hasher.update(&head_buf[..bytes_read]);
 
         if file_size > PARTIAL_SIZE_THRESHOLD {
-            if let Some(token) = cancel_token {
-                if token.is_set() {
-                    return Err(io::Error::new(io::ErrorKind::Interrupted, "Cancelled"));
-                }
+            if let Some(token) = cancel_token
+                && token.is_set()
+            {
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "Cancelled"));
             }
             file.seek(SeekFrom::End(-(PARTIAL_CHUNK_SIZE as i64)))?;
             let mut tail_buf = vec![0u8; PARTIAL_CHUNK_SIZE];
@@ -57,10 +57,10 @@ pub fn compute_file_hash(
     } else {
         let mut buffer = vec![0u8; block_size];
         loop {
-            if let Some(token) = cancel_token {
-                if token.is_set() {
-                    return Err(io::Error::new(io::ErrorKind::Interrupted, "Cancelled"));
-                }
+            if let Some(token) = cancel_token
+                && token.is_set()
+            {
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "Cancelled"));
             }
 
             let bytes_read = file.read(&mut buffer)?;
@@ -98,17 +98,17 @@ pub fn compute_hashes_batch(
         items
             .par_iter()
             .map(|(path_str, size, mtime)| {
-                if let Some(token) = cancel_token {
-                    if token.is_set() {
-                        return HashResult {
-                            path: path_str.clone(),
-                            size: *size,
-                            mtime: *mtime,
-                            digest: None,
-                            status: "cancelled".to_string(),
-                            error: Some("Operation cancelled".to_string()),
-                        };
-                    }
+                if let Some(token) = cancel_token
+                    && token.is_set()
+                {
+                    return HashResult {
+                        path: path_str.clone(),
+                        size: *size,
+                        mtime: *mtime,
+                        digest: None,
+                        status: "cancelled".to_string(),
+                        error: Some("Operation cancelled".to_string()),
+                    };
                 }
 
                 let path = Path::new(path_str);

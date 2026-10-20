@@ -154,6 +154,11 @@ class ScanDiscoveryMixin(ScanWorkerHost):
     def _scan_files_rust(self):
         if getattr(self, "_rust_cancel_token", None) is None and RustCancellationToken is not None:
             self._rust_cancel_token = RustCancellationToken()
+        if self._rust_cancel_token is not None and not self._stop_event.is_set():
+            try:
+                self._rust_cancel_token.reset()
+            except Exception:
+                pass
 
         active_folders = []
         for folder in self.folders:

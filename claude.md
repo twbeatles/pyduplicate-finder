@@ -497,3 +497,16 @@ duplicate_finder/
   유사 이미지 0.953 vs 다른 이미지 0.500, PDF 텍스트 추출·simhash 정상.
 - 부수 수정: `.venv` 신설로 `test_source_encoding_integrity`가 서드파티를 스캔해 실패하므로
   `EXCLUDED_DIRS`에 `.venv` 추가.
+## Update Memo (2026-10-20, Rust 2024 Migration)
+
+- Rust 백엔드 전면 업그레이드 (`rust/pydup_core/`):
+  - `edition 2021` → `2024`, `rust-version = "1.88"` 명시, `license` 추가.
+  - `rust-toolchain.toml` 신설 (stable + rustfmt/clippy).
+  - `pyo3 0.29.3` → `0.30.1`, `globset 0.4.20`, `ctutils 0.4.3` (MSRV 1.88로 재고정), `rayon 1.12`, `tempfile` 3.27 (lock 갱신).
+  - Edition 2024 대응: 중첩 `if let` 10곳 → let-chain (`cargo clippy --fix` + unix cfg 수동 정합), `CancellationToken`에 `Debug` derive.
+  - `[lints]` (`unsafe_op_in_unsafe_fn` warn, clippy `correctness` deny) + release `strip = true` 추가.
+- Python 브릿지 잠재 버그 수정 (`src/core/scanner/discovery.py`, `hashing.py`):
+  - 취소된 네이티브 토큰이 같은 워커 재스캔에 재사용되면 결과가 비어 fail-closed되던 문제 → 페이즈 진입 3곳에서 `_stop_event` 미설정 시 `reset()`.
+  - 기존 `reset()` API의 의도된 계약을 연결한 것으로, `test_dup06_cancel_then_clean_rescan_matches`가 Rust 백엔드에서도 통과 (기존엔 휠 미존재로 해당 경로 미검증).
+- 검증: `cargo test` 4 passed, `clippy --all-targets --all-features -- -D warnings` 0건, `fmt --check` clean, `cargo audit` 0건, `cargo machete` clean, `tests/rust_parity/` 25 passed, `pytest` 255 passed + 2 skipped (maturin 1.15.0 로컬 휠 빌드).
+- 제외: `tests/test_gui_fluent_shell.py` 6건 실패는 변경 전 베이스에서도 동일하게 실패하는 Qt 환경 기존 문제.

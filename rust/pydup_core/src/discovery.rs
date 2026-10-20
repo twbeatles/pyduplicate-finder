@@ -257,10 +257,10 @@ fn discover_recursive(
 
         let path_str = path.to_string_lossy().to_string();
 
-        if let Some(ref ex_set) = ctx.exclude_set {
-            if matches_set(ex_set, &path_str, &name_str) {
-                continue;
-            }
+        if let Some(ref ex_set) = ctx.exclude_set
+            && matches_set(ex_set, &path_str, &name_str)
+        {
+            continue;
         }
 
         let meta = if ctx.config.follow_symlinks {
@@ -310,28 +310,28 @@ fn discover_recursive(
                 }
             }
 
-            if let Some(ref inc_set) = ctx.include_set {
-                if !matches_set(inc_set, &path_str, &name_str) {
-                    continue;
-                }
+            if let Some(ref inc_set) = ctx.include_set
+                && !matches_set(inc_set, &path_str, &name_str)
+            {
+                continue;
             }
 
             #[cfg(windows)]
             {
-                if ctx.config.follow_symlinks && metadata.is_symlink() {
-                    if let Some(handle) = get_file_handle(&path) {
-                        if !seen_inodes.insert(handle) {
-                            continue;
-                        }
-                    }
+                if ctx.config.follow_symlinks
+                    && metadata.is_symlink()
+                    && let Some(handle) = get_file_handle(&path)
+                    && !seen_inodes.insert(handle)
+                {
+                    continue;
                 }
             }
             #[cfg(unix)]
             {
-                if let Some(handle) = get_file_handle(&path) {
-                    if !seen_inodes.insert(handle) {
-                        continue;
-                    }
+                if let Some(handle) = get_file_handle(&path)
+                    && !seen_inodes.insert(handle)
+                {
+                    continue;
                 }
             }
 

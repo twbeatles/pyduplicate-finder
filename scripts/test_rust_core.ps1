@@ -18,6 +18,13 @@ if ($LASTEXITCODE -ne 0) {
     Write-Error "cargo test failed!"
 }
 
+Write-Host "Running cargo fmt check..." -ForegroundColor Cyan
+$fmtCmd = "call `"$vcvars`" && cd /d `"$rustDir`" && cargo fmt --all -- --check"
+cmd.exe /c $fmtCmd
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "cargo fmt check failed!"
+}
+
 Write-Host "Running cargo clippy..." -ForegroundColor Cyan
 $clippyCmd = "call `"$vcvars`" && cd /d `"$rustDir`" && cargo clippy --all-targets --all-features -- -D warnings"
 cmd.exe /c $clippyCmd

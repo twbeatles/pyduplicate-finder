@@ -1,6 +1,6 @@
 use pydup_core::byte_compare::files_equal;
 use pydup_core::cancellation::CancellationToken;
-use pydup_core::hashing::{compute_file_hash, compute_hashes_batch, DEFAULT_BUFFER_SIZE};
+use pydup_core::hashing::{DEFAULT_BUFFER_SIZE, compute_file_hash, compute_hashes_batch};
 use std::fs::File;
 use std::io::Write;
 
@@ -13,7 +13,7 @@ fn test_small_file_hash() {
 
     let hash_res = compute_file_hash(&file_path, false, None, DEFAULT_BUFFER_SIZE, None).unwrap();
     assert_eq!(hash_res.len(), 64); // 32 bytes hex = 64 hex chars
-                                    // Known-answer vector: must match Python hashlib.blake2b(digest_size=32).
+    // Known-answer vector: must match Python hashlib.blake2b(digest_size=32).
     assert_eq!(
         hash_res,
         "256c83b297114d201b30179f3f0ef0cace9783622da5974326b436178aeef610"

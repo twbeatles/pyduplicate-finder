@@ -1548,3 +1548,13 @@ filesystem metadata bottleneck
 최종적으로 이 프로젝트는 포트폴리오에서 다음 구조를 보여주는 것이 목적이다.
 
 > **Python/PySide6 데스크톱 제품에 PyO3 기반 Rust native core를 도입하고, 파일시스템 탐색·병렬 해싱·중복 판별 hot path만 최적화한 하이브리드 아키텍처. 기존 SQLite/session/UI/safety layer와의 하위 호환성을 유지하고 Python/Rust dual backend benchmark로 효과를 검증한다.**
+---
+
+# Addendum (2026-10-20) — Rust 2024 마이그레이션
+
+> 범위: `rust/pydup_core` 에디션·의존성 전면 업그레이드 + 토큰 재사용 버그 수정. 스캔 hot-path read-only 원칙과 Python fallback 계약은 유지.
+
+- `edition 2021` → `2024`, `rust-version = "1.88"`, `rust-toolchain.toml` 신설, `[lints]` + release `strip` 추가.
+- `pyo3 0.30.1`, `globset 0.4.20`, `rayon 1.12` (lock 갱신). 중첩 `if let` 10곳 → let-chain.
+- 취소 토큰이 워커 재스캔에 재사용되던 문제 수정: discovery/hashing/compare 페이즈 진입 3곳에서 정지 상태가 아니면 `reset()`.
+- 게이트: `cargo test` 4 passed, `clippy -D warnings` 0건, `fmt --check` clean, `cargo audit`·`cargo machete` clean, `tests/rust_parity/` 25 passed, `pytest` 255 passed + 2 skipped.

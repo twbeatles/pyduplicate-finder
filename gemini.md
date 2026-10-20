@@ -345,3 +345,11 @@ pypdf>=6.21.1        # PDF 텍스트 추출 기반 유사 문서 탐지
   - cargo fmt --all 적용 (mt --check clean).
 - CI 게이트 추가: .github/workflows/rust-audit.yml (fmt -> clippy -D warnings -> cargo test -> machete -> audit).
 - 검증: cargo check/clippy 경고 0, cargo test 4 passed, cargo audit 취약점 0, 	ests/rust_parity/ 25 passed (pyo3 0.29.2 abi3 휠 재빌드 후).
+## Update Memo (2026-10-20, Rust 2024 Migration)
+
+- Rust 백엔드 전면 업그레이드 (`rust/pydup_core/`): `edition 2021` → `2024`, `rust-version = "1.88"`, `rust-toolchain.toml` 신설 (stable + rustfmt/clippy).
+- `pyo3 0.29.3` → `0.30.1`, `globset 0.4.20`, `ctutils 0.4.3`, `rayon 1.12` (lock 갱신).
+- Edition 2024 대응: 중첩 `if let` 10곳 → let-chain, `CancellationToken`에 `Debug` derive, `[lints]` + release `strip = true` 추가.
+- Python 브릿지 잠재 버그 수정: 페이즈 진입 3곳에서 `_stop_event` 미설정 시 네이티브 토큰 `reset()` → `test_dup06_cancel_then_clean_rescan_matches` Rust 백엔드 통과.
+- 검증: `cargo test` 4 passed, `clippy -D warnings` 0건, `fmt --check` clean, `cargo audit` 0건, `cargo machete` clean, `tests/rust_parity/` 25 passed, `pytest` 255 passed + 2 skipped.
+- 제외: `tests/test_gui_fluent_shell.py` 6건 실패는 베이스에서도 동일한 Qt 환경 기존 문제.

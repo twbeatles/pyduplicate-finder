@@ -1,9 +1,9 @@
 use pyo3::prelude::*;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[pyclass(from_py_object)]
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct CancellationToken {
     cancelled: Arc<AtomicBool>,
 }

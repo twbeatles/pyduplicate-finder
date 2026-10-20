@@ -10,10 +10,10 @@ pub fn files_equal(
     path_b: &Path,
     cancel_token: Option<&CancellationToken>,
 ) -> Result<bool, io::Error> {
-    if let Some(token) = cancel_token {
-        if token.is_set() {
-            return Err(io::Error::new(io::ErrorKind::Interrupted, "Cancelled"));
-        }
+    if let Some(token) = cancel_token
+        && token.is_set()
+    {
+        return Err(io::Error::new(io::ErrorKind::Interrupted, "Cancelled"));
     }
 
     let mut file_a = File::open(path_a)?;
@@ -30,10 +30,10 @@ pub fn files_equal(
     let mut buf_b = vec![0u8; DEFAULT_BUFFER_SIZE];
 
     loop {
-        if let Some(token) = cancel_token {
-            if token.is_set() {
-                return Err(io::Error::new(io::ErrorKind::Interrupted, "Cancelled"));
-            }
+        if let Some(token) = cancel_token
+            && token.is_set()
+        {
+            return Err(io::Error::new(io::ErrorKind::Interrupted, "Cancelled"));
         }
 
         let n_a = file_a.read(&mut buf_a)?;
