@@ -23,5 +23,6 @@
   "reportAssignmentType": "error",
   "reportCallIssue": "error",
   "reportMissingImports": true,
-  "reportMissingTypeStubs": false
+  "reportMissingTypeStubs": false,
+  "reportMissingModuleSource": "none"
 }
