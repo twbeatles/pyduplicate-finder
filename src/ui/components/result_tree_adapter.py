@@ -35,7 +35,9 @@ class ResultTreeAdapter:
         try:
             getter = getattr(self._tree, "get_checked_files", None)
             if callable(getter):
-                return set(getter() or [])
+                res = getter()
+                if isinstance(res, (list, set, tuple)):
+                    return set(res)
         except Exception:
             pass
         try:

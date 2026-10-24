@@ -16,7 +16,7 @@ KTrain ``ktrain/gui/main_window.py`` 와 같은 계열의 최상위 셸이다:
 from __future__ import annotations
 
 import sys
-from typing import Any
+from typing import Any, TYPE_CHECKING, cast
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QGuiApplication
@@ -55,7 +55,7 @@ from src.ui.shell.view_state import (
 )
 from src.utils.i18n import strings
 
-try:
+if TYPE_CHECKING:
     from qfluentwidgets import (
         FluentIcon as FIF,
         InfoBar,
@@ -65,27 +65,41 @@ try:
         Theme,
         setTheme,
         setThemeColor,
+        MSFluentWindow,
     )
-except ImportError as _fluent_import_error:  # pragma: no cover - import gate
-    FIF = None  # type: ignore[assignment]
-    InfoBar = None  # type: ignore[assignment]
-    InfoBarPosition = None  # type: ignore[assignment]
-    MessageBox = None  # type: ignore[assignment]
-    NavigationItemPosition = None  # type: ignore[assignment]
-    Theme = None  # type: ignore[assignment]
-    setTheme = None  # type: ignore[assignment]
-    setThemeColor = None  # type: ignore[assignment]
-    _FLUENT_IMPORT_ERROR = _fluent_import_error
-else:
     _FLUENT_IMPORT_ERROR = None
-
-try:
-    from qfluentwidgets import MSFluentWindow
-except ImportError:
+else:
     try:
-        from qfluentwidgets import FluentWindow as MSFluentWindow  # type: ignore[no-redef]
+        from qfluentwidgets import (
+            FluentIcon as FIF,
+            InfoBar,
+            InfoBarPosition,
+            MessageBox,
+            NavigationItemPosition,
+            Theme,
+            setTheme,
+            setThemeColor,
+        )
+    except ImportError as _fluent_import_error:
+        FIF = None
+        InfoBar = None
+        InfoBarPosition = None
+        MessageBox = None
+        NavigationItemPosition = None
+        Theme = None
+        setTheme = None
+        setThemeColor = None
+        _FLUENT_IMPORT_ERROR = _fluent_import_error
+    else:
+        _FLUENT_IMPORT_ERROR = None
+
+    try:
+        from qfluentwidgets import MSFluentWindow
     except ImportError:
-        MSFluentWindow = None  # type: ignore[assignment]
+        try:
+            from qfluentwidgets import FluentWindow as MSFluentWindow
+        except ImportError:
+            MSFluentWindow = QWidget
 
 #: 셸 네비게이션 순서 + 아이콘 + 라벨 키 (레거시 Sidebar.NAV_ITEMS/BOTTOM_ITEMS 대응).
 FLUENT_NAV = (
@@ -179,7 +193,7 @@ class FluentDuplicateFinderApp(
         self.setMinimumSize(min(640, width), min(560, height))
         # 검증된 레거지 부팅 재사용 (init_ui/create_toolbar/apply_theme는
         # 아래 Fluent 오버라이드가 다형적으로 호출된다).
-        DuplicateFinderApp._init_core(self)
+        DuplicateFinderApp._init_core(cast(DuplicateFinderApp, self))
         self._guard_navigation_during_scan()
 
     # -- Fluent 셸 후크 -------------------------------------------------
@@ -372,11 +386,13 @@ class FluentDuplicateFinderApp(
 
         self.switchTo = guarded_switch  # type: ignore[method-assign]
 
-    def resizeEvent(self: Any, event) -> None:  # noqa: N802 (Qt override)
+    def resizeEvent(self: Any, e) -> None:
+        event = e  # noqa: N802 (Qt override)
         super().resizeEvent(event)
         self._update_results_orientation()
 
-    def showEvent(self: Any, event) -> None:  # noqa: N802 (Qt override)
+    def showEvent(self: Any, e) -> None:
+        event = e  # noqa: N802 (Qt override)
         super().showEvent(event)
         # 첫 표시 시점에는 레이아웃 폭이 아직 확정되지 않을 수 있어 즉시 +
         # 지연 2회 갱신한다 (offscreen 포함).
@@ -403,7 +419,7 @@ class FluentDuplicateFinderApp(
             else:
                 if splitter.orientation() != Qt.Orientation.Vertical:
                     splitter.setOrientation(Qt.Orientation.Vertical)
-                    page_height = interface.height() or 600
+                    page_height = (interface.height() if interface is not None else 600) or 600
                     splitter.setSizes(vertical_split_sizes(page_height))
         except Exception:
             pass
@@ -428,7 +444,8 @@ class FluentDuplicateFinderApp(
             duration=10000,
         )
 
-    def closeEvent(self: Any, event) -> None:  # noqa: N802 (Qt override)
+    def closeEvent(self: Any, e) -> None:
+        event = e  # noqa: N802 (Qt override)
         if self._scan_running():
             box = MessageBox(
                 strings.tr("msg_title_notice"),

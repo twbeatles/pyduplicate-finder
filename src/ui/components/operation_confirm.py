@@ -52,7 +52,7 @@ def confirm_destructive(
     )
     box.setDefaultButton(QMessageBox.StandardButton.Cancel)
     box.setEscapeButton(QMessageBox.StandardButton.Cancel)
-    return box.exec() == QMessageBox.StandardButton.Accepted
+    return box.exec() == QMessageBox.StandardButton.Ok
 
 
 __all__ = ["confirm_destructive", "summarize_destructive_target"]
